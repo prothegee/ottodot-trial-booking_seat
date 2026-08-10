@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { ApiError } from "$lib/api/errors";
-import { authPaths, createApiClient } from "$lib/api/client";
+import { authPaths, createApiClient, ifNoneMatchHeader } from "$lib/api/client";
 import { createFakeTransport, errorBody, type FakeHandler } from "$lib/api/transport_fake";
 import type { Session } from "$lib/api/types";
 
@@ -135,6 +135,73 @@ describe("the api client", () => {
         await expect(api.request({ method: "POST", path: "/api/v1/bookings" })).rejects.toBeInstanceOf(ApiError);
 
         expect(signOuts).toHaveLength(0);
+    });
+
+    test("unit: a conditional get sends the stored tag verbatim", async () => {
+        // The tag is the api's own string. This client never parses one,
+        // compares two, or reasons about what is inside.
+        const { api, transport } = clientOver(() => ({ status: 304 }));
+
+        await api.conditionalGet("/api/v1/classes", "W/\"v41-gzip\"");
+
+        expect(transport.calls[0].headers?.[ifNoneMatchHeader]).toBe("W/\"v41-gzip\"");
+    });
+
+    test("unit: a 304 comes back as unchanged, carrying no body", async () => {
+        const { api } = clientOver(() => ({ status: 304 }));
+
+        const answer = await api.conditionalGet("/api/v1/classes", "\"v41\"");
+
+        expect(answer.notModified).toBe(true);
+        expect(answer.body).toBeUndefined();
+    });
+
+    test("unit: a 200 comes back with the body and the new tag", async () => {
+        const { api } = clientOver(() => ({
+            status: 200,
+            body: { classes: [] },
+            headers: { etag: "\"v42\"" },
+        }));
+
+        const answer = await api.conditionalGet<{ classes: unknown[] }>("/api/v1/classes", "\"v41\"");
+
+        expect(answer.notModified).toBe(false);
+        expect(answer.body).toEqual({ classes: [] });
+        expect(answer.etag).toBe("\"v42\"");
+    });
+
+    test("edge: an empty tag sends no header, because that is a different question", async () => {
+        const { api, transport } = clientOver(() => ({ status: 200, body: { classes: [] } }));
+
+        await api.conditionalGet("/api/v1/classes", "");
+
+        expect(transport.calls[0].headers?.[ifNoneMatchHeader]).toBeUndefined();
+    });
+
+    test("edge: an answer with no tag reports an empty one rather than throwing", async () => {
+        const { api } = clientOver(() => ({ status: 200, body: { classes: [] } }));
+
+        const answer = await api.conditionalGet("/api/v1/classes", "");
+
+        expect(answer.etag).toBe("");
+    });
+
+    test("edge: a conditional get takes the refresh and the one retry like any other call", async () => {
+        const { api, transport } = clientOver((request, callIndex) => {
+            if (request.path === authPaths.refresh) {
+                return { status: 204 };
+            }
+
+            return callIndex === 0
+                ? { status: 401, body: errorBody("token_expired") }
+                : { status: 304 };
+        });
+
+        const answer = await api.conditionalGet("/api/v1/classes", "\"v41\"");
+
+        expect(answer.notModified).toBe(true);
+        expect(transport.callsTo("POST", authPaths.refresh)).toHaveLength(1);
+        expect(transport.callsTo("GET", "/api/v1/classes")).toHaveLength(2);
     });
 
     test("edge: a refused sign in is not treated as an expired session", async () => {
