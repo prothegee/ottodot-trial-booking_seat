@@ -83,15 +83,58 @@ interface Session {
     children: Child[];
 }
 
+interface TrialClass {
+    id: string;
+    subject: string;
+    title: string;
+    starts_at: string;
+    duration_minutes: number;
+    capacity: number;
+    seats_remaining: number;
+}
+
+interface ClassList {
+    classes: TrialClass[];
+}
+
+type BookingStatus =
+    | "pending_payment"
+    | "confirmed"
+    | "payment_failed"
+    | "refund_required"
+    | "expired"
+    | "cancelled";
+
+interface Booking {
+    id: string;
+    student_id: string;
+    class_id: string;
+    status: BookingStatus;
+    seat_no: number | null;
+    hold_expires_at: string | null;
+}
+
 interface ErrorEnvelope {
     error: {
         code: string;
         message: string;
         retry_after_seconds?: number;
         request_id?: string;
+        booking_id?: string;
     };
 }
 ```
+
+`seat_no` and `hold_expires_at` are null rather than absent when they do not
+apply: a booking with no seat has no seat number, and one that is not holding
+has no deadline.
+
+`booking_id` on the envelope is carried by `already_booked` alone. It is what
+turns "this child already has a booking" into a link to that booking, which is
+the difference between a notice and a dead end.
+
+`starts_at` is formatted for display and never parsed for a rule. Nothing in
+this client decides anything from a date.
 
 There is no email and no token in any of these. That is the contract, not an
 omission: the api never sends one, so this client can never hold one.
@@ -389,6 +432,99 @@ alongside the session, it stops there rather than reaching a component. The test
 asserts it on the serialized state, because the risk is a field nobody thought
 to look for.
 
+### classes.ts
+
+```ts
+interface ClassesState {
+    classes: TrialClass[];
+    loading: boolean;
+    failure: string;
+    lastResult: CacheLookupResult | null;
+}
+```
+
+| method | does |
+| :- | :- |
+| `load()` | reads `/api/v1/classes` through `classReader`, and hands back the background revalidation on a stale read |
+| `reset()` | empties the store, which the session watcher does on a sign out |
+
+Every read goes through the reader, never the api client. A store reaching past
+it is the one way the internal cache can go wrong, so there is exactly one file
+that reads classes and a route test asserts the path it reads.
+
+A failed read leaves the list already on screen. It is no more wrong than it was
+a second ago, and blanking the page would take away the one thing the parent
+could still act on.
+
+### booking.ts
+
+```ts
+interface BookingState {
+    booking: Booking | null;
+    attemptKey: string;
+    submitting: boolean;
+    failure: BookingFailure | null;
+}
+```
+
+| method | does |
+| :- | :- |
+| `create(request)` | mints a key, POSTs the booking through `classMutator` |
+| `pay(bookingId, amount)` | POSTs the payment with the key the attempt already has |
+| `startNewAttempt()` | mints a fresh key, which a decline needs |
+| `reset()` | empties the store, key included |
+
+The key is held in the state and in a variable beside it, so `pay` can read the
+attempt's key without subscribing to its own store to find out.
+
+Two refusals age the cached class list and the rest leave it alone:
+
+```ts
+const kindsThatMoveASeatCount: ReadonlySet<string> = new Set(["ClassFull", "SeatLost"]);
+```
+
+Both are the api reporting that a seat count moved, arriving on the failure
+path. See ADR-F018 for why this lives here and not in the mutation layer.
+
+A failure never clears the booking. A declined payment leaves the parent holding
+a booking they can pay for again, and throwing it away would send them back to
+the class list while their hold is still standing.
+
+<br>
+
+## Components
+
+| component | props | notes |
+| :- | :- | :- |
+| `VersionFooter.svelte` | none | the build identity, on every page |
+| `ClassCard.svelte` | `trialClass` | one class, and either a way in or the reason there is none |
+| `ChildPicker.svelte` | `childrenOnAccount`, `selected` (bound), `disabled` | radio group, one child preselected when there is only one |
+
+`ChildPicker` names its list `childrenOnAccount` rather than `children`, which
+Svelte reserves for the content a parent component passes in. Two meanings
+behind one word in a component file is a bug waiting for somebody in a hurry.
+
+`ClassCard` treats any count at or below zero as full, which covers no seats
+left, every seat confirmed, and the negative that arrives only if capacity were
+lowered under confirmed bookings. A full class shows no link at all rather than
+a disabled one. See ADR-F019.
+
+<br>
+
+## Idempotency
+
+`lib/api/idempotency.ts`, one exported function and one header name.
+
+```ts
+export const idempotencyKeyHeader = "idempotency-key";
+export function newIdempotencyKey(): string;
+```
+
+`crypto.randomUUID` where it exists, and sixteen random bytes as hex where it
+does not. Never a timestamp and never a counter: both are unique and both are
+guessable, and the backend honours a matching key as a promise that two calls
+are the same call. See ADR-F017.
+
 <br>
 
 ## The Session Wiring
@@ -445,14 +581,24 @@ that says it is running.
 | `lib/cache/store.test.ts` | unit, edge, integration | save, touch, invalidate, clear, who is notified, surviving a reload |
 | `lib/cache/read_through.test.ts` | unit, edge, integration | all four results, a swallowed background failure, a shared revalidation |
 | `lib/cache/mutation.test.ts` | integration, edge | a success invalidates, a failure does not |
+| `lib/api/idempotency.test.ts` | unit, edge | uniqueness, length, and the fallback still being random |
 | `lib/stores/auth.test.ts` | unit, edge | what is held, and what is dropped |
-| `lib/session/sign_out.test.ts` | unit, integration | store cleared, cache cleared, storage cleared, navigation requested |
+| `lib/stores/classes.test.ts` | unit, edge, integration | the path read, the tier reported, a failure leaving the list alone |
+| `lib/stores/booking.test.ts` | unit, edge, integration | one key across both calls, a fresh key per attempt, a duplicate carrying its booking |
+| `lib/components/ClassCard.test.ts` | unit, edge | zero seats, capacity taken, a negative, and one seat left |
+| `lib/components/ChildPicker.test.ts` | unit, edge | every child offered, one preselected, none on an empty account |
+| `lib/session/sign_out.test.ts` | unit, integration | store cleared, cache cleared, storage cleared, stores reset, navigation requested |
 | `routes/sign-in/page.test.ts` | integration, behaviour | the screen, including the notice after a reused token |
+| `routes/page.test.ts` | integration, edge | the list renders, a full class offers no way in, a failed read says so |
+| `routes/book/[classId]/page.test.ts` | integration, edge | a hold moves on, a full class and a duplicate are answered on the screen |
 | `tests/simulation_f09_silent_refresh.test.ts` | behaviour | three parallel expiries, one refresh, three retries |
 | `tests/simulation_f10_hard_sign_out.test.ts` | behaviour | a reused token ends the session once, with no retry loop |
 | `tests/simulation_f12_fresh_cache.test.ts` | behaviour | a second view inside five seconds sends nothing at all |
 | `tests/simulation_f13_stale_revalidation.test.ts` | behaviour | the stale body renders first, the 304 changes nothing but the age |
 | `tests/simulation_f14_mutation_invalidates.test.ts` | behaviour | the new seat count renders, not the one that was just changed |
+| `tests/simulation_f01_happy_path_booking.test.ts` | behaviour | pick, hold, pay, seat number. One key on both calls |
+| `tests/simulation_f02_stale_seat_count.test.ts` | behaviour | a full class refuses, the entry is aged, the next read shows the real count |
+| `tests/simulation_f04_duplicate_booking.test.ts` | behaviour | one call, no retry, and a link to the booking that exists |
 
 The error mapping table is written out by hand in its test rather than read from
 the implementation. A test that asks the mapping what it maps and then agrees
