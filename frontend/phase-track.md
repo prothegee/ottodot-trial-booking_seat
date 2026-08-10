@@ -4,6 +4,10 @@ SvelteKit client for the trial booking service. This file tracks build progress
 for this stack only. A box is ticked when the work is done and its tests pass.
 Design reasoning lives in `ADR.md`, `HLD.md`, and `LLD.md`.
 
+Phases run in order and each closes before the next opens. Work lands as it
+finishes, a branch and a pull request per phase and a commit per file, so the
+list below reads in the same order as the history.
+
 ## Phase 1: scaffold
 
 - [x] SvelteKit project with TypeScript, `ssr = false`
@@ -37,14 +41,18 @@ Design reasoning lives in `ADR.md`, `HLD.md`, and `LLD.md`.
 
 ## Phase 3: internal cache
 
-- [ ] `lib/cache/policy.ts`
-- [ ] `lib/cache/store.ts` with `sessionStorage` backing
-- [ ] `If-None-Match` and 304 handling in the api client
-- [ ] invalidation hooks on every mutation and on sign out
-- [ ] unit and edge tests: freshness boundaries, key collisions, invalidation, clear on sign out
-- [ ] simulation F12: fresh cache sends no request at all
-- [ ] simulation F13: stale cache revalidates to 304
-- [ ] simulation F14: mutation invalidates the cache
+- [x] `lib/cache/policy.ts`
+- [x] `lib/cache/store.ts` with `sessionStorage` backing
+- [x] `If-None-Match` and 304 handling in the api client
+- [x] invalidation hooks on every mutation and on sign out
+- [x] unit and edge tests: freshness boundaries, key collisions, invalidation, clear on sign out
+- [x] simulation F12: fresh cache sends no request at all
+- [x] simulation F13: stale cache revalidates to 304
+- [x] simulation F14: mutation invalidates the cache
+
+The store was split further as it was built: `key.ts` for what may be held,
+`session_mirror.ts` for the copy that survives a reload, `read_through.ts` for
+the read path, and `mutation.ts` for the write path that owns its invalidation.
 
 ## Phase 4: booking flow
 
