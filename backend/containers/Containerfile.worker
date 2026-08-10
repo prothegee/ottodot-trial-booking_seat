@@ -1,0 +1,35 @@
+# ---------------------------------------------------------------------------- #
+# The worker binary. It has no public surface, only a metrics listener on 9002.
+#
+# Build context is the backend directory:
+#   podman build -f containers/Containerfile.worker -t ottodot-worker ./backend
+#
+# Separate image from the api on purpose: the worker has to survive an api
+# restart, which it cannot do while sharing a process with it.
+# ---------------------------------------------------------------------------- #
+
+FROM docker.io/library/golang:1.26-alpine AS build
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+ARG BUILD_VERSION=dev
+ARG BUILD_COMMIT=unknown
+
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -ldflags "-s -w -X main.buildVersion=${BUILD_VERSION} -X main.buildCommit=${BUILD_COMMIT}" \
+    -o /out/worker ./cmd/worker
+
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY --from=build /out/worker /worker
+
+EXPOSE 9002
+USER nonroot:nonroot
+
+ENTRYPOINT ["/worker"]
