@@ -53,6 +53,11 @@ var (
 	// refunding.
 	ErrDeclined = errors.New("payment: the provider declined the charge")
 
+	// ErrNothingToRefund means this booking has no settled charge against it.
+	// Every attempt either failed, or never came back from the provider, so
+	// there is no money on the other side to send anywhere.
+	ErrNothingToRefund = errors.New("payment: no settled charge stands against this booking")
+
 	// ErrProviderUnavailable means the provider could not be reached, so
 	// nobody knows whether money moved. It is not a decline: the booking keeps
 	// the status it had, and the attempt stays initiated until something
