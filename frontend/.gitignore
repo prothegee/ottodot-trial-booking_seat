@@ -1,0 +1,20 @@
+##
+## directory: dependencies and build output
+##
+/node_modules
+/.svelte-kit
+/build
+/.vite
+
+##
+## file: tooling state
+##
+*.tsbuildinfo
+vite.config.ts.timestamp-*
+npm-debug.log*
+
+##
+## file: local environment
+##
+.env
+.env.*
