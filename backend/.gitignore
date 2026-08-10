@@ -6,8 +6,33 @@
 ##
 ## directory: build output
 ##
+## Anchored to this stack, so they catch backend/bin and never a package that
+## happens to be called bin.
+##
 /bin
 /dist
+
+##
+## directory: source that a broader rule would otherwise swallow
+##
+## The repository root ignores bare directory names at any depth: bin, out,
+## cache, data, build, log, logs, tmp, dist, and target. Those are aimed at
+## build output, and a Go package is free to carry any of them. `internal/cache`
+## is the first one this would have caught: it would have been written, tested
+## green, and then skipped by git add without a word.
+##
+## The source trees are put back below. The patterns end in a slash so they
+## match directories only, which is exactly what is needed: a directory has to
+## be re-included before git will look inside it at all, and leaving files alone
+## keeps *.test and the rest of the artifacts below still ignored.
+##
+## A rule in this file wins over the root one for every path under this stack.
+##
+!/cmd/**/
+!/containers/**/
+!/internal/**/
+!/migrations/**/
+!/scripts/**/
 
 ##
 ## file: go build and test artifacts
