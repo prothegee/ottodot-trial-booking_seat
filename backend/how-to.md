@@ -214,6 +214,68 @@ Swap `docker` for `podman` if that is the runtime in use.
 
 <br>
 
+## Signing In
+
+Sign in is by seeded email and no password. The four routes are built and their
+tests run without anything started, but they are not mounted on a listening port
+until `cmd/api` arrives in phase 6, so this section is what the routes do rather
+than a `curl` that works today.
+
+| email | role |
+| :- | :- |
+| alice.tan@example.test | parent, three children |
+| budi.santoso@example.test | parent, two children |
+| chandra.wijaya@example.test | parent, two children |
+| ops.admin@example.test | admin |
+
+| route | does |
+| :- | :- |
+| `POST /api/v1/auth/login` | finds the parent, starts a token family, sets both cookies, answers 204 |
+| `POST /api/v1/auth/refresh` | spends the refresh token, sets a new pair, answers 204 |
+| `POST /api/v1/auth/logout` | withdraws the access token, revokes the family, clears both cookies |
+| `GET /api/v1/auth/me` | the parent id, display name, role, and children |
+
+Nothing answers with a token in its body. The cookies are the answer, and they
+are HttpOnly, so there is nothing for a client to read.
+
+Three things a caller has to get right, because each one is a refusal that looks
+like a bug from the outside:
+
+| requirement | why | what happens without it |
+| :- | :- | :- |
+| an `Origin` header on every write | cookies travel by themselves, so this is the csrf check | 400 `invalid_request` |
+| cookies carried between calls | the session is entirely in them | 401 `token_invalid` |
+| the refresh cookie's path | it is scoped to `/api/v1/auth`, see ADR-030 | a hand-built request to a business route will not carry it, which is the point |
+
+An unknown email answers 400 `invalid_request`, the same as a malformed body.
+That is deliberate: an endpoint that answers differently for a known address is
+an endpoint that lists who has an account here. See ADR-032.
+
+<br>
+
+## Looking At Refresh Tokens
+
+The table holds hashes, never tokens, so nothing here can be signed in with.
+
+```sh
+# one chain per sign in, newest first
+docker exec ottodot-postgres-primary psql -U ottodot -d ottodot -c \
+    "select family_id, id, created_at, revoked_at, expires_at
+     from refresh_tokens order by created_at desc limit 20;"
+```
+
+Reading one chain top to bottom is the whole design in one query. Every row
+except the newest has a `revoked_at`, because rotation spends the one it was
+given. A family where every row is revoked is either a sign out or a detected
+reuse, and the table alone cannot tell those apart.
+
+What tells them apart is `auth_refresh_reuse_detected_total`. The service counts
+it today and the simulation asserts it, and it reaches a `/metrics` endpoint
+when `cmd/api` arrives in phase 6. The worker's listener on 9002 carries the
+queue numbers only, because the worker holds no auth service.
+
+<br>
+
 ## Common Failures
 
 | symptom | cause | fix |
