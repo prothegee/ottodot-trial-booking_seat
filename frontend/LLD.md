@@ -182,8 +182,7 @@ family. Five parallel refreshes would end the session they were trying to save.
 
 ```
 send once
-  304                      -> success with no body
-  under 400                -> success with the body
+  under 400                -> success, the whole response
   400 and above            -> map to an ApiError, then:
 
     code is token_expired  -> coordinator.run(), then send once more
@@ -193,6 +192,18 @@ send once
     anything else          -> throw
 ```
 
+A 304 is under 400, so it is a success carrying no body rather than a failure.
+Two callers read that same pipeline differently:
+
+| entry point | gives back | for |
+| :- | :- | :- |
+| `request<T>(outgoing)` | the body alone | every call that asked no conditional question |
+| `conditionalGet<T>(path, etag)` | `{ notModified, body, etag }` | the cache, which has to tell a 304 from a 200 |
+
+`conditionalGet` sends the stored tag as `if-none-match`, verbatim. An empty tag
+sends no header at all, because an empty `If-None-Match` is a different question.
+The response tag is read from `etag`, which the transport has already lowercased.
+
 Three rules fall out of that shape:
 
 | rule | why |
@@ -200,6 +211,156 @@ Three rules fall out of that shape:
 | the refresh call itself does not go through this path | otherwise a failed refresh would report the sign out twice, once from the coordinator and once from the pipeline |
 | `login` does not go through this path | a wrong email cannot be fixed by refreshing anything |
 | there is no second retry | if the call is still unauthorised after the refresh, the session is over. The `allowRefresh` flag is not a counter, it is a single chance by construction |
+
+<br>
+
+## The Internal Cache
+
+```
+src/lib/cache
+|
+|___policy.ts               (fresh, stale, cold, from an age and nothing else)
+|___key.ts                  (what may be held, and under what key)
+|___session_mirror.ts       (the copy that survives a reload, and never throws)
+|___store.ts                (the entries, and who is told when one changes)
+|___read_through.ts         (the read path, and the conditional request)
+|___mutation.ts             (the write path, and the invalidation it owns)
+```
+
+Six files rather than the two the plan named. `policy.ts` decides nothing about
+storage, `session_mirror.ts` knows nothing about entries, and the read and write
+paths are separate because they are separate rules: one asks the api whether a
+copy still stands, the other tells the cache that a copy is finished with.
+
+### Tiers
+
+| tier | age | behaviour | cost |
+| :- | :- | :- | :- |
+| fresh | under 5s | returned from memory | nothing, no request is sent |
+| stale | 5s to 30s | returned at once, revalidated behind it | one conditional request |
+| cold | 30s and over, or invalidated | nothing renders until the api answers | one conditional request |
+
+Both boundaries are exclusive at the low end. Exactly 5 seconds is stale and
+exactly 30 is cold, so an entry sitting on a line costs a conditional request
+rather than a wrong answer. A negative age means the system clock moved
+backwards, which makes the timestamp meaningless, so it reads as cold.
+
+### The entry
+
+```ts
+interface CacheEntry {
+    body: unknown;
+    etag: string;
+    storedAt: number;
+}
+```
+
+The tag is stored verbatim and sent back verbatim. This client never parses one,
+compares two, or reasons about what is inside. Only the api knows what its own
+tags mean, which is why a weak validator needs no special case here.
+
+### The read path
+
+```mermaid
+flowchart TD
+    ask[read a path] --> key{is it cacheable}
+    key -->|no| plain[fetch and return, nothing stored]
+    key -->|yes| held{is an entry held}
+    held -->|no| cold
+    held -->|yes| age{how old}
+    age -->|fresh| memory[return from memory, result fresh]
+    age -->|stale| now[return the stored body, result stale]
+    now --> bg[revalidate in the background]
+    age -->|cold| cold[blocking conditional GET]
+    bg --> answer{answer}
+    cold --> answer
+    answer -->|304| touch[keep body and tag, refresh the time, notify nobody]
+    answer -->|200| save[replace body and tag, notify]
+```
+
+Every read reports which of those it was.
+
+| result | means |
+| :- | :- |
+| `fresh` | served from memory, nothing sent |
+| `stale` | the stored body was returned and a revalidation is running |
+| `revalidated` | the api answered 304 and the stored body still stands |
+| `miss` | the api answered with a body, which is now the stored one |
+
+Phase 7 turns that value into `frontend_cache_lookup_total{result}`. It is a
+plain return value for now, so nothing in the cache has to know a telemetry
+emitter exists.
+
+Four properties are worth stating, because each one is a thing that goes wrong
+in a cache that was not written carefully:
+
+| property | detail |
+| :- | :- |
+| a 304 never notifies | the body did not change, so repainting the screen would be work for nothing |
+| a background failure is swallowed | the parent already has a list on screen, and a stale list is not worth an error banner. A 401 still ends the session, because that happens inside the api client |
+| two stale reads share one revalidation | for the same reason the refresh is single flight: the second request buys nothing |
+| a non-cacheable path passes straight through | so routing a roster through the reader cannot turn it into an entry |
+
+### What is held
+
+| held | never held |
+| :- | :- |
+| the class list, `/api/v1/classes` | booking status, payment, roster, auth, admin |
+| a single class, `/api/v1/classes/{id}` | anything nested under a class, the roster included |
+
+The key is the path with its query string attached, verbatim, so a filtered list
+can never be served for an unfiltered one. Two orderings of the same parameters
+are two entries, which costs one conditional request and never a wrong answer.
+
+### Invalidation
+
+| event | what happens | why |
+| :- | :- | :- |
+| a successful mutation | every entry goes cold, tags kept | nothing renders from a cold entry, and the tag makes the next read a 304 rather than a full body. See ADR-F016 |
+| a failed mutation | nothing | a rejection is not a change, and a 500 says nothing at all about what happened |
+| a hard sign out | every entry deleted, memory and storage alike | nothing may survive into another parent's session on a shared machine |
+
+Mutations go through `createCacheAwareMutator`, so the invalidation is part of
+the call rather than a line each caller has to remember. The drop happens before
+the caller's promise resolves, so a screen that returns to the list on success
+can never be served the count it just changed.
+
+The plan also names a tab that has been hidden for more than thirty seconds. It
+needs no code: the tier is decided from the entry's age at the moment it is
+read, so a tab that comes back after thirty seconds finds a cold entry by
+arithmetic rather than by an event listener.
+
+### Storage
+
+An in-memory map is the real store, mirrored into `sessionStorage` under the
+`cache:` prefix. `sessionStorage` and not `localStorage`, so nothing outlives
+the browsing session on a shared machine.
+
+The mirror never throws. Quota exhaustion, a disabled storage, and private
+browsing all raise from the same calls, and none of them is a reason for a page
+to break, so every failure degrades to no mirror at all and the memory map
+carries on. An entry that will not parse reads as no entry, which falls through
+to the network.
+
+The mirror is read lazily, on the first miss for a key, so nothing is paid for
+entries never asked for. Invalidation walks the mirror as well as the map,
+because after a reload the map is empty and an entry nobody has read yet is
+exactly the one that would still be believed.
+
+### The wiring
+
+```
+lib/session/cache.ts        the one store, importing nothing from the api client
+lib/session/cached_api.ts   classReader and classMutator, over that store
+```
+
+`cache.ts` is deliberately thin and dependency free. The hard sign out has to
+empty the store, and the api client has to be able to report a hard sign out, so
+anything joining the two would make a cycle out of a wiring file.
+
+`cached_api.ts` has no consumer yet. `lib/stores/classes.ts` in phase 4 is the
+first, and it is the seam that keeps a store from reaching past the cache to the
+api client directly.
 
 <br>
 
@@ -277,12 +438,21 @@ that says it is running.
 | `lib/api/errors.test.ts` | unit, edge | the whole mapping table, an unknown code, a missing envelope, wording that leaks nothing |
 | `lib/api/transport.test.ts` | unit, edge | credentials, url building, headers, 204, non-json bodies |
 | `lib/api/refresh.test.ts` | unit, edge | single flight, one report per failure, a cleared in-flight promise |
-| `lib/api/client.test.ts` | unit, edge, integration | the pipeline, one retry, no loop, login not refreshing |
+| `lib/api/client.test.ts` | unit, edge, integration | the pipeline, one retry, no loop, login not refreshing, the conditional request |
+| `lib/cache/policy.test.ts` | unit, edge | the three tiers, both boundaries, an entry from the future |
+| `lib/cache/key.test.ts` | unit, edge | what may be held, and two query strings never colliding |
+| `lib/cache/session_mirror.test.ts` | unit, edge | a round trip, the namespace, a storage that throws, an entry that will not parse |
+| `lib/cache/store.test.ts` | unit, edge, integration | save, touch, invalidate, clear, who is notified, surviving a reload |
+| `lib/cache/read_through.test.ts` | unit, edge, integration | all four results, a swallowed background failure, a shared revalidation |
+| `lib/cache/mutation.test.ts` | integration, edge | a success invalidates, a failure does not |
 | `lib/stores/auth.test.ts` | unit, edge | what is held, and what is dropped |
-| `lib/session/sign_out.test.ts` | unit, integration | store cleared, storage cleared, navigation requested |
+| `lib/session/sign_out.test.ts` | unit, integration | store cleared, cache cleared, storage cleared, navigation requested |
 | `routes/sign-in/page.test.ts` | integration, behaviour | the screen, including the notice after a reused token |
 | `tests/simulation_f09_silent_refresh.test.ts` | behaviour | three parallel expiries, one refresh, three retries |
 | `tests/simulation_f10_hard_sign_out.test.ts` | behaviour | a reused token ends the session once, with no retry loop |
+| `tests/simulation_f12_fresh_cache.test.ts` | behaviour | a second view inside five seconds sends nothing at all |
+| `tests/simulation_f13_stale_revalidation.test.ts` | behaviour | the stale body renders first, the 304 changes nothing but the age |
+| `tests/simulation_f14_mutation_invalidates.test.ts` | behaviour | the new seat count renders, not the one that was just changed |
 
 The error mapping table is written out by hand in its test rather than read from
 the implementation. A test that asks the mapping what it maps and then agrees
