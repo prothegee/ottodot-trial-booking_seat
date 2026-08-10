@@ -27,13 +27,16 @@ outcome of two parents acting at once.
 flowchart TD
     routes[routes] --> stores[stores]
     routes --> session[lib/session/client.ts]
+    stores --> cache[lib/cache]
     stores --> session
+    cache --> session
     session --> client[lib/api/client.ts]
     client --> refresh[lib/api/refresh.ts]
     client --> errors[lib/api/errors.ts]
     client --> transport[lib/api/transport.ts]
     transport --> api[(Go api, 9000)]
     signout[lib/session/sign_out.ts] --> stores
+    signout --> cache
     client -.->|reports| signout
 ```
 
@@ -41,6 +44,7 @@ flowchart TD
 | :- | :- | :- |
 | routes | what a parent sees and clicks | call fetch, decide what a failure means |
 | stores | what is currently known | talk to the network |
+| `lib/cache` | what may be reused, for how long, and when it stops being true | decide anything a parent is refused or granted |
 | `session/client.ts` | wiring the real transport to the real sign out | anything else, it is nine lines |
 | `api/client.ts` | every call, the refresh, the one retry, mapping failures | routing, storage, rendering |
 | `api/transport.ts` | the only call to fetch in the codebase | interpret a status |
@@ -96,9 +100,33 @@ previous screen showed. That is the shape of this application.
 | store | holds | notes | state |
 | :- | :- | :- | :- |
 | `auth.ts` | display name, parent id, children, role | memory only, cleared on a hard sign out | built |
-| `classes.ts` | the class list and its tags | read through the cache, never trusted for a decision | phase 4 |
+| `classes.ts` | the class list and its tags | reads through `classReader`, writes through `classMutator`, never trusted for a decision | phase 4 |
 | `booking.ts` | the booking in flight, its status, its deadline | drives the countdown | phase 5 |
 | `status.ts` | backend version and readiness | populated only while `/status` is open | phase 7 |
+
+<br>
+
+## The Cache
+
+Three tiers by age: under five seconds is served from memory with no request at
+all, five to thirty seconds renders at once and is confirmed behind the parent's
+back, and past thirty seconds nothing renders until the api has answered.
+Confirmation is a conditional request, so the usual answer is a 304 and no body
+at all.
+
+Only the class list and a single class are held, because they are the only
+things here that are advisory. A booking status, a payment, and a roster each
+either decide something or belong to one parent, and a stale copy of any of them
+is a wrong answer rather than a slow one.
+
+| event | the cache |
+| :- | :- |
+| a successful booking, payment, or cancellation | every entry goes cold, so the next view asks the api |
+| a failed one | untouched, because nothing is known to have changed |
+| a hard sign out | emptied outright, in memory and in session storage |
+
+Detail, including why an invalidation ages an entry rather than deleting it, is
+in `LLD.md` and ADR-F016.
 
 <br>
 
