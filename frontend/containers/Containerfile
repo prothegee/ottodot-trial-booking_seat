@@ -1,0 +1,40 @@
+# ---------------------------------------------------------------------------- #
+# The frontend image: build the static bundle, then serve it with Caddy.
+#
+# Build context is the frontend directory:
+#   podman build -f containers/Containerfile -t ottodot-frontend ./frontend
+#
+# The api address and the build identity are build arguments, not runtime
+# settings, because the bundle is static and the values are compiled into it.
+# A different backend means a different image, which is the honest shape.
+# ---------------------------------------------------------------------------- #
+
+FROM docker.io/library/node:24-alpine AS build
+
+WORKDIR /src
+
+# The lock file is copied first, so an edit to a component does not reinstall
+# every package.
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY . .
+
+ARG API_BASE_URL=http://127.0.0.1:9000
+ARG BUILD_VERSION=dev
+ARG BUILD_COMMIT=unknown
+
+ENV API_BASE_URL=${API_BASE_URL}
+ENV BUILD_VERSION=${BUILD_VERSION}
+ENV BUILD_COMMIT=${BUILD_COMMIT}
+
+RUN npm run build
+
+FROM docker.io/library/caddy:2-alpine
+
+COPY containers/caddy/Caddyfile /etc/caddy/Caddyfile
+COPY --from=build /src/build /srv
+
+EXPOSE 9001
+
+CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
