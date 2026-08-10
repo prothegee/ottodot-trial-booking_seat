@@ -72,17 +72,28 @@ backend has to serve.
 
 ## Phase 5: payment and status
 
-- [ ] `/pay/[bookingId]` with `PaymentForm.svelte`
-- [ ] `HoldCountdown.svelte`
-- [ ] `/booking/[bookingId]` with `BookingStatus.svelte`
-- [ ] unit and edge tests: countdown maths including a past deadline
-- [ ] `internal_error` handling: retry offered, same idempotency key resent, request id rendered
-- [ ] edge test: a decline earns a fresh idempotency key, an `internal_error` reuses the original
-- [ ] simulation F3: payment declined
-- [ ] simulation F5: seat lost after paying
-- [ ] simulation F6: hold countdown reaching zero
-- [ ] simulation F8: double submit guard
-- [ ] simulation F17: the backend transaction breaks mid-payment
+- [x] `/pay/[bookingId]` with `PaymentForm.svelte`
+- [x] `HoldCountdown.svelte`
+- [x] `/booking/[bookingId]` with `BookingStatus.svelte`
+- [x] unit and edge tests: countdown maths including a past deadline
+- [x] `internal_error` handling: retry offered, same idempotency key resent, request id rendered
+- [x] edge test: a decline earns a fresh idempotency key, an `internal_error` reuses the original
+- [x] simulation F3: payment declined
+- [x] simulation F5: seat lost after paying
+- [x] simulation F6: hold countdown reaching zero
+- [x] simulation F8: double submit guard
+- [x] simulation F17: the backend transaction breaks mid-payment
+
+Landed alongside them, because none of the screens work without either:
+`lib/booking/countdown.ts`, the countdown as arithmetic rather than as state in
+a component, and `lib/booking/price.ts`, which holds what a trial costs, in
+cents, matching the backend's fixed currency.
+
+Two changes to what phase 4 built. The booking store gained `load`, which reads
+a booking straight through the api client rather than through the cache, because
+a status is what decides, ADR-F024. And `startNewAttempt` is gone: the store now
+decides for itself whether a refusal ends the attempt, so no screen can forget
+to mint a key or mint one it should not have, ADR-F021.
 
 ## Phase 6: bot prevention cooperation
 
