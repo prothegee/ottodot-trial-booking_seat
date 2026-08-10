@@ -81,14 +81,30 @@ holding the runner and both handlers, and the worker service in `compose.yml`.
 
 ## Phase 5: authentication
 
-- [ ] `internal/auth/jwt.go`, sign and verify, claims limited to the agreed set
-- [ ] `internal/auth/store.go` interface plus both implementations
-- [ ] `internal/auth/refresh.go`, rotation and family revocation
-- [ ] `internal/auth/middleware.go`, verification, denylist, role check, Origin check on mutations
-- [ ] auth endpoints: login, refresh, logout, me
-- [ ] unit and edge tests: tampered signature, wrong algorithm, expired token, missing jti
-- [ ] edge test: the encoded payload carries no email and no name
-- [ ] simulation 13: refresh rotation and reuse detection
+- [x] `internal/auth/jwt.go`, sign and verify, claims limited to the agreed set
+- [x] `internal/auth/store.go` interface plus both implementations
+- [x] `internal/auth/refresh.go`, rotation and family revocation
+- [x] `internal/auth/middleware.go`, verification, denylist, role check, Origin check on mutations
+- [x] auth endpoints: login, refresh, logout, me
+- [x] unit and edge tests: tampered signature, wrong algorithm, expired token, missing jti
+- [x] edge test: the encoded payload carries no email and no name
+- [x] simulation 13: refresh rotation and reuse detection
+- [x] test: one refresh token spent once under real parallelism, proof tier
+
+Landed alongside them, because none of the above works without them:
+`claims.go` and `token.go`, which are the two token shapes the plan folded into
+`jwt.go`. `directory.go` with both implementations, because login needs to look
+a parent up by email and the session read needs their children, and neither is
+the refresh token lifecycle. `denylist.go` with a per-process implementation,
+because the middleware has to check one and Redis does not arrive until phase 6,
+recorded in ADR-031. `cookie.go`, `handler.go`, and `failure.go`, because the
+endpoints are in this phase and the router is not.
+
+Two decisions were taken here rather than in planning, and both are written up.
+The refresh cookie is scoped to the auth group rather than to the refresh route,
+because sign out cannot revoke a token it never receives, ADR-030. An unknown
+email answers with the generic refusal rather than a code of its own, so the
+endpoint cannot be used to find out who has an account, ADR-032.
 
 ## Phase 6: http surface
 

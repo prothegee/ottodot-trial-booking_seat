@@ -17,12 +17,18 @@ import { ApiError } from "$lib/api/errors";
 import { idempotencyKeyHeader, newIdempotencyKey } from "$lib/api/idempotency";
 import type { Booking, CreateBookingRequest, PayRequest } from "$lib/api/types";
 import type { TransportRequest } from "$lib/api/transport";
+import { api } from "$lib/session/client";
 import { classCache } from "$lib/session/cache";
 import { classMutator } from "$lib/session/cached_api";
 import { auth } from "$lib/stores/auth";
 
 /** Where bookings are created. */
 export const bookingsPath = "/api/v1/bookings";
+
+/** The path one booking is read from. Never cached: it is what decides. */
+export function bookingPathFor(bookingId: string): string {
+    return `${bookingsPath}/${bookingId}`;
+}
 
 /** The path a payment for one booking is sent to. */
 export function paymentPathFor(bookingId: string): string {
@@ -42,6 +48,15 @@ export interface BookingFailure {
      * It is what turns a duplicate notice into a link.
      */
     bookingId: string;
+
+    /**
+     * The request id an `internal_error` carries, or an empty string.
+     *
+     * It is the only thing that failure gives anybody. The message cannot say
+     * what happened, so what is put on screen instead is the one string that
+     * lets somebody find out.
+     */
+    requestId: string;
 }
 
 /** Everything the store holds. */
@@ -64,9 +79,18 @@ export interface BookingState {
 
 const emptyState: BookingState = { booking: null, attemptKey: "", submitting: false, failure: null };
 
-/** What the store is built with. Both have production defaults. */
+/** What the store is built with. All of them have production defaults. */
 export interface BookingStoreOptions {
     mutator?: { send<T>(request: TransportRequest): Promise<T> };
+
+    /**
+     * How a booking is read back.
+     *
+     * It is the plain api client rather than the cached reader, because a
+     * booking status is the thing that decides. Serving one from a cache is
+     * how a parent is shown a hold that expired two minutes ago.
+     */
+    reader?: { request<T>(request: TransportRequest): Promise<T> };
 
     /** The entries a refusal can prove wrong. Injected only by a test. */
     cache?: { invalidateAll(): void };
@@ -91,6 +115,26 @@ export interface BookingStoreOptions {
 const kindsThatMoveASeatCount: ReadonlySet<string> = new Set(["ClassFull", "SeatLost"]);
 
 /**
+ * The failures that end the attempt they were sent under.
+ *
+ * This set is the whole idempotency rule, and it is worth reading slowly
+ * because the two halves fail in opposite directions.
+ *
+ * A decline is a finished attempt. The provider looked at it and said no, and
+ * no money moved, so paying again is a new attempt and needs a new key. Sending
+ * the old one back would replay the decline for as long as the parent kept
+ * trying.
+ *
+ * `Unavailable` is the opposite and the reason this set exists at all. The call
+ * broke without an answer, so nothing here knows whether the charge went
+ * through. The same key has to go back, or a retry risks charging twice.
+ *
+ * `SeatLost` and `ClassFull` are in neither camp because there is no retry to
+ * make: both are terminal for that class, and the screen offers no way forward.
+ */
+const kindsThatEndTheAttempt: ReadonlySet<string> = new Set(["PaymentDeclined", "InvalidRequest"]);
+
+/**
  * Turns any thrown value into something a screen can render.
  *
  * A failure that is not an ApiError came from somewhere other than the api, and
@@ -98,10 +142,20 @@ const kindsThatMoveASeatCount: ReadonlySet<string> = new Set(["ClassFull", "Seat
  */
 function failureFrom(error: unknown): BookingFailure {
     if (error instanceof ApiError) {
-        return { message: error.message, kind: error.kind, bookingId: error.bookingId };
+        return {
+            message: error.message,
+            kind: error.kind,
+            bookingId: error.bookingId,
+            requestId: error.requestId,
+        };
     }
 
-    return { message: "something went wrong, your booking was not changed", kind: "Unavailable", bookingId: "" };
+    return {
+        message: "something went wrong, your booking was not changed",
+        kind: "Unavailable",
+        bookingId: "",
+        requestId: "",
+    };
 }
 
 /**
@@ -128,6 +182,7 @@ function failureFrom(error: unknown): BookingFailure {
  */
 export function createBookingStore(options: BookingStoreOptions = {}) {
     const mutator = options.mutator ?? classMutator;
+    const reader = options.reader ?? api;
     const cache = options.cache ?? classCache;
     const newKey = options.newKey ?? newIdempotencyKey;
 
@@ -156,7 +211,16 @@ export function createBookingStore(options: BookingStoreOptions = {}) {
                 cache.invalidateAll();
             }
 
-            update((state) => ({ ...state, submitting: false, failure: refusal }));
+            // The key rule is applied here rather than left to whichever screen
+            // offers the retry. A screen that forgot to mint a fresh key after
+            // a decline would replay the decline, and a screen that minted one
+            // after an `internal_error` would risk a second charge. Neither is
+            // a mistake a component should be able to make.
+            if (kindsThatEndTheAttempt.has(refusal.kind)) {
+                attemptKey = newKey();
+            }
+
+            update((state) => ({ ...state, attemptKey, submitting: false, failure: refusal }));
 
             return null;
         }
@@ -185,11 +249,48 @@ export function createBookingStore(options: BookingStoreOptions = {}) {
         },
 
         /**
+         * Reads one booking back from the api.
+         *
+         * It goes straight through the api client rather than through the
+         * cached reader. A booking status is what decides: whether the hold is
+         * still standing, whether the seat was won, whether a refund is on the
+         * way. A cached answer to any of those is a screen telling a parent
+         * something that stopped being true two minutes ago.
+         *
+         * Note:
+         * - it never touches the attempt key. Reading is not attempting, and a
+         *   parent refreshing the payment screen must not be handed a fresh key
+         *   for a charge that may already be in flight.
+         *
+         * Return:
+         * - the booking as the api currently reports it
+         * - null when it could not be read, with the reason in the store
+         */
+        async load(bookingId: string): Promise<Booking | null> {
+            update((state) => ({ ...state, submitting: true, failure: null }));
+
+            try {
+                const held = await reader.request<Booking>({
+                    method: "GET",
+                    path: bookingPathFor(bookingId),
+                });
+
+                update((state) => ({ ...state, booking: held, submitting: false, failure: null }));
+
+                return held;
+            } catch (error) {
+                update((state) => ({ ...state, submitting: false, failure: failureFrom(error) }));
+
+                return null;
+            }
+        },
+
+        /**
          * Settles the booking in flight, under the key the attempt already has.
          *
-         * The payment screen in phase 5 is what calls this. It is here rather
-         * than there because the key belongs to the attempt, and the attempt is
-         * what this store holds.
+         * The payment screen is what calls this. It is here rather than there
+         * because the key belongs to the attempt, and the attempt is what this
+         * store holds.
          *
          * Return:
          * - the booking, confirmed with its seat number when the seat was won
@@ -212,16 +313,16 @@ export function createBookingStore(options: BookingStoreOptions = {}) {
         },
 
         /**
-         * Starts a fresh attempt on the booking already held.
+         * Clears the failure on screen without touching the attempt.
          *
-         * A decline is a finished attempt, so paying again is a new one and
-         * needs a new key. Reusing the old one would replay the decline for as
-         * long as the parent kept trying.
+         * A screen calls it when the parent starts typing again, so the
+         * previous refusal stops shouting at them. It deliberately does not
+         * mint a key: whether the next call is a new attempt or a retry of the
+         * same one was already decided the moment the failure arrived, by
+         * `kindsThatEndTheAttempt`.
          */
-        startNewAttempt(): void {
-            attemptKey = newKey();
-
-            update((state) => ({ ...state, attemptKey, failure: null }));
+        dismissFailure(): void {
+            update((state) => ({ ...state, failure: null }));
         },
 
         /** Empties the store, which a sign out does before the screen changes. */

@@ -471,20 +471,32 @@ interface BookingState {
 | :- | :- |
 | `create(request)` | mints a key, POSTs the booking through `classMutator` |
 | `pay(bookingId, amount)` | POSTs the payment with the key the attempt already has |
-| `startNewAttempt()` | mints a fresh key, which a decline needs |
+| `load(bookingId)` | GETs the booking straight through the api client, never the cache |
+| `dismissFailure()` | clears the message on screen, and touches no key |
 | `reset()` | empties the store, key included |
 
 The key is held in the state and in a variable beside it, so `pay` can read the
 attempt's key without subscribing to its own store to find out.
 
-Two refusals age the cached class list and the rest leave it alone:
+`load` is the one method that goes past `classMutator`. A booking status is what
+decides, so it is never cached, and routing it through the mutator would age the
+class list every time a screen read a status. See ADR-F024.
+
+Two named sets carry every rule this store applies to a refusal.
 
 ```ts
 const kindsThatMoveASeatCount: ReadonlySet<string> = new Set(["ClassFull", "SeatLost"]);
+const kindsThatEndTheAttempt: ReadonlySet<string> = new Set(["PaymentDeclined", "InvalidRequest"]);
 ```
 
-Both are the api reporting that a seat count moved, arriving on the failure
-path. See ADR-F018 for why this lives here and not in the mutation layer.
+The first ages the cached class list, because both are the api reporting that a
+seat count moved, arriving on the failure path. Every other failure leaves the
+cache alone. See ADR-F018.
+
+The second mints a fresh idempotency key. A decline is an answer, so the attempt
+is finished and paying again is a new one. An `internal_error` is the opposite:
+the outcome is unknown, so the same key has to go back or a retry risks charging
+twice. Putting that decision here rather than on the screen is ADR-F021.
 
 A failure never clears the booking. A declined payment leaves the parent holding
 a booking they can pay for again, and throwing it away would send them back to
@@ -499,6 +511,9 @@ the class list while their hold is still standing.
 | `VersionFooter.svelte` | none | the build identity, on every page |
 | `ClassCard.svelte` | `trialClass` | one class, and either a way in or the reason there is none |
 | `ChildPicker.svelte` | `childrenOnAccount`, `selected` (bound), `disabled` | radio group, one child preselected when there is only one |
+| `HoldCountdown.svelte` | `deadline`, `onExpire`, `now` | ticks once a second, reports zero once |
+| `PaymentForm.svelte` | `amountCents`, `currency`, `submitting`, `closed`, `retryOf`, `onSubmit` | no typeable field at all |
+| `BookingStatus.svelte` | `booking` | a headline and guidance for every status the enum can hold |
 
 `ChildPicker` names its list `childrenOnAccount` rather than `children`, which
 Svelte reserves for the content a parent component passes in. Two meanings
@@ -508,6 +523,48 @@ behind one word in a component file is a bug waiting for somebody in a hurry.
 left, every seat confirmed, and the negative that arrives only if capacity were
 lowered under confirmed bookings. A full class shows no link at all rather than
 a disabled one. See ADR-F019.
+
+`HoldCountdown` holds a tick counter and nothing else. Every render works the
+remainder out from the deadline and the clock, so a suspended tab shows the
+right number on its first frame back. `onExpire` fires once rather than on every
+tick, because what it does is ask the api a question. See ADR-F022 and ADR-F023.
+
+`PaymentForm` has no input, textarea, or select, and a test asserts that. There
+is nothing to type, so there is nothing to leak, and a mock payment screen that
+looked like a real one would be worse than one that says what it is.
+
+`BookingStatus` carries a `data-status` attribute, so a screen above it branches
+on the enum rather than on wording. Its two tables cover all six statuses: a
+missing case would leave a parent staring at their own booking with nothing to
+read.
+
+<br>
+
+## The Countdown
+
+`lib/booking/countdown.ts`, one exported function and one shape.
+
+```ts
+export function remainingFor(deadline: string | null, now: number): Remaining;
+
+interface Remaining {
+    milliseconds: number;   // never negative
+    expired: boolean;
+    label: string;          // mm:ss, "00:00" once expired
+}
+```
+
+Three inputs read as expired rather than as an error: `null`, which is what the
+api sends for a booking that is not holding, an unparseable string, and a
+deadline already past. The boundary is inclusive, matching the backend, where a
+hold ending on this instant is one the worker may already have swept.
+
+The seconds round up, so 400 milliseconds left reads as `00:01`. Rounding down
+would show `00:00` beside a control that still works.
+
+It is a function of its two arguments and holds nothing, which is why the past
+deadline, the unparseable one, and the tab that was suspended are all asserted
+as single values instead of through a rendered component.
 
 <br>
 

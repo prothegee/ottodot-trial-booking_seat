@@ -418,3 +418,135 @@ that would close a cycle: sign out would import the store, the store imports the
 mutator, the mutator imports the api client, and the api client reports a hard
 sign out. Watching the auth store is the same effect with the arrows pointing
 one way, and it is why `session/cache.ts` was kept import-free in phase 3.
+
+<br>
+
+## ADR-F021: The idempotency rule lives in the store, not on the screen
+
+**Status:** accepted, phase 5
+
+**Context.** ADR-F014 and ADR-F017 set the rule: a decline is a finished attempt
+and earns a fresh key, an unknown outcome keeps its key. Phase 4 left the store
+with a `startNewAttempt` method and left it to whichever screen offered the
+retry to call it at the right time.
+
+Building the payment screen showed what that costs. A screen that forgets the
+call after a decline replays the decline. A screen that makes the call after an
+`internal_error` risks charging twice. Both are one missing line, in a
+component, where nothing about the surrounding code says the line is load
+bearing.
+
+**Decision.** The store decides. A named set, `kindsThatEndTheAttempt`, holds
+the failures that finish an attempt, and the failure path mints a fresh key when
+the refusal is one of them. `startNewAttempt` is gone. What remains is
+`dismissFailure`, which clears the message on screen and deliberately touches no
+key.
+
+**Consequences.** A screen retries by calling `pay` again, and the right key
+goes out whichever failure it is recovering from. Two edge tests pin the two
+directions, and simulations F3 and F17 assert them end to end, one on a fresh
+key and one on the same key.
+
+The set has exactly two members and both are there for a reason a reader can
+check. `PaymentDeclined` is an answer, so the attempt is over. `InvalidRequest`
+is the request being rejected before it became an attempt at all. `SeatLost` and
+`ClassFull` are in neither camp, because there is no retry to make.
+
+<br>
+
+## ADR-F022: The countdown is arithmetic in its own file, not state in a component
+
+**Status:** accepted, phase 5
+
+**Context.** A countdown looks like the sort of thing a component owns: a timer,
+a number, a label. Written that way it holds the remainder in a variable and
+subtracts a second per tick, which fails quietly in three ways. A suspended tab
+comes back showing five minutes that have already gone. A deadline in the past
+renders as a negative. A deadline the browser cannot parse renders as `NaN`.
+
+**Decision.** `lib/booking/countdown.ts` is a pure function of a deadline and an
+instant. The component holds a tick counter only to force a re-render, and every
+render works the remainder out from the deadline and the clock. A deadline that
+is absent, unparseable, or past all read as expired with `00:00`.
+
+**Consequences.** All three failures above are single values, so all three are
+asserted in a unit test rather than through a rendered component. A tab that was
+hidden for five minutes shows the right number on its first frame back, because
+nothing is accumulated.
+
+The seconds round up, so a hold with 400 milliseconds left reads as one second
+rather than zero. Reading `00:00` beside a control that still works is the one
+way this display can contradict itself.
+
+<br>
+
+## ADR-F023: Reaching zero closes the control and then asks the api
+
+**Status:** accepted, phase 5
+
+**Context.** The hold countdown reaching zero is the client noticing something,
+not the client deciding it. The two obvious implementations are both wrong. Wait
+for the api before disabling, and a live payment button sits on a hold that has
+gone. Declare the booking expired on the strength of the countdown, and this
+client has decided something only the backend decides.
+
+**Decision.** Both, in that order. The control closes at once, with no round
+trip, so nothing can be submitted into a lapsed hold. Then the booking is read
+back, once, and whatever the api says is what the screen shows.
+
+**Consequences.** The read is fired once rather than on every tick, because what
+it does is ask a question, and asking it every second is a poll nobody asked
+for. A parent opening the link an hour later gets the same behaviour as one who
+watched it run out: the control is dead on arrival and the api is asked.
+
+The clock is never trusted for a claim. If the api says the booking is still
+pending, the screen says so, and the countdown having reached zero is treated as
+what it is, a hint that the hold is probably gone.
+
+<br>
+
+## ADR-F024: A booking status is never served from the cache
+
+**Status:** accepted, phase 5
+
+**Context.** The client cache exists so a repeat view of the class list costs
+nothing. Adding a booking to it would be the same three lines and would look
+like a consistency win.
+
+**Decision.** The booking read goes straight through the api client. Only the
+class list and a single class are ever cached, which is what ADR-F013 already
+said, and this is the first screen that could have quietly widened it.
+
+**Consequences.** Every visit to a payment or status screen costs one request.
+That is the correct cost: a booking status is what decides. Whether the hold is
+still standing, whether the seat was won, whether a refund is on the way, all of
+them change without this client doing anything, and a cached answer is a screen
+telling a parent something that stopped being true two minutes ago.
+
+The seam is a separate `reader` option on the store rather than a flag on the
+existing mutator, so nothing can accidentally route a status read through the
+cache-aware path and invalidate the class list by reading.
+
+<br>
+
+## ADR-F025: A lost seat gets no retry control at all
+
+**Status:** accepted, phase 5
+
+**Context.** A declined payment and a lost seat are the same refusal of the same
+call, and they are opposite in the ledger. One took no money. The other took
+money and is giving it back. Rendered similarly, a parent who lost a seat sees a
+retry button and presses it.
+
+**Decision.** `SeatLost` renders a terminal message, and the payment control is
+closed rather than merely unstyled. The status screen says the refund is
+automatic and that there is nothing to do. `PaymentDeclined` says plainly that
+no money was taken and offers the retry.
+
+**Consequences.** The difference is stated in words rather than in colour, so it
+survives a screenshot, a screen reader, and a parent who is not looking
+carefully. A test renders both and asserts they read differently, which is the
+one thing a shared component would have made easy to lose.
+
+This is the parent's side of the case the whole exercise is about, and this
+client's only job in it is to not make it worse.

@@ -152,14 +152,33 @@ const api = createApiClient({ transport, onSignOut: () => {} });
 `transport.calls` holds every request in order, and `transport.callsTo(method,
 path)` filters it. That is how a test asserts a request was never sent at all.
 
-Two tests need a mock, and only these two:
+A route test needs three mocks, because a route reaches for the framework and
+for the wired singletons:
 
 ```ts
 vi.mock("$app/navigation", () => ({ goto: vi.fn(() => Promise.resolve()) }));
+vi.mock("$app/state", () => ({ page: { params: { bookingId: "..." } } }));
+vi.mock("$lib/session/cached_api", () => ({ classReader: { read: vi.fn() }, classMutator: { send: vi.fn() } }));
+vi.mock("$lib/session/client", () => ({ api: { request: vi.fn() } }));
 ```
 
-`$app/navigation` has no router in a unit test. What is under test is that a
-sign out asks to leave, not how the framework gets there.
+`$app/navigation` and `$app/state` have no router in a unit test. What is under
+test is that a screen asks to leave, and which parameter it read, not how the
+framework gets there.
+
+The last two are the seams the stores read and write through. A screen that
+reached past them would be the bug, so a test that had to mock something else to
+work would be telling you something.
+
+Anything with a countdown needs the clock held still:
+
+```ts
+vi.useFakeTimers({ shouldAdvanceTime: true });
+vi.setSystemTime(Date.parse("2026-08-11T09:00:00.000Z"));
+```
+
+`shouldAdvanceTime` is what keeps promises resolving while the timers are faked.
+Without it a test that awaits anything hangs.
 
 <br>
 
@@ -179,7 +198,6 @@ sign out asks to leave, not how the framework gets there.
 
 | screen or feature | phase |
 | :- | :- |
-| the payment screen, the countdown, booking status | 5 |
 | honeypot, fill timer, captcha | 6 |
 | roster, status route, telemetry | 7 |
 | layout and responsiveness | 9 |

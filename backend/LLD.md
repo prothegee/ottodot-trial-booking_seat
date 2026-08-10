@@ -395,6 +395,73 @@ because zeroes read as a healthy empty queue and no alert would fire.
 
 <br>
 
+## Verifying An Access Token
+
+`internal/auth/jwt.go`. The order is the design, and it is fixed by a test for
+each step:
+
+```
+1. split on '.', refuse anything that is not three segments
+2. decode the header, refuse any alg but HS256 and any typ but JWT
+3. recompute the mac over "header.payload", compare with hmac.Equal
+4. decode the payload, refuse a claim set this service would not have issued
+5. compare exp with now, inclusive
+```
+
+Step 2 is what refuses the two classic forgeries: `alg: none` with an empty
+signature segment, and a token signed with a key the service publishes.
+
+Step 3 uses `hmac.Equal` rather than `==`. A string comparison returns as soon
+as two bytes differ, and that timing is enough to recover a signature one byte
+at a time given enough attempts.
+
+Steps 4 and 5 are in that order and not the other way round. A forged token that
+is also expired reports `ErrTokenInvalid`, because telling its holder that the
+clock is the only remaining problem tells them what to fix next.
+
+`ErrTokenExpired` is separate from `ErrTokenInvalid` for exactly one reason: it
+is the only failure the client acts on rather than shows. It maps to
+`token_expired`, and the frontend refreshes and retries once, invisibly.
+
+<br>
+
+## The Rotation Transaction
+
+`internal/auth/store_postgres.go`. One transaction, and the lock is taken before
+anything is judged.
+
+```
+begin
+  select ... from refresh_tokens where token_hash = $1 for update
+  -- no row            -> ErrTokenNotFound
+  -- revoked_at is set -> revoke the whole family, commit, ErrTokenReused
+  -- expires_at <= now -> ErrTokenExpired
+  update refresh_tokens set revoked_at = now where id = <presented>
+  insert the successor, same parent, same family
+commit
+```
+
+Read it as a race and the lock's job is obvious. Two requests carry the same
+token. The first locks the row. The second waits here rather than reading
+around it. The first revokes and inserts, then commits. The second now reads a
+revoked row and reports reuse.
+
+Without the lock both read a live row, both rotate, and one stolen token quietly
+becomes two working sessions with reuse detection that never fires.
+
+The family revocation is committed even though the caller is refused. A rollback
+there would detect the theft and then undo the response to it.
+
+Three answers, three different things:
+
+| answer | means | what it is not |
+| :- | :- | :- |
+| `ErrTokenNotFound` | this service never issued that token, or the row is long gone | not a theft |
+| `ErrTokenExpired` | the parent was away longer than the refresh lifetime | not a theft, and deliberately not counted as one |
+| `ErrTokenReused` | the token was already spent, and the chain is now revoked | the one worth alerting on |
+
+<br>
+
 ## The State Machine
 
 `internal/booking/status.go`. One table, tested pair by pair, including every
@@ -463,6 +530,28 @@ internal/worker
 |___counters.go             (what this process has done)
 |___exposition.go           (those numbers in the Prometheus text format)
 |___listener.go             (healthz and metrics on 9002)
+
+internal/auth
+|
+|___claims.go               (the six claims, and what a valid set is)
+|___jwt.go                  (HS256 sign and verify, see ADR-027)
+|___token.go                (the opaque refresh token, and its sha256)
+|___errors.go               (the typed failures, sentinels)
+|___failure.go              (what each failure looks like on the wire)
+|___store.go                (the refresh token interface and its request shapes)
+|___store_postgres.go       (the rotation transaction, see ADR-029)
+|___store_memory.go         (the fake, the same rules under a mutex)
+|___directory.go            (who exists: the interface)
+|___directory_postgres.go   (lower(email) and the children read)
+|___directory_memory.go     (the fake, the same normalisation)
+|___denylist.go             (withdrawn access tokens: the interface)
+|___denylist_memory.go      (the fake, per process, see ADR-031)
+|___counters.go             (rotations, reuse, refused sign ins)
+|___service.go              (sign in, sign out, the session read)
+|___refresh.go              (rotation, and counting what the store reports)
+|___cookie.go               (the two cookies, their flags and their paths)
+|___middleware.go           (verify, denylist, role, origin)
+|___handler.go              (the four routes)
 
 cmd/worker
 |
@@ -574,6 +663,32 @@ and the operator queue view in phase 6.
 | 23514 | job_queue_kind_allowed | `ErrUnknownKind` |
 | 22P02 | text that is not a uuid | `ErrJobNotFound`, or `ErrInvalidRequest` where an absent row is not an answer |
 
+`internal/auth` names its own too, and it is the one package that already maps
+them itself, in `failure.go`, because it serves routes before `internal/httpx`
+exists.
+
+| sentinel | means | maps to |
+| :- | :- | :- |
+| `ErrInvalidRequest` | refused before anything was read or written | 400 `invalid_request` |
+| `ErrNoSuchParent` | that email is not a seeded account | 400 `invalid_request`, see ADR-032 |
+| `ErrOriginRefused` | a write arrived from another site | 400 `invalid_request` |
+| `ErrTokenExpired` | the access token aged out, refresh and retry | 401 `token_expired` |
+| `ErrTokenInvalid` | bad shape, wrong algorithm, failed signature, or a missing claim | 401 `token_invalid` |
+| `ErrTokenNotFound` | no stored refresh token carries that hash | 401 `token_invalid` |
+| `ErrNotAuthenticated` | the route needs an identity and there is none | 401 `token_invalid` |
+| `ErrTokenReused` | a spent refresh token came back, the family is now revoked | 401 `token_reused` |
+| `ErrForbiddenRole` | a real identity on a route that is not for it | 403 `forbidden_role` |
+| `ErrDuplicateToken` | a refresh token hash repeated, which means the randomness did | 500 `internal_error` |
+
+The four token failures collapse into one code on purpose. Telling a caller
+which part of a token failed tells an attacker which part to fix next. The one
+exception is expiry, and it is an exception because the client acts on it.
+
+| code | constraint | becomes |
+| :- | :- | :- |
+| 23505 | uq_refresh_token_hash | `ErrDuplicateToken` |
+| 22P02 | text that is not a uuid | `ErrTokenNotFound`, or `ErrInvalidRequest` where an absent row is not an answer |
+
 <br>
 
 ## Seed Data
@@ -614,6 +729,8 @@ future no matter when the repository is cloned.
 | 9, idempotent replay | behaviour, fake | one payment_attempts row, one charge, both calls answer identically |
 | one key under load | proof, real | 10 parallel calls with one key, one row, nine replays, uq_payment_idempotency holding |
 | two workers, one queue | proof, real | 8 parallel workers over 24 jobs, every job claimed exactly once, skip locked holding |
+| 13, refresh rotation and reuse | behaviour, fake | one token works once, reuse revokes the family, the honest holder is signed out too, and the reuse is counted |
+| one refresh token under load | proof, real | 8 parallel rotations of one token, one successor, seven reported as reuse |
 
 Simulation 5 also proves that `uq_seat_taken` never fired: every loser ends in
 `refund_required`, and a unique violation would have rolled its transaction back

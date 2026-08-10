@@ -63,8 +63,8 @@ routing. So it reports, and something else acts. See ADR-F006.
 | `/sign-in` | mock sign in, seeded email, no password | built |
 | `/` | class list with subject, start time, and seats remaining | built |
 | `/book/[classId]` | pick a child, submit, receive a hold | built |
-| `/pay/[bookingId]` | mock payment, hold countdown, honeypot, captcha | phase 5 |
-| `/booking/[bookingId]` | booking status in every terminal state | phase 5 |
+| `/pay/[bookingId]` | mock payment and hold countdown, honeypot and captcha in phase 6 | built |
+| `/booking/[bookingId]` | booking status in every terminal state | built |
 | `/roster/[classId]` | roster for an admin, hidden from a parent role | phase 7 |
 | `/status` | build identity and backend readiness | phase 7 |
 
@@ -101,7 +101,7 @@ previous screen showed. That is the shape of this application.
 | :- | :- | :- | :- |
 | `auth.ts` | display name, parent id, children, role | memory only, cleared on a hard sign out | built |
 | `classes.ts` | the class list and its tags | reads through `classReader`, never trusted for a decision | built |
-| `booking.ts` | the booking in flight, its status, its deadline, and the key covering the attempt | writes through `classMutator`. Drives the countdown in phase 5 | built |
+| `booking.ts` | the booking in flight, its status, its deadline, and the key covering the attempt | writes through `classMutator`, reads straight through the api client. Drives the countdown | built |
 | `status.ts` | backend version and readiness | populated only while `/status` is open | phase 7 |
 
 <br>
@@ -214,8 +214,56 @@ Everything else leaves the cache alone, because a failure that says nothing
 about seats must not claim knowledge this client does not have. See ADR-F018.
 
 The payment call is here rather than on the payment screen because the key
-belongs to the attempt, and the attempt is what this store holds. Phase 5 builds
-the screen on top of behaviour that is already proven.
+belongs to the attempt, and the attempt is what this store holds.
+
+So is the decision about what the next key should be. A refusal either ends the
+attempt or leaves it unresolved, and the store mints a fresh key only for the
+first kind:
+
+| refusal | attempt | next call carries |
+| :- | :- | :- |
+| `payment_declined` | over, the provider answered and no money moved | a fresh key, or the decline replays forever |
+| `invalid_request` | never started | a fresh key |
+| `internal_error`, `dependency_unavailable` | unresolved, nobody knows what happened | the same key, or a retry risks charging twice |
+| `seat_lost`, `class_full` | over, and there is no retry to make | nothing, the screen offers no way to try again |
+
+That rule was a method a screen had to remember to call, and it is now the
+store's own. See ADR-F021 for why it moved.
+
+<br>
+
+## The Payment Screen
+
+The one screen where the client is holding somebody's money and does not know
+what happened to it. Three of its rules exist for that reason alone.
+
+```mermaid
+flowchart TD
+    open[screen opens] --> read[read the booking from the api]
+    read --> live{still pending_payment}
+    live -->|no| onward[show where it stands, no control]
+    live -->|yes| tick[countdown runs from the api's deadline]
+    tick --> zero{reached zero}
+    zero -->|yes| close[close the control, then ask the api]
+    zero -->|no| pay[parent submits]
+    pay --> answer{what came back}
+    answer -->|confirmed| status[booking screen, seat shown]
+    answer -->|declined| retry[retry offered, fresh key]
+    answer -->|seat lost| terminal[refund on the way, no control]
+    answer -->|unknown| unknown[claims nothing, retry offered, same key]
+```
+
+**The booking is read on arrival, never taken from memory.** A parent may have
+opened this link in a second tab or come back to it an hour later. See ADR-F024.
+
+**The countdown closes the control before the api is asked.** A live payment
+button on a hold that has gone is worse than a moment of not knowing. The api is
+then asked once, because the browser's clock is not what decides. See ADR-F023.
+
+**An unknown outcome claims nothing.** It never says the seat was lost and never
+says the payment failed, because neither is known from here. What it offers is a
+retry, which is safe because the key goes back unchanged, and the request id,
+which is the only thing that failure gives anybody.
 
 <br>
 

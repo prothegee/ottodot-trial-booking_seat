@@ -24,13 +24,19 @@ are done. Progress is tracked in `phase-track.md`.
 | exists | not yet |
 | :- | :- |
 | the schema, its four unique indexes, and seed data | the http api and the roster on 9000, phase 6 |
-| configuration, with secrets that mask themselves | authentication, phase 5 |
-| separate primary and replica connection pools | monitoring and fault injection, phase 7 |
-| the booking core: hold, confirm, cancel, expire, the audit trail | the continuous integration workflows, phase 9 |
-| the payment path: a deterministic provider, one charge per idempotency key | a real payment provider, out of scope by design |
+| configuration, with secrets that mask themselves | monitoring and fault injection, phase 7 |
+| separate primary and replica connection pools | the continuous integration workflows, phase 9 |
+| the booking core: hold, confirm, cancel, expire, the audit trail | a real payment provider, out of scope by design |
+| the payment path: a deterministic provider, one charge per idempotency key | a password, cut on purpose, see the note below |
 | the job queue, and the worker that drains it on 9002 | |
+| authentication: HS256 access tokens, rotating refresh tokens, the four auth routes | |
 | the last-seat race proven against real Postgres | |
 | two workers proven never to claim one job | |
+| one refresh token proven to be spendable exactly once | |
+
+Sign in takes a seeded email and no password. That is the brief's cut rather
+than an oversight: everything around it is real, so a password or a provider
+later replaces one method.
 
 <br>
 
@@ -53,6 +59,7 @@ backend
 |       |___main.go                        (the queue consumer, metrics on 9002)
 |
 |___/internal
+|   |___/auth                              (tokens, rotation, and who may act)
 |   |___/booking                           (the seat, and everything that decides it)
 |   |___/config                            (every port and secret, from the environment)
 |   |___/database                          (primary and replica pools, no queries)
@@ -124,7 +131,7 @@ Full detail, including what to do when something refuses to start, is in
 
 ## The Shape Of It
 
-Three ideas carry most of the design.
+Four ideas carry most of the design.
 
 **The database holds the invariants.** Four partial unique indexes make the
 rules impossible to violate, even from a manual sql edit or a buggy code path.
@@ -135,6 +142,13 @@ than a driver error, but the database is what makes them true.
 row, counts the seats taken under that lock, and takes the lowest free one.
 Everything else in the system that reports a seat count is advisory by
 construction.
+
+**A token is cheap to believe and expensive to forge.** Verifying an access
+token is a signature check and a clock comparison, so the request path touches
+no database. The refresh token is the opposite: opaque, stored only as a hash,
+rotated on every use, so presenting a spent one is how a stolen token becomes
+visible. Both live in HttpOnly cookies, which is why no code in the client ever
+reads one.
 
 **Fakes are fast, and they are not trusted alone.** The four fast tiers run
 against an in-memory repository in about a second. The same behaviour suite runs

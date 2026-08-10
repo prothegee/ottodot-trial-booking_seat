@@ -32,19 +32,21 @@ construction.
 ## State
 
 Phases run in order and land as each one finishes, one commit per file, so the
-history reads as small reviewable steps rather than one bulk drop. Phases 1 to 4
+history reads as small reviewable steps rather than one bulk drop. Phases 1 to 5
 are done. Progress is tracked in `phase-track.md`.
 
 | exists | not yet |
 | :- | :- |
-| the shell, the version footer, `ssr = false` | the payment screen and the countdown, phase 5 |
-| the api client, its transport, and the typed error mapping | honeypot, fill timer, captcha, phase 6 |
-| single-flight refresh with exactly one retry | roster, status, telemetry, phase 7 |
-| the auth store, memory only | visual polish, phase 9 and only if time remains |
+| the shell, the version footer, `ssr = false` | honeypot, fill timer, captcha, phase 6 |
+| the api client, its transport, and the typed error mapping | roster, status, telemetry, phase 7 |
+| single-flight refresh with exactly one retry | visual polish, phase 9 and only if time remains |
+| the auth store, memory only | |
 | the hard sign out and the `/sign-in` screen | |
 | the three tier cache, with conditional requests and invalidation | |
 | the class list, the booking screen, and their two stores | |
+| the payment screen, the hold countdown, and the booking status screen | |
 | one idempotency key per attempt, across both of its calls | |
+| a retry that knows whether it is a new attempt or the same one | |
 
 Every screen calls an api whose http surface is not built yet, so all of them
 run against a fake transport in tests and will reach a real one when phase 6 of
@@ -75,7 +77,8 @@ frontend
 |   |   |___/api                           (the only place fetch is called)
 |   |   |___/cache                         (three tiers, and what makes them untrue)
 |   |   |___/config                        (the compile time values, read once)
-|   |   |___/components                    (the class card, the child picker, the footer)
+|   |   |___/booking                       (the countdown maths and the trial price)
+|   |   |___/components                    (the cards, the pickers, the countdown, the form)
 |   |   |___/session                       (the wired client, cache, and sign out)
 |   |   |___/stores                        (auth, classes, and the booking in flight)
 |   |

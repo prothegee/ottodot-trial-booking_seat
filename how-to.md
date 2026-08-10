@@ -165,5 +165,11 @@ The worker is there now. It has no public surface: the listener on 9002 carries
 liveness and its metrics, and nothing enqueues a job until the http layer lands,
 so a running worker finds an empty queue and says so.
 
+Authentication is built and tested, and it is not reachable over http yet for
+the same reason: the four auth routes register themselves on a mux, and nothing
+listens on 9000 until `cmd/api` arrives. Signing in from a browser is a phase 6
+thing. What exists today runs in the fast test tiers and, for the rotation
+invariant, against real Postgres.
+
 Progress per stack is in `backend/phase-track.md` and
 `frontend/phase-track.md`.
