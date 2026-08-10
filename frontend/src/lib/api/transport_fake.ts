@@ -6,8 +6,8 @@
  *
  * The important property is that it records each call before answering it. That
  * is what lets a test assert not only what a parent saw, but that a request was
- * never sent at all, which is how the single-flight refresh and, later, the
- * fresh-cache case are proven.
+ * never sent at all, which is how the single-flight refresh and the fresh-cache
+ * case are both proven.
  */
 import type { Transport, TransportRequest, TransportResponse } from "$lib/api/transport";
 
