@@ -278,7 +278,7 @@ demo that claims to have failover without one would be a claim it cannot back.
 
 ## ADR-013: Authentication is a JWT access token plus a rotating opaque refresh token
 
-**Status:** planned, phase 5
+**Status:** accepted, phase 5
 
 **Context.** The client must not be able to read a token, and a revoked session
 must actually stop working.
@@ -591,3 +591,165 @@ The three answers the handler reads are deliberately distinct: `ErrNotHolding`
 finishes the job, because a booking that already moved on means the job did its
 work by arriving too late. `ErrHoldStillLive` hands it back. Anything else hands
 it back too, because unexpected work is retried rather than thrown away.
+<br>
+
+## ADR-027: HS256, written against the standard library rather than pulled in
+
+**Status:** accepted, phase 5
+
+**Context.** One service signs access tokens and the same service verifies them.
+A JWT library is the reflex here, and it brings a dependency whose whole job is
+about a hundred lines of hmac, base64, and json, in the one place where a
+dependency's defaults decide whether forged tokens are accepted.
+
+**Decision.** HS256, implemented in `internal/auth/jwt.go` against
+`crypto/hmac`, `crypto/sha256`, and `encoding/json`. The algorithm in the header
+is read and then refused unless it is exactly HS256, and the signature is
+compared with `hmac.Equal`.
+
+**Consequences.** Two classic forgeries are refused by code a reviewer can see
+rather than by a library setting they have to trust: `alg: none`, where the
+signature segment is empty and a trusting verifier believes the payload, and a
+token signed with a key the service publishes. The comparison is constant time,
+because a comparison that returns early leaks the signature one byte at a time.
+
+The cost is that this is a hand-written implementation of a specification with
+known sharp edges. That is why the verification order is fixed and tested:
+shape, then algorithm, then signature, then claims, then expiry. Nothing inside
+the payload is believed before the signature has been checked, and expiry is
+judged last so a forgery is never told that the clock is its only remaining
+problem.
+
+RS256 is the move the day a second service needs to verify without holding the
+signing key. Until then an asymmetric key buys key handling and nothing else.
+
+<br>
+
+## ADR-028: The claim set is a closed struct with no room to grow
+
+**Status:** accepted, phase 5
+
+**Context.** A JWT payload is base64, not encryption. Anyone holding the token
+reads it, including whoever picks it out of a shared screen recording. The
+usual way an email ends up in a token is not a decision, it is a convenience: a
+map of extra claims, and six months later somebody puts a name in it.
+
+**Decision.** `Claims` is a struct with exactly six fields, `sub`, `role`,
+`typ`, `jti`, `iat`, and `exp`, and there is no map, no pass-through, and no
+`any`. `Validate` refuses a claim set missing any of them.
+
+**Consequences.** Adding a claim is a change to a type, visible in a diff, in
+the same file as the comment explaining why the list is closed. The test asserts
+the exact key set of the encoded payload rather than the absence of one field,
+so a seventh key fails whatever it is called.
+
+The `jti` requirement is the one worth naming separately. A token nobody can
+name cannot be denylisted, so accepting one would quietly remove logout for as
+long as that token lives.
+
+<br>
+
+## ADR-029: Rotation is one transaction, and reuse is what the lock reveals
+
+**Status:** accepted, phase 5
+
+**Context.** Refresh rotation is read the token, check it is live, revoke it,
+write its successor. Written that way, two requests carrying the same token both
+read a live row, both rotate, and a stolen token quietly becomes two working
+sessions. Reuse detection then never fires, because nothing was ever presented
+twice from the store's point of view.
+
+**Decision.** `Rotate` is one method on the store and one transaction inside it.
+The presented row is taken with `select ... for update` before anything about it
+is judged. The second caller waits on the lock rather than reading around it, so
+by the time it looks, the row is revoked and it reports reuse.
+
+**Consequences.** The invariant lives in the store, where both implementations
+must satisfy it, and the contract suite runs against the fake and against
+Postgres. The fake holds a mutex across the whole decision, which is the same
+rule by a different mechanism, and the case that matters is proven separately on
+real parallel connections in the containers tier.
+
+Detecting reuse revokes the whole family, which signs the honest parent out as
+well. That is the correct trade and it is stated rather than softened: two
+parties hold the token, one of them stole it, and this service cannot tell
+which. The parent signs in again in one click. The alternative leaves the thief
+signed in.
+
+<br>
+
+## ADR-030: The refresh cookie is scoped to the auth group, not to the refresh route
+
+**Status:** accepted, phase 5
+
+**Context.** The plan scoped the refresh cookie to `/api/v1/auth/refresh`, so a
+refresh token would never travel on an ordinary business call. Building sign out
+found the hole in that: a cookie scoped to one path is not sent to any other
+one, so `/api/v1/auth/logout` never sees the refresh token, and there is nothing
+there to revoke. Sign out could withdraw the access token and leave the chain
+behind it working.
+
+**Decision.** The refresh cookie is scoped to `/api/v1/auth`. It travels on the
+four auth routes and on nothing else.
+
+**Consequences.** The reason the original scope existed is kept: the refresh
+token is still never sent on a class list read, a booking, or a payment, which
+is where the exposure would have mattered. What it costs is that the token also
+travels on login, logout, and the session read, and the session read is called
+on every application boot.
+
+The alternative was revoking every family for that parent on sign out, which
+would sign them out on their other devices as well, for a property nobody asked
+for. The narrower cookie plus a wider revocation is a worse trade than a
+slightly wider cookie plus an exact revocation.
+
+<br>
+
+## ADR-031: The access token denylist is an interface with a per-process fake for now
+
+**Status:** accepted, phase 5
+
+**Context.** A stateless access token cannot be withdrawn by deleting a row.
+Sign out writes its `jti` to a denylist for the token's remaining life, and the
+plan puts that denylist in Redis. Redis does not arrive in this stack until
+phase 6, and pulling a client in early to serve one map would put a dependency
+in the auth package before anything else could use it.
+
+**Decision.** `Denylist` is an interface in `internal/auth`, with
+`MemoryDenylist` behind it. The Redis implementation lands with the rest of the
+Redis surface and plugs in without a caller changing.
+
+**Consequences.** Stated plainly rather than buried: the memory denylist binds
+the process that served the sign out and no other. With one api process, which
+is what this stack runs, a sign out takes effect immediately and everywhere.
+With two, a token withdrawn on one is still believed by the other until it
+expires, at most one access token lifetime.
+
+That bound is the same one the Redis version has when Redis is down, which is
+why the fifteen minute access lifetime was chosen in the first place. The
+entries expire themselves: a `jti` stops mattering at the exact instant its
+signature stops verifying, so nothing here grows without bound.
+
+<br>
+
+## ADR-032: An unknown email gets the same answer as a malformed request
+
+**Status:** accepted, phase 5
+
+**Context.** Sign in is by seeded email with no password. An endpoint that
+answers "no such account" for one address and "signed in" for another is an
+endpoint that tells anyone who asks which addresses have accounts here.
+
+**Decision.** `ErrNoSuchParent` maps to 400 `invalid_request`, the same answer a
+malformed body gets, and the message repeats nothing the caller sent. The
+service counts the refusal so the rate is visible on a dashboard, and the count
+carries no label.
+
+**Consequences.** A genuine typo gets a generic message, which is a slightly
+worse experience for a real parent. The api's error envelope is a closed set the
+client already maps, so the alternative would have meant adding a code to that
+contract for the sole purpose of confirming who has an account.
+
+The counter is where enumeration becomes visible: one refusal is a typo, a
+thousand is somebody working through a list, and neither needs an identifier in
+a metric label to be seen.
