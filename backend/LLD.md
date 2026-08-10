@@ -268,6 +268,42 @@ second booking for the same child until the worker expires it. See ADR-008.
 
 <br>
 
+## The Payment Attempt
+
+`internal/payment`. The charge settles first and the seat is decided afterwards,
+which is why this package never imports `internal/booking`. The two are wired
+together by the http handler in phase 6.
+
+```
+booking id, amount, idempotency key present?   -> ErrInvalidRequest
+amount greater than zero, currency valid?      -> ErrInvalidAmount, ErrInvalidCurrency
+key non-empty, bounded, printable?             -> ErrInvalidIdempotencyKey
+open the attempt row, status initiated         -> replay if the key is taken
+charge the provider                            -> settled, declined, or unreachable
+settle the row with the answer
+```
+
+The row is written before the provider is called, on purpose. A process that
+dies mid-charge leaves something for a replay to find, where the other order
+would leave a charge nobody has a record of.
+
+| provider answer | attempt row | what the caller gets |
+| :- | :- | :- |
+| settled | succeeded, provider reference kept | the attempt, no error |
+| declined | failed, reason kept, no reference | the attempt and `ErrDeclined` |
+| unreachable | left initiated | the attempt and `ErrProviderUnavailable` |
+
+A replay never reaches the provider. It returns the stored answer, so two
+identical calls produce one charge and the same response body. See ADR-021 for
+the three replay cases, and ADR-020 for how the mock decides.
+
+The amount check exists twice by design. `check (amount_cents > 0)` in the
+schema is the backstop that holds even against a manual sql edit, and
+`Amount.Validate` is the readable answer a caller can act on. A constraint
+violation reaching a parent as a database error is not a message.
+
+<br>
+
 ## The State Machine
 
 `internal/booking/status.go`. One table, tested pair by pair, including every
@@ -302,6 +338,19 @@ internal/booking
 |___repository_postgres.go  (the transactions)
 |___repository_memory.go    (the fake, same invariants under a mutex)
 |___service.go              (policy: hold lifetime, cap, clock, identifiers)
+
+internal/payment
+|
+|___attempt.go              (Attempt, Status)
+|___amount.go               (Amount, the money rules, pure)
+|___idempotency.go          (the key rules, pure)
+|___errors.go               (the typed failures, sentinels)
+|___provider.go             (the interface, its request and its three answers)
+|___provider_mock.go        (the deterministic provider, see ADR-020)
+|___repository.go           (the interface and its request shapes)
+|___repository_postgres.go  (the writes, and uq_payment_idempotency)
+|___repository_memory.go    (the fake, one attempt per key under a mutex)
+|___service.go              (the order: validate, open, charge, settle)
 ```
 
 The four pure files hold every rule that can be read without a database in front
@@ -361,6 +410,30 @@ package depends on Postgres error codes:
 | 23503 | otherwise | `ErrStudentNotFound` |
 | 22P02 | text that is not a uuid | `ErrInvalidRequest` |
 
+`internal/payment` names its own failures for the same reason, including its own
+`ErrBookingNotFound`, so a charge never depends on the package that owns seats.
+
+| sentinel | means | maps to, phase 6 |
+| :- | :- | :- |
+| `ErrInvalidRequest` | refused before anything was read or written | 400 `invalid_request` |
+| `ErrInvalidAmount` | the charge was zero or below | 400 `invalid_request` |
+| `ErrInvalidCurrency` | the code is not three capital letters | 400 `invalid_request` |
+| `ErrInvalidIdempotencyKey` | empty, too long, or not a header token | 400 `invalid_request` |
+| `ErrBookingNotFound` | no booking with that id | 404 |
+| `ErrAttemptNotFound` | no attempt with that id | 404 |
+| `ErrDeclined` | the provider said no, no money moved | 402 `payment_declined` |
+| `ErrProviderUnavailable` | the provider never answered, nobody knows | 503 `dependency_unavailable` |
+| `ErrAttemptPending` | an earlier call with this key never settled | 409 |
+| `ErrIdempotencyConflict` | this key was used for a different charge | 409 |
+| `ErrAlreadySettled` | the row is append only from settlement | 409 |
+
+| code | constraint | becomes |
+| :- | :- | :- |
+| 23505 | uq_payment_idempotency | a replay, or `ErrIdempotencyConflict` on a different amount |
+| 23503 | the booking foreign key | `ErrBookingNotFound` |
+| 23514 | payment_attempts_amount_positive | `ErrInvalidAmount` |
+| 22P02 | text that is not a uuid | `ErrInvalidRequest` |
+
 <br>
 
 ## Seed Data
@@ -392,9 +465,12 @@ future no matter when the repository is cloned.
 | simulation | tier | asserts |
 | :- | :- | :- |
 | 1, duplicate booking | behaviour, fake | one row for that child and class, the second attempt leaves nothing behind |
+| 2, payment failure | behaviour, fake | one failed attempt, no provider reference, no seat, the roster stays empty |
 | 3, capacity boundary | behaviour, fake | 4 confirmed with seats 1 to 4, the fifth parent in refund_required |
 | 4, one free seat | proof, real | 10 parallel confirms, exactly 1 confirmed, 9 in refund_required |
 | 5, empty four seat class | proof, real | 20 parallel confirms, exactly 4 confirmed, seats 1 to 4, no gaps and no repeats |
+| 9, idempotent replay | behaviour, fake | one payment_attempts row, one charge, both calls answer identically |
+| one key under load | proof, real | 10 parallel calls with one key, one row, nine replays, uq_payment_idempotency holding |
 
 Simulation 5 also proves that `uq_seat_taken` never fired: every loser ends in
 `refund_required`, and a unique violation would have rolled its transaction back
