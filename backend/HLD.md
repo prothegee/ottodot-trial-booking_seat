@@ -54,7 +54,7 @@ flowchart TD
 | auth | tokens, rotation, reuse detection, the role check | phase 5 |
 | roster | confirmed bookings for a class, for a teacher | phase 6 |
 | worker | expiring lapsed holds, reconciling refunds | phase 4 |
-| payment | a mock provider behind the interface a real one would have | phase 3 |
+| payment | the charge: a deterministic provider behind the interface a real one would have, and one attempt per idempotency key | built |
 
 <br>
 
@@ -177,6 +177,7 @@ The interfaces exist so the fast tiers have something to run against.
 | interface | real | fake |
 | :- | :- | :- |
 | `booking.Repository` | `PostgresRepository` | `MemoryRepository`, invariants under a mutex |
+| `payment.Repository` | `PostgresRepository` | `MemoryRepository`, one attempt per key under a mutex |
 | `queue.Queue` | postgres | in memory |
 | `ratelimit.Limiter` | redis | in memory |
 | `cache.Store` | redis | in memory |
