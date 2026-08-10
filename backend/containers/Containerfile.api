@@ -1,0 +1,37 @@
+# ---------------------------------------------------------------------------- #
+# The api binary, port 9000.
+#
+# Build context is the backend directory:
+#   podman build -f containers/Containerfile.api -t ottodot-api ./backend
+#
+# Two stages so the shipped image carries the binary and nothing else. No shell,
+# no package manager, no source.
+# ---------------------------------------------------------------------------- #
+
+FROM docker.io/library/golang:1.26-alpine AS build
+
+WORKDIR /src
+
+# Dependencies resolve before the source is copied, so an edit to a Go file does
+# not re-download the module cache.
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+ARG BUILD_VERSION=dev
+ARG BUILD_COMMIT=unknown
+
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -ldflags "-s -w -X main.buildVersion=${BUILD_VERSION} -X main.buildCommit=${BUILD_COMMIT}" \
+    -o /out/api ./cmd/api
+
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY --from=build /out/api /api
+
+EXPOSE 9000
+USER nonroot:nonroot
+
+ENTRYPOINT ["/api"]
