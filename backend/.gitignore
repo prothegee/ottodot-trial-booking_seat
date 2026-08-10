@@ -1,0 +1,24 @@
+##
+## directory: container data volume, one subdirectory per container
+##
+/.data
+
+##
+## directory: build output
+##
+/bin
+/dist
+
+##
+## file: go build and test artifacts
+##
+*.test
+*.prof
+coverage.out
+coverage.html
+
+##
+## file: local environment
+##
+.env
+.env.*
