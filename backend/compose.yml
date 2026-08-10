@@ -105,6 +105,38 @@ services:
     networks:
       - ottodot-backend
 
+  worker:
+    build:
+      context: .
+      dockerfile: containers/Containerfile.worker
+      args:
+        BUILD_VERSION: ${BUILD_VERSION:-dev}
+        BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
+    image: ottodot-worker:${BUILD_VERSION:-dev}
+    container_name: ottodot-worker
+    restart: unless-stopped
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      postgres-replica:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      # Both pools are opened at startup, so both addresses are named even
+      # though every decision a worker makes reads the primary.
+      DATABASE_PRIMARY_URL: postgres://${POSTGRES_USER:-ottodot}:${POSTGRES_PASSWORD:-ottodot_development}@postgres-primary:5432/${POSTGRES_DB:-ottodot}?sslmode=disable
+      DATABASE_REPLICA_URL: postgres://${POSTGRES_USER:-ottodot}:${POSTGRES_PASSWORD:-ottodot_development}@postgres-replica:5432/${POSTGRES_DB:-ottodot}?sslmode=disable
+      REDIS_ADDRESS: redis:6379
+      WORKER_METRICS_PORT: "9002"
+      WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-5s}
+    # The process binds every interface inside its own container, and this line
+    # is where the loopback rule is enforced: the port is reachable from this
+    # machine and from nowhere else.
+    ports:
+      - "127.0.0.1:9002:9002"
+    networks:
+      - ottodot-backend
+
 networks:
   ottodot-backend:
     name: ottodot-backend
