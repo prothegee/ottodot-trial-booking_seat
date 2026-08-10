@@ -16,6 +16,16 @@
 .zig-out
 .zig-pkg
 
+##
+## directory: container data volume, one per stack that has state
+##
+## Each stack keeps its own, i.e. backend/.data, so these patterns are matched
+## at any depth on purpose. They are the safety net, the rule itself lives in
+## each stack's own ignore file.
+##
+.data
+data
+
 bin
 tmp
 out

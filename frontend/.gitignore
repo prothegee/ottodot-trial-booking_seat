@@ -1,0 +1,29 @@
+##
+## directory: dependencies and build output
+##
+/node_modules
+/.svelte-kit
+/build
+/.vite
+
+##
+## directory: source that a broader rule would otherwise swallow
+##
+## The repository root ignores any directory named `cache` at any depth, which
+## is aimed at build caches. `src/lib/cache` is source code, so it is put back
+## here. A rule in this file wins over the root one for paths under this stack.
+##
+!/src/lib/cache/
+
+##
+## file: tooling state
+##
+*.tsbuildinfo
+vite.config.ts.timestamp-*
+npm-debug.log*
+
+##
+## file: local environment
+##
+.env
+.env.*

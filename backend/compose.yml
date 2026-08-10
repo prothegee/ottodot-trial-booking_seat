@@ -1,0 +1,110 @@
+# ---------------------------------------------------------------------------- #
+# The backend stack.
+#
+# This file names only what the backend owns: its databases, its cache, its own
+# processes, and the monitoring that scrapes them. Nothing here reaches into
+# another stack, and no path in it leaves this directory. That is what lets this
+# stack be lifted out and deployed on its own.
+#
+# Brought up on its own with:
+#   podman compose --file backend/compose.yml up --detach
+#
+# Or together with the other stack through scripts/stack_up.sh, which is the
+# only place allowed to act across both.
+#
+# State lives in bind mounts under backend/.data/, one directory per container,
+# so a wipe is one visible path and a named volume never hides anything.
+#
+# Every container mounts the parent of its data directory rather than the data
+# directory itself, and creates the real one inside as its own user. That is
+# what keeps this file working under rootful Docker and rootless Podman, where a
+# container user maps to a different host user in each case. Postgres 18 already
+# expects that shape: its declared volume is /var/lib/postgresql while the real
+# data directory is a version stamped path inside it, so PGDATA is left at the
+# image default here rather than overridden.
+#
+# Passwords here are development defaults. Every one of them reads from the
+# environment first, and how-to.md says plainly that this posture is local only.
+# ---------------------------------------------------------------------------- #
+
+name: ottodot-backend
+
+services:
+  postgres-primary:
+    image: docker.io/library/postgres:18-alpine
+    container_name: ottodot-postgres-primary
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ottodot}
+      POSTGRES_USER: ${POSTGRES_USER:-ottodot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ottodot_development}
+      POSTGRES_REPLICATION_USER: ${POSTGRES_REPLICATION_USER:-ottodot_replication}
+      POSTGRES_REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD:-ottodot_replication_development}
+      POSTGRES_REPLICATION_SLOT: ${POSTGRES_REPLICATION_SLOT:-ottodot_replica}
+      OTTODOT_CONFIG_DIR: /etc/ottodot/postgresql
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    user: postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - ./.data/postgres-primary:/var/lib/postgresql
+      - ./containers/postgresql/primary/postgresql.conf:/etc/ottodot/postgresql/postgresql.conf:ro
+      - ./containers/postgresql/primary/pg_hba.conf:/etc/ottodot/postgresql/pg_hba.conf:ro
+      - ./containers/postgresql/primary/init-primary.sh:/docker-entrypoint-initdb.d/init-primary.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username $${POSTGRES_USER} --dbname $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - ottodot-backend
+
+  postgres-replica:
+    image: docker.io/library/postgres:18-alpine
+    container_name: ottodot-postgres-replica
+    restart: unless-stopped
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    environment:
+      POSTGRES_PRIMARY_HOST: postgres-primary
+      POSTGRES_PRIMARY_PORT: "5432"
+      POSTGRES_REPLICATION_USER: ${POSTGRES_REPLICATION_USER:-ottodot_replication}
+      POSTGRES_REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD:-ottodot_replication_development}
+      POSTGRES_REPLICATION_SLOT: ${POSTGRES_REPLICATION_SLOT:-ottodot_replica}
+    user: postgres
+    entrypoint: ["/usr/local/bin/init-replica.sh"]
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - ./.data/postgres-replica:/var/lib/postgresql
+      - ./containers/postgresql/replica/init-replica.sh:/usr/local/bin/init-replica.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --quiet"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks:
+      - ottodot-backend
+
+  redis:
+    image: docker.io/library/redis:8-alpine
+    container_name: ottodot-redis
+    restart: unless-stopped
+    command: ["redis-server", "/etc/ottodot/redis.conf"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - ./.data/redis:/data
+      - ./containers/redis/redis.conf:/etc/ottodot/redis.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ottodot-backend
+
+networks:
+  ottodot-backend:
+    name: ottodot-backend
