@@ -17,15 +17,18 @@ The badges go green once the workflows are added, which is the last phase.
 
 ## State
 
-Phases 1 and 2 are done. Progress is tracked in `phase-track.md`.
+Phases run in order and land as each one finishes, one commit per file, so the
+history reads as small reviewable steps rather than one bulk drop. Phases 1, 2,
+and 3 are done. Progress is tracked in `phase-track.md`.
 
 | exists | not yet |
 | :- | :- |
-| the schema, its four unique indexes, and seed data | the http api on 9000, phase 6 |
-| configuration, with secrets that mask themselves | the payment provider, phase 3 |
-| separate primary and replica connection pools | the job queue and the worker, phase 4 |
-| the booking core: hold, confirm, cancel, the audit trail | authentication, phase 5 |
-| the last-seat race proven against real Postgres | monitoring and fault injection, phase 7 |
+| the schema, its four unique indexes, and seed data | the http api and the roster on 9000, phase 6 |
+| configuration, with secrets that mask themselves | the job queue and the worker, phase 4 |
+| separate primary and replica connection pools | authentication, phase 5 |
+| the booking core: hold, confirm, cancel, the audit trail | monitoring and fault injection, phase 7 |
+| the payment path: a deterministic provider, one charge per idempotency key | the continuous integration workflows, phase 9 |
+| the last-seat race proven against real Postgres | a real payment provider, out of scope by design |
 
 <br>
 
@@ -48,6 +51,7 @@ backend
 |   |___/config                            (every port and secret, from the environment)
 |   |___/database                          (primary and replica pools, no queries)
 |   |___/identifier                        (the only place an id is minted)
+|   |___/payment                           (the charge, and nothing about seats)
 |
 |___/migrations
 |   |___0001_schema.sql

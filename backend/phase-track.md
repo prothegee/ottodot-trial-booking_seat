@@ -4,6 +4,10 @@ Go api and worker for the trial booking service. This file tracks build progress
 for this stack only. A box is ticked when the work is done and its tests pass.
 Design reasoning lives in `ADR.md`, `HLD.md`, and `LLD.md`.
 
+Phases run in order and each closes before the next opens. Work lands as it
+finishes, a branch and a pull request per phase and a commit per file, so the
+list below reads in the same order as the history.
+
 ## Phase 1: foundation
 
 - [x] `0001_schema.sql` with enums, tables, and the four unique indexes
@@ -43,12 +47,24 @@ Design reasoning lives in `ADR.md`, `HLD.md`, and `LLD.md`.
 
 ## Phase 3: payment
 
-- [ ] `internal/payment/provider.go` interface
-- [ ] `internal/payment/provider_mock.go` with deterministic outcomes
-- [ ] `internal/payment/attempt.go`
-- [ ] edge tests: zero and negative amounts, malformed idempotency key
-- [ ] simulation 2: payment failure never reaches the roster
-- [ ] simulation 9: idempotent payment replay
+- [x] `internal/payment/provider.go` interface
+- [x] `internal/payment/provider_mock.go` with deterministic outcomes
+- [x] `internal/payment/attempt.go`
+- [x] `internal/payment/amount.go`, the money rules, and `idempotency.go`, the key rules
+- [x] `internal/payment/errors.go`, the typed failures the http layer will map
+- [x] `internal/payment/repository.go`, `repository_postgres.go`, `repository_memory.go`
+- [x] `internal/payment/service.go`, validate then open then charge then settle
+- [x] edge tests: zero and negative amounts, malformed idempotency key
+- [x] contract suite pointable at either repository
+- [x] simulation 2: payment failure never reaches the roster
+- [x] simulation 9: idempotent payment replay
+- [x] test: parallel calls with one key produce one row, proof tier
+
+The repository was not in the plan's list for this phase. It is here because
+simulations 2 and 9 assert persisted state, one `payment_attempts` row and the
+`uq_payment_idempotency` index holding, and neither can be shown without a
+storage seam. It follows the same shape the booking package uses: an interface,
+a fake, a Postgres implementation, and one contract suite pointed at both.
 
 ## Phase 4: queue and worker
 

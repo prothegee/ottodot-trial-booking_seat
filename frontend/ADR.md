@@ -131,8 +131,8 @@ signed-out screen ends up still showing the previous parent's children.
 
 **Status:** accepted, phase 2
 
-**Context.** The internal cache will write entries. Removing them key by key
-means remembering to add each new key to the sign-out path.
+**Context.** The internal cache writes entries. Removing them key by key means
+remembering to add each new key to the sign-out path.
 
 **Decision.** `sessionStorage.clear()`.
 
@@ -140,6 +140,10 @@ means remembering to add each new key to the sign-out path.
 this client is the only writer. A key added in a later phase is covered without
 anyone remembering, and a stale entry surviving a sign out is exactly what would
 leak between two parents on a shared machine.
+
+The in-memory half of the cache is emptied alongside it, in the same function.
+Clearing storage on its own would leave the previous parent's class list in a
+map that outlives the sign out, because nothing reloads the page.
 
 <br>
 
@@ -229,22 +233,29 @@ in its own test rather than read from the implementation.
 
 In exchange the whole suite runs in about two seconds, and a test can assert
 that no request was sent at all, which is the only way to prove the fresh-cache
-case in the next phase.
+case in simulation F12.
 
 <br>
 
 ## ADR-F013: A three tier client cache backed by session storage
 
-**Status:** planned, phase 3
+**Status:** accepted, phase 3
 
 **Context.** A repeat class-list view should not cost a database read.
 
 **Decision.** Fresh for five seconds, served from memory with no request at all.
 Stale to thirty seconds, rendered at once and revalidated in the background with
-`If-None-Match`. Cold after that.
+`If-None-Match`. Cold after that. Both boundaries are exclusive at the low end,
+so exactly five seconds is stale and exactly thirty is cold.
+
+Only the class list and a single class are held. Booking status, payment, the
+roster, auth, and admin are never cached, because each of them either decides
+something or is specific to one parent.
 
 **Consequences.** Invalidation has to be wired into every mutation and into sign
-out. This is safe only because of ADR-F003: everything cacheable is advisory.
+out. This is safe only because of ADR-F003: everything cacheable is advisory. A
+count that came out of this cache still cannot refuse a booking, and every screen
+still handles a rejection that contradicts it.
 
 <br>
 
@@ -277,3 +288,32 @@ explanation.
 **Consequences.** The screens read plainly until then. The one exception is the
 pair that appears in the video, payment failure and duplicate booking, which
 have to be legible on a recording.
+
+<br>
+
+## ADR-F016: A mutation ages a cache entry rather than deleting it
+
+**Status:** accepted, phase 3
+
+**Context.** A successful booking or payment makes every seat count on screen
+untrue. The obvious answer is to delete the cached class list. Deleting it also
+throws away the ETag, and the tag is the cheapest thing in the cache.
+
+**Decision.** A successful mutation marks every entry cold, keeping its body and
+its tag. A cold entry is never rendered before the api has answered, so nothing
+stale can reach a parent, and the revalidation that follows still carries
+`If-None-Match`.
+
+A hard sign out is the opposite case and deletes everything, in memory and in
+session storage, because there the whole point is that nothing is left behind.
+
+**Alternatives rejected.** Deleting on a mutation, which costs a full response
+body on the next view even when the mutation moved a different class.
+Invalidating one chosen key, which needs the mutation to know which class it
+touched and drops the same set anyway, since this cache holds nothing but class
+data.
+
+**Consequences.** Two words that sound alike mean different things in this
+codebase, so both are stated where they are used: `invalidate` ages an entry and
+`clear` removes it. In exchange a mutation that did not move a given list costs
+one 304 rather than one full body.

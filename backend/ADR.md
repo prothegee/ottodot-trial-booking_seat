@@ -371,3 +371,65 @@ exchange the demo needs one command rather than a rebuild, and the alert is
 shown arriving rather than described.
 
 The startup guard is already enforced and tested in the configuration loader.
+
+<br>
+
+## ADR-020: The payment provider is a deterministic mock behind one interface
+
+**Status:** accepted, phase 3
+
+**Context.** The brief needs a payment step and no real provider is in scope. A
+mock that fails at random would make a failing test a coin toss and a recorded
+demonstration a matter of luck.
+
+**Decision.** One `payment.Provider` interface with the shape a real provider
+has, and one mock behind it that decides from the request alone. The rule is the
+last two digits of the amount: ending in 01 is declined, ending in 02 is a
+provider that cannot be reached, everything else settles. A reference can also
+be pinned to an outcome when a seeded price is fixed.
+
+The three answers are kept apart on purpose:
+
+| answer | money | what the booking does |
+| :- | :- | :- |
+| settled | moved | the confirm transaction runs next |
+| declined | did not move | the booking may go to payment_failed, nothing to refund |
+| provider error | nobody knows | the booking keeps the status it had |
+
+**Consequences.** A reviewer forces any of the three with a number instead of an
+account, and the same input gives the same answer every time. Swapping in a real
+provider touches one file. The provider error path stays reachable and named,
+which is the seam phase 7 arms as `payment.provider_error`.
+
+<br>
+
+## ADR-021: A replayed idempotency key returns the first answer, and never charges again
+
+**Status:** accepted, phase 3
+
+**Context.** A parent on a slow connection presses pay twice, or a client
+retries a request whose response was lost. Charging twice is the failure that
+matters most here, because it takes money and nobody notices until a statement
+arrives.
+
+**Decision.** The attempt row is written before the provider is called, under
+the `uq_payment_idempotency` index on `(booking_id, idempotency_key)`. A second
+call with the same key finds that row and returns its stored answer, so both
+calls read identically and the provider is asked once.
+
+Three cases follow from it, and each is answered rather than assumed:
+
+| the stored attempt is | the replay returns |
+| :- | :- |
+| succeeded | the same settled attempt, no error |
+| failed | the same failed attempt and `ErrDeclined` |
+| still initiated | `ErrAttemptPending`, because nobody knows whether money moved |
+
+A key already used for a different amount is refused with
+`ErrIdempotencyConflict` rather than replayed, since replaying an answer that
+belongs to another charge would be a lie.
+
+**Consequences.** An attempt whose first call died mid-flight needs something
+outside the request path to resolve it, and that is reconciliation work the
+worker already exists for. The alternative, charging again on a replay, is the
+one outcome this whole design refuses.

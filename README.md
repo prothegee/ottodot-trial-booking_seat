@@ -18,25 +18,47 @@ last phase of this build.
 ## Current State
 
 This repository is built in phases and this document is kept honest about which
-of them exist. Two of nine phases are finished on each stack.
+of them exist. Three of nine phases are finished on each stack.
 
 | stack | done | next |
 | :- | :- | :- |
-| backend | phase 1 foundation, phase 2 booking core | phase 3 payment |
-| frontend | phase 1 scaffold, phase 2 api client and auth | phase 3 internal cache |
+| backend | phase 1 foundation, phase 2 booking core, phase 3 payment | phase 4 queue and worker |
+| frontend | phase 1 scaffold, phase 2 api client and auth, phase 3 internal cache | phase 4 booking flow |
 
 What that means in practice today:
 
 | works now | not built yet |
 | :- | :- |
 | the schema, its four unique indexes, and seed data | the http api on port 9000 |
-| the booking core: hold, confirm, cancel, and the last-seat transaction | the payment provider and the worker |
-| the last-seat race proven against real Postgres | authentication endpoints |
-| the client api layer, its auth store, and the sign-in screen | the class list, booking, and payment screens |
-| both stacks starting, and both test suites | monitoring, and the video walkthrough |
+| the booking core: hold, confirm, cancel, and the last-seat transaction | the job queue and the worker |
+| the payment path: a deterministic provider, and one charge per idempotency key | authentication endpoints |
+| the last-seat race proven against real Postgres | the class list, booking, and payment screens |
+| the client api layer, its auth store, and the sign-in screen | monitoring, and the video walkthrough |
+| the client cache: three tiers, with conditional revalidation | the continuous integration workflows |
 
 Progress is tracked per stack in `backend/phase-track.md` and
 `frontend/phase-track.md`.
+
+<br>
+
+## How This Was Built
+
+Phase by phase, in order, committed as each piece landed. Nothing here was
+written to completion in private and then dropped in as one large change.
+
+- A phase closes before the next one opens: foundation, then the booking core,
+  then payment, and so on.
+- Each phase is its own branch and its own pull request.
+- Inside a phase each file gets its own commit, and the message describes that
+  file's change and nothing else.
+
+This is aimed at whoever reviews it. A one-file diff in build order can be read,
+questioned, and disagreed with in a minute. A single commit carrying a whole
+slice can only be taken or left, which is not review.
+
+It also means the plan and the history can be read against each other: the two
+`phase-track.md` files list every phase with its checkboxes, in the same order
+the commits arrive.
 
 <br>
 
@@ -256,7 +278,7 @@ the one path where a failure means a seat may have been sold twice.
 
 | next | why it matters |
 | :- | :- |
-| finish phases 3 to 9 | payment, the worker, authentication, the http surface, monitoring, and the documentation that goes with them |
+| finish phases 4 to 9 | the worker, authentication, the http surface, monitoring, and the documentation that goes with them |
 | a roster export an operator can hand to a teacher | the brief asks for a roster, and a screen is not the form a teacher wants it in |
 | replication lag as a first class signal | the client already treats advisory reads as advisory, but nothing yet shows how far behind the replica is |
 | load behaviour beyond four seats | the lock is per class, which is fine here, and worth measuring before a class type with a larger capacity exists |

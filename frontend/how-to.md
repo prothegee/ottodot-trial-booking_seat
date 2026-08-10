@@ -179,7 +179,6 @@ sign out asks to leave, not how the framework gets there.
 
 | screen or feature | phase |
 | :- | :- |
-| the internal cache and conditional requests | 3 |
 | the class list and the booking screen | 4 |
 | the payment screen, the countdown, booking status | 5 |
 | honeypot, fill timer, captcha | 6 |
