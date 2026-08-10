@@ -317,3 +317,104 @@ data.
 codebase, so both are stated where they are used: `invalidate` ages an entry and
 `clear` removes it. In exchange a mutation that did not move a given list costs
 one 304 rather than one full body.
+
+
+<br>
+
+## ADR-F017: One idempotency key covers one attempt, both calls included
+
+**Status:** accepted, phase 4
+
+**Context.** A booking is two calls: hold a place, then pay for it. Either can
+be retried by a parent on a slow connection or by a client whose response was
+lost. Charging twice is the failure that matters most, because it takes money
+and nobody notices until a statement arrives.
+
+**Decision.** One key is minted when a parent submits a booking and it is sent
+on both calls. The key belongs to the attempt, so it lives in the booking store
+rather than in either call.
+
+A new attempt mints a new key. A decline is a finished attempt, so paying again
+is a new one, and reusing the key there would replay the decline for as long as
+the parent kept trying. See ADR-F014 for the case that goes the other way: an
+unknown outcome is the same attempt still unresolved, and it keeps its key.
+
+**Consequences.** The key has to be unguessable rather than merely unique. The
+backend honours a matching key as a promise that two calls are the same call, so
+a predictable key would let one parent's retry collide with another's attempt.
+`crypto.randomUUID` is the source, with a fallback over the same random source
+rather than a timestamp or a counter, both of which are guessable.
+
+Phase 6 moves the lifecycle into the api client, so a header is attached without
+every caller remembering. The minting stays in one file either way.
+
+<br>
+
+## ADR-F018: A refusal that names a seat count invalidates the cached list
+
+**Status:** accepted, phase 4
+
+**Context.** ADR-F016 says a successful mutation ages every cache entry and a
+failed one ages nothing, because a failure usually says nothing about seats.
+Two failures are not like that. `class_full` is the api saying the class has no
+room, and `seat_lost` is it saying the last seat went to somebody else. Both
+arrive on the failure path and both are news about the count on screen.
+
+Without acting on them, a parent refused for a full class goes back to a list
+that still shows them a seat, because the entry is fresh and nothing asked
+again. That is the exact contradiction this client exists to avoid.
+
+**Decision.** The booking store ages every entry when a refusal is one of those
+two kinds, and leaves the cache alone for every other failure. The set is a
+named constant so a reader can see which two and check why.
+
+**Consequences.** The rule lives in the store rather than in the mutation layer,
+because the mutation layer is deliberately ignorant of what a failure means and
+knowing would make it depend on the error vocabulary. The cost is one line in
+one store, and the alternative was a screen remembering to refetch, which is the
+kind of thing that gets forgotten on the fourth screen.
+
+<br>
+
+## ADR-F019: A count on screen never disables the way forward
+
+**Status:** accepted, phase 4
+
+**Context.** A class showing no seats could hide its booking button, grey it
+out, or leave it alone. All three look reasonable and only one of them is
+consistent with the rest of this client.
+
+**Decision.** A full class shows no link and says plainly that no seats are
+showing. A class with any seats left is bookable, including the last one.
+Nothing on a screen refuses a request on the strength of a cached number, and
+the api is what says no.
+
+**Consequences.** A count that is a moment out of date costs a parent one
+refusal with a sentence they can act on, which is the trade this whole design
+already makes. A disabled button would be the worse failure: it looks like the
+system deciding, and it is really a cached number deciding.
+
+The boundary is asserted in both directions. One seat left is bookable, because
+off by one there would hide the last seat from everybody, and that last seat is
+what the whole exercise is about.
+
+<br>
+
+## ADR-F020: A store the parent's data lives in resets when the session ends
+
+**Status:** accepted, phase 4
+
+**Context.** A hard sign out drops the auth store, empties the cache, and clears
+session storage. The booking store was not on that list, and it holds a booking
+identifier and the child it is for. On a shared machine the next parent to sign
+in on the same tab would find both still there.
+
+**Decision.** The wired singletons watch the auth store and reset themselves
+when the session becomes null. A store a test builds does not, so a test keeps
+whatever it put in.
+
+**Consequences.** The reset cannot be called from `session/sign_out.ts`, because
+that would close a cycle: sign out would import the store, the store imports the
+mutator, the mutator imports the api client, and the api client reports a hard
+sign out. Watching the auth store is the same effect with the arrows pointing
+one way, and it is why `session/cache.ts` was kept import-free in phase 3.
