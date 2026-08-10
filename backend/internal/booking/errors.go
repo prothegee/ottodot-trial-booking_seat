@@ -47,6 +47,12 @@ var (
 	// booking someone cancelled, and a double confirm.
 	ErrNotHolding = errors.New("booking: this booking is not holding a place")
 
+	// ErrHoldStillLive means the deadline has not passed, so there is nothing
+	// to expire yet. It exists to stop the worker taking a seat away from a
+	// parent who is still on the payment screen, which is the one mistake a
+	// hold expiry job must never make.
+	ErrHoldStillLive = errors.New("booking: this hold has not run out yet")
+
 	// ErrInvalidTransition means the move is not in the state machine.
 	ErrInvalidTransition = errors.New("booking: that status change is not allowed")
 )

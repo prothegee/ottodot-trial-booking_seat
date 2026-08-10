@@ -373,6 +373,54 @@ func (repository *PostgresRepository) Cancel(ctx context.Context, request Cancel
 	return withdrawn, nil
 }
 
+// Expire releases a hold whose deadline has passed, which is what puts the seat
+// behind a parent who walked away back in front of everyone else.
+//
+// The row is locked before the deadline is read, so two workers that both got
+// the job cannot both write the transition. The second one finds the booking is
+// no longer pending_payment and is told so.
+func (repository *PostgresRepository) Expire(ctx context.Context, request ExpireRequest) (Booking, error) {
+	transaction, err := repository.pool.Begin(ctx)
+	if err != nil {
+		return Booking{}, fmt.Errorf("cannot open the expiry transaction: %w", translate(err, nil))
+	}
+
+	defer transaction.Rollback(ctx)
+
+	stored, err := scanBooking(transaction.QueryRow(ctx,
+		`select `+bookingColumns+` from bookings where id = $1 for update`, request.BookingID))
+	if err != nil {
+		return Booking{}, translate(err, ErrBookingNotFound)
+	}
+
+	if stored.Status != StatusPendingPayment {
+		return stored, ErrNotHolding
+	}
+
+	if HoldIsLive(stored.HoldExpiresAt, request.Now) {
+		return stored, ErrHoldStillLive
+	}
+
+	lapsed, err := scanBooking(transaction.QueryRow(ctx, `
+		update bookings
+		set status = 'expired', hold_expires_at = null, updated_at = $2
+		where id = $1
+		returning `+bookingColumns, request.BookingID, request.Now))
+	if err != nil {
+		return Booking{}, translate(err, nil)
+	}
+
+	if err := recordEvent(ctx, transaction, lapsed.ID, stored.Status, StatusExpired, ActorSystem, "hold deadline passed", request.Now); err != nil {
+		return Booking{}, err
+	}
+
+	if err := transaction.Commit(ctx); err != nil {
+		return Booking{}, fmt.Errorf("the expiry could not be committed: %w", translate(err, nil))
+	}
+
+	return lapsed, nil
+}
+
 // settleSeatLost writes the outcome for a parent whose payment settled after
 // the last seat was gone, and commits it before reporting the failure.
 func (repository *PostgresRepository) settleSeatLost(ctx context.Context, transaction pgx.Tx, stored Booking, now time.Time) (Booking, error) {

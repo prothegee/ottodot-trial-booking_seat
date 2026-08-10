@@ -165,6 +165,33 @@ func (service *Service) Cancel(ctx context.Context, bookingID string, actor Acto
 	})
 }
 
+// Expire releases a hold whose deadline has passed.
+//
+// Note:
+//   - this is the worker's method, not a request path. Nothing a parent does
+//     reaches it, which is why it takes no actor: the only thing that expires a
+//     hold is time, and the audit trail records the system as the cause.
+//
+// Param:
+// bookingID - string (which booking)
+//
+// Return:
+//   - the expired booking, with its deadline cleared
+//   - ErrHoldStillLive when the deadline has not passed, so a job that ran
+//     early takes nothing away from a parent still on the payment screen
+//   - ErrNotHolding when the booking already moved on, which is the ordinary
+//     answer for a job that arrives after the parent paid
+func (service *Service) Expire(ctx context.Context, bookingID string) (Booking, error) {
+	if bookingID == "" {
+		return Booking{}, ErrInvalidRequest
+	}
+
+	return service.repository.Expire(ctx, ExpireRequest{
+		BookingID: bookingID,
+		Now:       service.settings.Clock(),
+	})
+}
+
 // Booking reads one booking.
 func (service *Service) Booking(ctx context.Context, bookingID string) (Booking, error) {
 	if bookingID == "" {

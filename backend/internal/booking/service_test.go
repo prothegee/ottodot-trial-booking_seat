@@ -15,6 +15,7 @@ type spyRepository struct {
 	holds    []booking.HoldRequest
 	confirms []booking.ConfirmRequest
 	cancels  []booking.CancelRequest
+	expiries []booking.ExpireRequest
 	seats    []int16
 	class    booking.Class
 }
@@ -51,6 +52,12 @@ func (spy *spyRepository) Cancel(_ context.Context, request booking.CancelReques
 	spy.cancels = append(spy.cancels, request)
 
 	return booking.Booking{ID: request.BookingID, Status: booking.StatusCancelled}, nil
+}
+
+func (spy *spyRepository) Expire(_ context.Context, request booking.ExpireRequest) (booking.Booking, error) {
+	spy.expiries = append(spy.expiries, request)
+
+	return booking.Booking{ID: request.BookingID, Status: booking.StatusExpired}, nil
 }
 
 // settingsAt builds settings with the clock pinned, so a deadline assertion is
@@ -256,6 +263,49 @@ func TestAnIncompleteRequestNeverReachesStorage(t *testing.T) {
 
 		if len(spy.cancels) != 0 {
 			t.Fatal("an empty identifier must not reach the repository")
+		}
+	})
+
+	t.Run("edge: expiring nothing is refused before storage is touched", func(t *testing.T) {
+		spy := &spyRepository{}
+
+		service, err := booking.NewService(spy, settingsAt(contractMoment))
+		if err != nil {
+			t.Fatalf("expected the service to build, got: %v", err)
+		}
+
+		if _, err := service.Expire(context.Background(), ""); !errors.Is(err, booking.ErrInvalidRequest) {
+			t.Fatalf("expected ErrInvalidRequest, got: %v", err)
+		}
+
+		if len(spy.expiries) != 0 {
+			t.Fatal("an empty identifier must not reach the repository")
+		}
+	})
+}
+
+func TestAnExpiryIsJudgedAgainstTheServiceClock(t *testing.T) {
+	t.Run("unit: the instant handed to the repository is the service clock", func(t *testing.T) {
+		// The worker never passes an instant of its own. If it did, a job
+		// written an hour ago could be judged against an hour-old clock and
+		// expire a hold that was refreshed since.
+		spy := &spyRepository{}
+
+		service, err := booking.NewService(spy, settingsAt(contractMoment))
+		if err != nil {
+			t.Fatalf("expected the service to build, got: %v", err)
+		}
+
+		if _, err := service.Expire(context.Background(), unknownIdentifier); err != nil {
+			t.Fatalf("expected the expiry to be passed on, got: %v", err)
+		}
+
+		if len(spy.expiries) != 1 {
+			t.Fatalf("expected exactly one request, got %d", len(spy.expiries))
+		}
+
+		if !spy.expiries[0].Now.Equal(contractMoment) {
+			t.Fatalf("expected the pinned clock, got %v", spy.expiries[0].Now)
 		}
 	})
 }
