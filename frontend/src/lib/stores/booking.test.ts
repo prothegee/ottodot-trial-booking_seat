@@ -5,7 +5,7 @@ import { ApiError } from "$lib/api/errors";
 import { idempotencyKeyHeader } from "$lib/api/idempotency";
 import type { TransportRequest } from "$lib/api/transport";
 import type { Booking } from "$lib/api/types";
-import { bookingsPath, createBookingStore, paymentPathFor } from "$lib/stores/booking";
+import { bookingPathFor, bookingsPath, createBookingStore, paymentPathFor } from "$lib/stores/booking";
 
 const classId = "0192a000-0000-7000-8000-000000000021";
 const studentId = "0192a000-0000-7000-8000-000000000011";
@@ -32,6 +32,29 @@ function stubMutator(answers: (unknown | Error)[]) {
 
         send<T>(request: TransportRequest): Promise<T> {
             sent.push(request);
+
+            const answer = answers[Math.min(call, answers.length - 1)];
+            call += 1;
+
+            if (answer instanceof Error) {
+                return Promise.reject(answer);
+            }
+
+            return Promise.resolve(answer as T);
+        },
+    };
+}
+
+/** A reader that answers from a script and records every request. */
+function stubReader(answers: (unknown | Error)[]) {
+    const sent: TransportRequest[] = [];
+    let call = 0;
+
+    return {
+        sent,
+
+        request<T>(outgoing: TransportRequest): Promise<T> {
+            sent.push(outgoing);
 
             const answer = answers[Math.min(call, answers.length - 1)];
             call += 1;
@@ -112,7 +135,8 @@ describe("the booking store", () => {
 
     test("edge: a new attempt after a decline gets a fresh key", async () => {
         // A decline is a finished attempt. Reusing the key would replay the
-        // decline for as long as the parent kept trying.
+        // decline for as long as the parent kept trying. The store mints the
+        // new key itself, so no screen can forget to.
         const mutator = stubMutator([
             heldBooking,
             new ApiError("PaymentDeclined", "payment_declined", 402),
@@ -122,13 +146,29 @@ describe("the booking store", () => {
 
         await booking.create({ student_id: studentId, class_id: classId });
         await booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
-
-        booking.startNewAttempt();
-
         await booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
 
         expect(mutator.sent[1].headers?.[idempotencyKeyHeader]).toBe("key-1");
         expect(mutator.sent[2].headers?.[idempotencyKeyHeader]).toBe("key-2");
+    });
+
+    test("edge: a retry after an internal_error reuses the original key", async () => {
+        // The opposite direction, and the reason the rule lives in the store.
+        // The call broke without an answer, so nothing here knows whether the
+        // charge went through. A fresh key would risk charging twice.
+        const mutator = stubMutator([
+            heldBooking,
+            new ApiError("Unavailable", "internal_error", 500, 0, "request-9"),
+            confirmedBooking,
+        ]);
+        const booking = createBookingStore({ mutator, newKey: countingKeys() });
+
+        await booking.create({ student_id: studentId, class_id: classId });
+        await booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+
+        expect(mutator.sent[1].headers?.[idempotencyKeyHeader]).toBe("key-1");
+        expect(mutator.sent[2].headers?.[idempotencyKeyHeader]).toBe("key-1");
     });
 
     test("edge: a decline keeps the booking, because the hold is still standing", async () => {
@@ -192,5 +232,59 @@ describe("the booking store", () => {
         await booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
 
         expect(mutator.sent[1].headers?.[idempotencyKeyHeader]).toBe("key-2");
+    });
+
+    test("integration: reading a booking back goes straight to the api, never the cache", async () => {
+        // A booking status is what decides. A cached answer is a screen telling
+        // a parent something that stopped being true two minutes ago.
+        const reader = stubReader([heldBooking]);
+        const booking = createBookingStore({ mutator: stubMutator([]), reader, newKey: countingKeys() });
+
+        const held = await booking.load(bookingId);
+
+        expect(held?.id).toBe(bookingId);
+        expect(reader.sent).toHaveLength(1);
+        expect(reader.sent[0].method).toBe("GET");
+        expect(reader.sent[0].path).toBe(bookingPathFor(bookingId));
+        expect(get(booking).booking?.status).toBe("pending_payment");
+    });
+
+    test("edge: reading never touches the attempt key", async () => {
+        // Reading is not attempting. A parent refreshing the payment screen
+        // must not be handed a fresh key for a charge that may be in flight.
+        const booking = createBookingStore({
+            mutator: stubMutator([heldBooking]),
+            reader: stubReader([heldBooking]),
+            newKey: countingKeys(),
+        });
+
+        await booking.create({ student_id: studentId, class_id: classId });
+        await booking.load(bookingId);
+
+        expect(get(booking).attemptKey).toBe("key-1");
+    });
+
+    test("edge: a booking that cannot be read leaves a sentence rather than a blank screen", async () => {
+        const reader = stubReader([new ApiError("Unavailable", "dependency_unavailable", 503)]);
+        const booking = createBookingStore({ mutator: stubMutator([]), reader, newKey: countingKeys() });
+
+        expect(await booking.load(bookingId)).toBeNull();
+        expect(get(booking).failure?.kind).toBe("Unavailable");
+        expect(get(booking).submitting).toBe(false);
+    });
+
+    test("unit: dismissing a failure clears the message without minting a key", async () => {
+        // Whether the next call is a new attempt or a retry was already decided
+        // when the failure arrived, so dismissing it must not decide again.
+        const mutator = stubMutator([heldBooking, new ApiError("Unavailable", "internal_error", 500)]);
+        const booking = createBookingStore({ mutator, newKey: countingKeys() });
+
+        await booking.create({ student_id: studentId, class_id: classId });
+        await booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+
+        booking.dismissFailure();
+
+        expect(get(booking).failure).toBeNull();
+        expect(get(booking).attemptKey).toBe("key-1");
     });
 });
