@@ -160,6 +160,21 @@ injection points themselves arrive with the monitoring phase.
 
 <br>
 
+## How The Work Was Sequenced
+
+The build is incremental and the order is deliberate. Phases run one after
+another and each closes before the next opens: foundation, then the booking
+core, then payment, and so on. Nothing was held back and delivered as one large
+change at the end.
+
+Each phase is its own branch and pull request, and inside a phase each file is
+its own commit. The reason is review: a one-file diff in build order can be read
+and argued with, while a single commit carrying the whole slice can only be
+taken or left. What is done and what is next sits in `backend/phase-track.md`
+and `frontend/phase-track.md`, in the same order the commits arrive.
+
+<br>
+
 ## Where To Go Next
 
 | document | contents |
