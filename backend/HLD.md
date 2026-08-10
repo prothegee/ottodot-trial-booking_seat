@@ -53,7 +53,7 @@ flowchart TD
 | api | the http surface, authentication, rate limiting, caching | phase 6 |
 | booking service | policy: hold lifetime, the per-parent hold cap, the clock | built |
 | booking repository | atomicity, and every invariant that has to hold under concurrency | built |
-| auth | tokens, rotation, reuse detection, the role check | phase 5 |
+| auth | tokens, rotation, reuse detection, the role check, the four auth routes | built |
 | roster | confirmed bookings for a class, for a teacher | phase 6 |
 | worker | expiring lapsed holds, reconciling refunds | built |
 | payment | the charge: a deterministic provider behind the interface a real one would have, and one attempt per idempotency key | built |
@@ -73,6 +73,9 @@ either unenforceable or unhelpful.
 | a replayed payment never charges twice | a unique index on booking and idempotency key | the same request arriving twice must produce one charge |
 | how long a hold lasts, how many a parent may have | the booking service | policy, not an invariant. It changes without touching the transaction |
 | who may act on this booking | api middleware | it needs the token, which the database does not have |
+| is this token still believed | api middleware, signature then denylist | the signature costs no database read, and the denylist is what makes a sign out real |
+| one refresh token is spent once | the rotation transaction, primary | a read followed by a write lets one stolen token become two sessions |
+| did this write come from our own page | api middleware, Origin check on mutations | cookies travel by themselves, so this is what a cookie session costs |
 | is the caller a person | api middleware | rate limit, honeypot, fill timer, captcha, all before the repository is touched |
 | seat counts on screen | the client, advisory only | stale by the time a parent clicks, and every screen handles the rejection |
 | expiring a lapsed hold | the worker | nothing on a request path should depend on a timer |
@@ -244,6 +247,87 @@ and proven, and the http layer in phase 6 is what enqueues `expire_hold` when a
 hold is granted and `reconcile_refund` when a confirm reports `ErrSeatLost`.
 Until then the simulations enqueue them, which is the same seam the handler will
 be called through.
+
+<br>
+
+## Authentication
+
+Two tokens, and they are different kinds of thing on purpose.
+
+The access token is a JWT. It is stored nowhere, and verifying it is a signature
+check and a clock comparison, so the hot path touches no database. That is the
+whole reason it was chosen over a session row.
+
+The refresh token is opaque and has a row, and only as a sha256 hash. It rotates
+on every use, so there is only ever one live link in a chain, and presenting a
+spent one is how a theft becomes visible.
+
+```mermaid
+sequenceDiagram
+    participant UI as Client
+    participant API as Go api
+    participant PG as Postgres primary
+    participant DL as Denylist
+
+    UI->>API: POST /api/v1/auth/login, seeded email
+    API->>PG: find the parent
+    API->>PG: store the sha256 of a new refresh token, new family
+    API-->>UI: HttpOnly cookies, access and refresh
+
+    UI->>API: any business call, cookies sent by the browser
+    API->>API: verify the signature and the expiry, no database read
+    API->>DL: has this jti been withdrawn
+    DL-->>API: no
+    API-->>UI: 200
+
+    Note over UI: the access token expires after fifteen minutes
+
+    UI->>API: POST /api/v1/auth/refresh
+    API->>PG: lock the row, revoke it, insert the successor
+    API-->>UI: new cookies
+```
+
+**What is in the token, and what is not.** Six claims: `sub`, `role`, `typ`,
+`jti`, `iat`, `exp`. No email, no name, no child, no class. A JWT payload is
+base64 rather than encryption, so anybody holding the token reads it, and the
+claim set is a closed struct with nowhere to put a seventh field. See ADR-028.
+
+**Why the role is in the token.** Reading it per request would put a database
+query back on the path this design took it off. It is refreshed from the
+directory on every rotation, so a changed role takes effect within one access
+token lifetime rather than at the next sign in.
+
+**Where each piece lives.**
+
+| file | owns |
+| :- | :- |
+| `claims.go` | what may be in a token, and what a valid claim set is |
+| `jwt.go` | signing and verifying, and refusing every algorithm but HS256 |
+| `token.go` | minting the opaque refresh token and reducing it to what is stored |
+| `store.go` and its two implementations | the refresh token lifecycle, rotation included |
+| `directory.go` and its two implementations | who exists: the sign in lookup and the session read |
+| `denylist.go` | which access tokens have been withdrawn before their expiry |
+| `refresh.go` | rotation, and counting reuse when the store reports it |
+| `service.go` | sign in, sign out, and the session read |
+| `cookie.go` | the two cookies, their flags, and their paths |
+| `middleware.go` | verify, check the denylist, check the role, check the origin |
+| `handler.go` | the four routes and their http shape |
+| `failure.go` | what each failure looks like on the wire |
+
+**Cost of using cookies.** The browser attaches them by itself, so a write
+another site starts would carry a real identity. Two things answer that:
+`SameSite=Strict`, which is a browser behaviour, and an Origin check on every
+mutation, which does not depend on the browser getting it right.
+
+**Sign out, and what it can and cannot do.** The `jti` goes on a denylist for
+exactly the token's remaining life, and the refresh family is revoked, so both
+halves of the session stop working. The denylist is per-process until Redis
+arrives in phase 6, which is written down in ADR-031 rather than left to be
+discovered.
+
+**Sign in is mocked, deliberately.** A seeded email, no password, because the
+brief asks for no auth. Everything around it is real, so a password or a
+provider later replaces one method.
 
 <br>
 
