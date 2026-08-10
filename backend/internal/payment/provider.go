@@ -24,6 +24,14 @@ type Provider interface {
 	// an error, and the booking must keep the status it had, because a charge
 	// may or may not have happened.
 	Charge(ctx context.Context, request ChargeRequest) (ChargeResult, error)
+
+	// Refund sends a settled charge back.
+	//
+	// It has two answers rather than three, and the missing one is deliberate:
+	// a provider does not decline a refund. Either the money went back, or the
+	// provider could not be reached and the caller must try again later. There
+	// is no business answer that means "no, keep it".
+	Refund(ctx context.Context, request RefundRequest) (RefundResult, error)
 }
 
 // Outcome is what the provider decided. It is kept alongside the error rather
@@ -93,4 +101,40 @@ type ChargeResult struct {
 	Outcome       Outcome
 	ProviderRef   string
 	FailureReason string
+}
+
+// RefundRequest names the charge that is being sent back.
+//
+// It carries the provider's own reference rather than the attempt id, because
+// the reference is the thing the provider knows about. An attempt with no
+// reference never settled, so there is nothing to refund and the request cannot
+// be built honestly.
+type RefundRequest struct {
+	// ProviderRef is what Charge returned when the money moved.
+	ProviderRef string
+
+	// Reference is the booking the refund is for, carried for the same reason
+	// Charge carries it: a provider shows it on a statement.
+	Reference string
+
+	Amount Amount
+
+	// IdempotencyKey is what stops a second call moving money twice.
+	//
+	// It matters more here than it does on a charge. A charge is guarded by
+	// uq_payment_idempotency, an index this service owns, and the key is the
+	// belt beside those braces. A refund has no row of its own and therefore no
+	// index, so this key is the only guard there is. It is derived from the
+	// attempt being reversed, so the same settled charge always produces the
+	// same key however many times the job runs.
+	IdempotencyKey string
+}
+
+// RefundResult is the provider's answer.
+//
+// RefundRef is the provider's identifier for the refund itself, which is a
+// different thing from the charge it reverses. An operator chasing a parent's
+// bank needs the refund reference, not the charge one.
+type RefundResult struct {
+	RefundRef string
 }
