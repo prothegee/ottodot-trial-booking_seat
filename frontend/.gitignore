@@ -1,6 +1,9 @@
 ##
 ## directory: dependencies and build output
 ##
+## Anchored to this stack, so they catch frontend/build and never a source
+## directory that happens to be called build.
+##
 /node_modules
 /.svelte-kit
 /build
@@ -9,11 +12,21 @@
 ##
 ## directory: source that a broader rule would otherwise swallow
 ##
-## The repository root ignores any directory named `cache` at any depth, which
-## is aimed at build caches. `src/lib/cache` is source code, so it is put back
-## here. A rule in this file wins over the root one for paths under this stack.
+## The repository root ignores bare directory names at any depth: cache, build,
+## data, out, log, logs, tmp, dist, bin, and target. Those are aimed at build
+## output, and a source directory is free to carry any of them. `src/lib/cache`
+## was the first one this caught, and naming it alone left the next one waiting.
 ##
-!/src/lib/cache/
+## The source trees are put back below. The patterns end in a slash so they
+## match directories only, which is exactly what is needed: a directory has to
+## be re-included before git will look inside it at all, and leaving files alone
+## keeps the tooling state below still ignored.
+##
+## A rule in this file wins over the root one for every path under this stack.
+##
+!/src/**/
+!/containers/**/
+!/scripts/**/
 
 ##
 ## file: tooling state

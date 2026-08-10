@@ -18,17 +18,19 @@ The badges go green once the workflows are added, which is the last phase.
 ## State
 
 Phases run in order and land as each one finishes, one commit per file, so the
-history reads as small reviewable steps rather than one bulk drop. Phases 1, 2,
-and 3 are done. Progress is tracked in `phase-track.md`.
+history reads as small reviewable steps rather than one bulk drop. Phases 1 to 4
+are done. Progress is tracked in `phase-track.md`.
 
 | exists | not yet |
 | :- | :- |
 | the schema, its four unique indexes, and seed data | the http api and the roster on 9000, phase 6 |
-| configuration, with secrets that mask themselves | the job queue and the worker, phase 4 |
-| separate primary and replica connection pools | authentication, phase 5 |
-| the booking core: hold, confirm, cancel, the audit trail | monitoring and fault injection, phase 7 |
-| the payment path: a deterministic provider, one charge per idempotency key | the continuous integration workflows, phase 9 |
-| the last-seat race proven against real Postgres | a real payment provider, out of scope by design |
+| configuration, with secrets that mask themselves | authentication, phase 5 |
+| separate primary and replica connection pools | monitoring and fault injection, phase 7 |
+| the booking core: hold, confirm, cancel, expire, the audit trail | the continuous integration workflows, phase 9 |
+| the payment path: a deterministic provider, one charge per idempotency key | a real payment provider, out of scope by design |
+| the job queue, and the worker that drains it on 9002 | |
+| the last-seat race proven against real Postgres | |
+| two workers proven never to claim one job | |
 
 <br>
 
@@ -46,12 +48,18 @@ backend
 |   |___Containerfile.api
 |   |___Containerfile.worker
 |
+|___/cmd
+|   |___/worker
+|       |___main.go                        (the queue consumer, metrics on 9002)
+|
 |___/internal
 |   |___/booking                           (the seat, and everything that decides it)
 |   |___/config                            (every port and secret, from the environment)
 |   |___/database                          (primary and replica pools, no queries)
 |   |___/identifier                        (the only place an id is minted)
 |   |___/payment                           (the charge, and nothing about seats)
+|   |___/queue                             (jobs, leases, and attempts. No domain at all)
+|   |___/worker                            (where the queue meets the domain)
 |
 |___/migrations
 |   |___0001_schema.sql
@@ -75,9 +83,8 @@ backend
 |___phase-track.md
 ```
 
-`cmd/api` and `cmd/worker` join in the phases that build them, and their compose
-services join with them. `compose.yml` never references a service that cannot
-start.
+`cmd/api` joins in the phase that builds it, and its compose service joins with
+it. `compose.yml` never references a service that cannot start.
 
 <br>
 
@@ -89,7 +96,7 @@ start.
 | 5433 | postgres replica | running |
 | 6379 | redis | running |
 | 9000 | api | phase 6 |
-| 9002 | worker metrics | phase 4 |
+| 9002 | worker metrics | running |
 
 Containers keep their own default ports, and a second instance takes the next
 number up, which is why the replica is on 5433. Every port is a configuration
@@ -132,7 +139,8 @@ construction.
 **Fakes are fast, and they are not trusted alone.** The four fast tiers run
 against an in-memory repository in about a second. The same behaviour suite runs
 against real Postgres behind a build tag, because a fake cannot prove that a
-lock serialized anything.
+lock serialized anything, and a mutex will make a fake pass a concurrency test
+for entirely the wrong reason.
 
 <br>
 

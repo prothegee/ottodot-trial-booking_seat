@@ -6,6 +6,8 @@ import { classListPath } from "$lib/cache/key";
 import { classCache } from "$lib/session/cache";
 import { hardSignOut, reasonForCode, signInRoute } from "$lib/session/sign_out";
 import { auth } from "$lib/stores/auth";
+import { booking } from "$lib/stores/booking";
+import { classes } from "$lib/stores/classes";
 import type { Session } from "$lib/api/types";
 
 // The navigation is mocked because there is no router in a unit test. What is
@@ -38,6 +40,19 @@ describe("a hard sign out", () => {
         expect(get(auth).session).toBeNull();
         expect(sessionStorage.length).toBe(0);
         expect(goto).toHaveBeenCalledWith(signInRoute);
+    });
+
+    test("integration: nothing of the previous parent is left in the stores", async () => {
+        // The class list is not personal, but the booking store holds a booking
+        // and the child it is for. On a shared machine the next parent to sign
+        // in on this tab must not find either of them still there.
+        auth.signIn(seededSession);
+
+        await hardSignOut("requested");
+
+        expect(get(classes).classes).toEqual([]);
+        expect(get(booking).booking).toBeNull();
+        expect(get(booking).attemptKey).toBe("");
     });
 
     test("unit: the reason survives so the sign-in screen can say why", () => {

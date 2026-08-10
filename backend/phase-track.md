@@ -68,11 +68,16 @@ a fake, a Postgres implementation, and one contract suite pointed at both.
 
 ## Phase 4: queue and worker
 
-- [ ] `internal/queue/queue.go` interface, `queue_postgres.go`, `queue_memory.go`
-- [ ] `cmd/worker/main.go` with its metrics listener on 9002
-- [ ] simulation 7: hold expiry by the worker
-- [ ] simulation 8: refund reconciliation
-- [ ] test: two workers in parallel never claim the same job, proof tier
+- [x] `internal/queue/queue.go` interface, `queue_postgres.go`, `queue_memory.go`
+- [x] `cmd/worker/main.go` with its metrics listener on 9002
+- [x] simulation 7: hold expiry by the worker
+- [x] simulation 8: refund reconciliation
+- [x] test: two workers in parallel never claim the same job, proof tier
+
+Landed alongside them, because the two simulations cannot be written without
+either: `booking.Expire` and its `ErrHoldStillLive` guard, `payment.Refund` with
+the idempotency key that stops a retried job refunding twice, `internal/worker`
+holding the runner and both handlers, and the worker service in `compose.yml`.
 
 ## Phase 5: authentication
 

@@ -239,6 +239,44 @@ func (repository *MemoryRepository) Cancel(_ context.Context, request CancelRequ
 	return withdrawn, nil
 }
 
+// Expire releases a hold whose deadline has passed, which is what puts the seat
+// behind a parent who walked away back in front of everyone else.
+//
+// The deadline is checked here and not only by whoever scheduled the job. A job
+// carries an instant chosen when it was written, and by the time it runs the
+// booking may have been confirmed, cancelled, or given a fresh deadline. The
+// row is the only thing worth believing.
+func (repository *MemoryRepository) Expire(_ context.Context, request ExpireRequest) (Booking, error) {
+	repository.mutex.Lock()
+	defer repository.mutex.Unlock()
+
+	stored, found := repository.bookings[request.BookingID]
+	if !found {
+		return Booking{}, ErrBookingNotFound
+	}
+
+	if stored.Status != StatusPendingPayment {
+		return stored, ErrNotHolding
+	}
+
+	if HoldIsLive(stored.HoldExpiresAt, request.Now) {
+		return stored, ErrHoldStillLive
+	}
+
+	lapsed := stored
+	lapsed.Status = StatusExpired
+	lapsed.HoldExpiresAt = time.Time{}
+	lapsed.UpdatedAt = request.Now
+
+	repository.bookings[lapsed.ID] = lapsed
+
+	if err := repository.recordLocked(lapsed.ID, stored.Status, StatusExpired, ActorSystem, "hold deadline passed", request.Now); err != nil {
+		return Booking{}, err
+	}
+
+	return lapsed, nil
+}
+
 // hasLiveBookingLocked mirrors the uq_booking_active index: one live booking per
 // child per class, whether or not its hold has lapsed. A lapsed hold is
 // released by the worker, and until it is, the index would refuse a second row

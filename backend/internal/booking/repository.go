@@ -40,6 +40,13 @@ type Repository interface {
 
 	// Cancel withdraws a booking and releases any seat it held.
 	Cancel(ctx context.Context, request CancelRequest) (Booking, error)
+
+	// Expire releases a hold whose deadline has passed, in one transaction.
+	//
+	// It is the worker's method. It refuses a hold that is still standing, so
+	// a job that runs early takes nothing away from a parent who is still
+	// paying.
+	Expire(ctx context.Context, request ExpireRequest) (Booking, error)
 }
 
 // HoldRequest is everything the hold transaction needs.
@@ -75,6 +82,16 @@ type ConfirmRequest struct {
 	BookingID string
 
 	// Now stamps confirmed_at and updated_at.
+	Now time.Time
+}
+
+// ExpireRequest is everything the expiry transaction needs.
+type ExpireRequest struct {
+	BookingID string
+
+	// Now is both the instant the deadline is judged against and the stamp on
+	// the row. Handing it in rather than reading a clock inside the repository
+	// is what lets a test place a hold either side of its deadline exactly.
 	Now time.Time
 }
 

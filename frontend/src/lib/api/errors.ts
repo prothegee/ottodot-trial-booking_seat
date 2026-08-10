@@ -81,7 +81,23 @@ export class ApiError extends Error {
     readonly retryAfterSeconds: number;
     readonly requestId: string;
 
-    constructor(kind: ApiErrorKind, code: string, status: number, retryAfterSeconds = 0, requestId = "") {
+    /**
+     * The booking this failure points at, or an empty string.
+     *
+     * Only `already_booked` carries one. It is what turns "this child already
+     * has a booking" into a link to that booking, which is the difference
+     * between a notice and a dead end.
+     */
+    readonly bookingId: string;
+
+    constructor(
+        kind: ApiErrorKind,
+        code: string,
+        status: number,
+        retryAfterSeconds = 0,
+        requestId = "",
+        bookingId = "",
+    ) {
         super(messageForKind[kind]);
 
         this.name = "ApiError";
@@ -90,6 +106,7 @@ export class ApiError extends Error {
         this.status = status;
         this.retryAfterSeconds = retryAfterSeconds;
         this.requestId = requestId;
+        this.bookingId = bookingId;
     }
 }
 
@@ -124,5 +141,6 @@ export function toApiError(status: number, body: unknown): ApiError {
         status,
         envelope.retry_after_seconds ?? 0,
         envelope.request_id ?? "",
+        envelope.booking_id ?? "",
     );
 }

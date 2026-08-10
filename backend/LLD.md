@@ -127,6 +127,11 @@ See ADR-009.
 | locked_until | timestamptz | null |
 | created_at | timestamptz | not null, default now() |
 
+`ix_job_queue_claimable` on `(run_after, id)` is what keeps a busy queue from
+scanning the table, because that pair is exactly what the claim orders by.
+
+There is no foreign key on the payload, on purpose. See ADR-024.
+
 ### refresh_tokens
 
 The access token is a JWT and is stored nowhere. Only the refresh token has a
@@ -304,6 +309,92 @@ violation reaching a parent as a database error is not a message.
 
 <br>
 
+## The Job Queue
+
+`internal/queue`. It knows about ids, kinds, opaque payloads, leases, and
+attempts. It has never heard of a booking, a seat, or money, and that is what
+lets the whole of it be tested without any of them.
+
+Four rules, and every one of them is in the claim statement:
+
+| rule | how |
+| :- | :- |
+| a job runs no earlier than it was scheduled for | `run_after <= now` |
+| a claimed job is invisible to another worker | `locked_until is null or locked_until <= now` |
+| a job that keeps failing stops rather than loops | `attempts < max attempts` |
+| finding a job and owning it is one step | `for update skip locked`, inside one statement with the update |
+
+```
+claim   -> lease until now + lease, attempts + 1, oldest scheduled first
+complete-> delete the row
+release -> clear the lease, push run_after to the backoff, keep the attempt
+depth   -> ready, claimed, and parked, counted in one scan of the same instant
+```
+
+The three depth numbers are separate rather than one total, because they mean
+different things to whoever is looking. Ready rising means the worker is behind.
+Claimed rising means jobs are slow. Parked rising means something is broken and
+no amount of waiting will fix it. Counting them in three queries would let them
+describe a table that never existed.
+
+A payload is validated as a json object before either implementation is reached,
+so the fake refuses exactly what `jsonb` refuses.
+
+<br>
+
+## The Worker
+
+`internal/worker`. The seam where the queue meets the domain, and the only
+package that imports both.
+
+```
+poll  -> claim a batch
+        no handler for the kind?  -> release, report
+        handler returned nil?     -> delete the row
+        handler returned an error?-> release with a backoff, report
+        at the attempt cap?       -> report that it is parked
+wait  -> a full batch polls again at once, anything less waits
+```
+
+**expire_hold.** Reads the booking id from the payload and calls
+`booking.Service.Expire`, which locks the row and judges the deadline against
+the service clock rather than against the job. Three answers, three outcomes:
+
+| answer | outcome | why |
+| :- | :- | :- |
+| nil | the job is done | the hold was released and the slot is free again |
+| `ErrNotHolding` | the job is done | the booking already moved on, so arriving late was the job doing its work |
+| `ErrHoldStillLive` | handed back | taking the slot now would take it from somebody still paying |
+
+**reconcile_refund.** Reads the booking, and does nothing unless it is in
+`refund_required`. That status read is the replay guard for the ordinary case.
+Then: refund first, close second, never the other way round. A booking closed
+before the money moved would look settled while the parent is still out of
+pocket, and nothing would come back to fix it.
+
+The awkward case is a refund that settled and a close that failed. The booking
+still says it is owed, so the retry comes straight back to the refund, and the
+idempotency key is what stops the money moving twice. See ADR-025.
+
+**The metrics listener** serves `/healthz` and `/metrics` on 9002 and nothing
+else, because the worker accepts no request that changes anything. `/readyz` and
+`/version` arrive with `internal/operations` in phase 6 rather than being
+written twice.
+
+| metric | kind | reads |
+| :- | :- | :- |
+| `queue_depth{state="ready"}` | gauge | jobs due, unclaimed, with attempts left |
+| `queue_depth{state="claimed"}` | gauge | jobs a worker is holding |
+| `queue_depth{state="parked"}` | gauge | jobs that have stopped |
+| `worker_jobs_claimed_total` | counter | jobs this process has taken |
+| `worker_jobs_completed_total` | counter | jobs it finished and removed |
+| `queue_job_failed_total` | counter | jobs it handed back |
+
+A scrape that cannot read the queue answers 503 rather than publishing zeroes,
+because zeroes read as a healthy empty queue and no alert would fire.
+
+<br>
+
 ## The State Machine
 
 `internal/booking/status.go`. One table, tested pair by pair, including every
@@ -350,7 +441,32 @@ internal/payment
 |___repository.go           (the interface and its request shapes)
 |___repository_postgres.go  (the writes, and uq_payment_idempotency)
 |___repository_memory.go    (the fake, one attempt per key under a mutex)
+|___refund.go               (sending a settled charge back, and the key that guards it)
 |___service.go              (the order: validate, open, charge, settle)
+
+internal/queue
+|
+|___job.go                  (Job, Kind, and the three questions asked of a row)
+|___payload.go              (the booking payload and its encoding)
+|___errors.go               (the typed failures, sentinels)
+|___queue.go                (the interface and its request shapes)
+|___queue_postgres.go       (the skip-locked claim, see ADR-011)
+|___queue_memory.go         (the fake, the same rules under a mutex)
+
+internal/worker
+|
+|___errors.go               (the typed failures, sentinels)
+|___handler.go              (the Handler interface and the kind registry)
+|___runner.go               (claim, dispatch, complete or release)
+|___expire_hold.go          (the expiry handler)
+|___reconcile_refund.go     (refund, then close)
+|___counters.go             (what this process has done)
+|___exposition.go           (those numbers in the Prometheus text format)
+|___listener.go             (healthz and metrics on 9002)
+
+cmd/worker
+|
+|___main.go                 (the composition root, and the only place that wires all of it)
 ```
 
 The four pure files hold every rule that can be read without a database in front
@@ -394,6 +510,7 @@ code, so nothing above this package matches on wording.
 | `ErrClassFull` | capacity plus allowance is taken | 409 `class_full` |
 | `ErrSeatLost` | paid, but every seat was gone. Booking left in refund_required | 409 `seat_lost` |
 | `ErrNotHolding` | the booking is not pending_payment, nothing to confirm | 409 |
+| `ErrHoldStillLive` | the deadline has not passed, so there is nothing to expire | 409 |
 | `ErrInvalidTransition` | the move is not in the state machine | 409 |
 
 No message carries an identifier or a name, and a test asserts that, because
@@ -425,6 +542,7 @@ package depends on Postgres error codes:
 | `ErrProviderUnavailable` | the provider never answered, nobody knows | 503 `dependency_unavailable` |
 | `ErrAttemptPending` | an earlier call with this key never settled | 409 |
 | `ErrIdempotencyConflict` | this key was used for a different charge | 409 |
+| `ErrNothingToRefund` | no settled charge stands against this booking | 409 |
 | `ErrAlreadySettled` | the row is append only from settlement | 409 |
 
 | code | constraint | becomes |
@@ -433,6 +551,28 @@ package depends on Postgres error codes:
 | 23503 | the booking foreign key | `ErrBookingNotFound` |
 | 23514 | payment_attempts_amount_positive | `ErrInvalidAmount` |
 | 22P02 | text that is not a uuid | `ErrInvalidRequest` |
+
+`internal/queue` and `internal/worker` name their own too. Neither reaches the
+http layer today, because the queue is not on a request path. They reach a log
+and the operator queue view in phase 6.
+
+| sentinel | package | means |
+| :- | :- | :- |
+| `ErrInvalidRequest` | queue | refused before anything was read or written |
+| `ErrUnknownKind` | queue | the kind is not one the check constraint allows |
+| `ErrInvalidPayload` | queue | the payload is not a json object, or carries no booking |
+| `ErrJobNotFound` | queue | no job with that id, which is also what a second completion gets |
+| `ErrDuplicateJob` | queue | a job already carries that id |
+| `ErrUnknownKind` | worker | a handler was registered for a kind this service does not run |
+| `ErrHandlerMissing` | worker | a kind has nothing to run it, refused at construction |
+| `ErrHandlerAlreadyRegistered` | worker | a second registration would silently replace the first |
+| `ErrInvalidSettings` | worker | a policy value the runner cannot work with |
+
+| code | constraint | becomes |
+| :- | :- | :- |
+| 23505 | the job_queue primary key | `ErrDuplicateJob` |
+| 23514 | job_queue_kind_allowed | `ErrUnknownKind` |
+| 22P02 | text that is not a uuid | `ErrJobNotFound`, or `ErrInvalidRequest` where an absent row is not an answer |
 
 <br>
 
@@ -469,8 +609,11 @@ future no matter when the repository is cloned.
 | 3, capacity boundary | behaviour, fake | 4 confirmed with seats 1 to 4, the fifth parent in refund_required |
 | 4, one free seat | proof, real | 10 parallel confirms, exactly 1 confirmed, 9 in refund_required |
 | 5, empty four seat class | proof, real | 20 parallel confirms, exactly 4 confirmed, seats 1 to 4, no gaps and no repeats |
+| 7, hold expiry | behaviour, fake | the booking becomes expired, the slot frees up, one worker gets the job and a second gets nothing |
+| 8, refund reconciliation | behaviour, fake | the booking becomes cancelled, the refund reference is recorded, a replay refunds nothing more |
 | 9, idempotent replay | behaviour, fake | one payment_attempts row, one charge, both calls answer identically |
 | one key under load | proof, real | 10 parallel calls with one key, one row, nine replays, uq_payment_idempotency holding |
+| two workers, one queue | proof, real | 8 parallel workers over 24 jobs, every job claimed exactly once, skip locked holding |
 
 Simulation 5 also proves that `uq_seat_taken` never fired: every loser ends in
 `refund_required`, and a unique violation would have rolled its transaction back

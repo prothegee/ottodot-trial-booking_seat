@@ -141,7 +141,7 @@ error message ever echoes a connection url, because it carries a password.
 | 5433 | postgres replica | running |
 | 6379 | redis | running |
 | 9000 | api | phase 6 |
-| 9002 | worker metrics | phase 4 |
+| 9002 | worker metrics | running |
 
 Nothing binds to a public address.
 
@@ -162,6 +162,58 @@ Swap `docker` for `podman` if that is the runtime in use.
 
 <br>
 
+## The Worker
+
+It has no public surface. The listener on 9002 carries liveness and the
+exposition, so Prometheus can scrape it and a restart loop shows up on a graph.
+
+```sh
+export APP_ENV=development
+
+../scripts/stack_up.sh backend    # the databases have to be up first
+go run ./cmd/worker               # or it comes up with the stack, as a container
+
+curl -s 127.0.0.1:9002/healthz
+curl -s 127.0.0.1:9002/metrics
+```
+
+It runs until it is interrupted. On `SIGINT` or `SIGTERM` it stops claiming,
+lets in flight scrapes finish, and closes its pools, in that order.
+
+Nothing enqueues a job yet: the http layer in phase 6 is what schedules an
+expiry when a hold is granted and a reconciliation when a confirm reports a lost
+seat. Until then the queue is empty on a running system, and the work is proven
+by the simulations in `internal/worker`.
+
+<br>
+
+## Inspecting The Queue
+
+```sh
+# what is waiting, what is held, and what has stopped
+docker exec ottodot-postgres-primary psql -U ottodot -d ottodot -c \
+    "select kind, count(*) filter (where attempts < 5 and locked_until is null) as ready,
+            count(*) filter (where locked_until > now()) as claimed,
+            count(*) filter (where attempts >= 5) as parked
+     from job_queue group by kind;"
+
+# the same three numbers, from the worker itself
+curl -s 127.0.0.1:9002/metrics | grep queue_depth
+```
+
+A parked job is one that spent its attempts. It stays in the table on purpose,
+because deleting the evidence is the one thing that guarantees nobody looks at
+it. Releasing one by hand until the operator surface exists in phase 6:
+
+```sh
+docker exec ottodot-postgres-primary psql -U ottodot -d ottodot -c \
+    "update job_queue set attempts = 0, run_after = now(), locked_until = null where id = '<job id>';"
+```
+
+Swap `docker` for `podman` if that is the runtime in use.
+
+<br>
+
 ## Common Failures
 
 | symptom | cause | fix |
@@ -173,6 +225,8 @@ Swap `docker` for `podman` if that is the runtime in use.
 | `permission denied` under `.data` | the mount shape was changed by hand | remove that directory and start the stack again, the container recreates it |
 | `gofmt` reports permission denied | it was pointed at `.` and walked into `.data` | use the package directory form above |
 | `go test -tags=containers` cannot connect | the stack is not running | `../scripts/stack_up.sh backend` |
+| the worker exits naming the configuration | a value in the environment is not usable | it reports every problem at once, fix them together |
+| the worker starts and claims nothing | nothing enqueues jobs until phase 6 | expected. `curl 127.0.0.1:9002/metrics` shows a depth of zero |
 
 <br>
 
@@ -181,7 +235,6 @@ Swap `docker` for `podman` if that is the runtime in use.
 | command | phase |
 | :- | :- |
 | `go run ./cmd/api` | 6 |
-| `go run ./cmd/worker` | 4 |
 | `scripts/test.sh` and `scripts/test_proof.sh` | 9 |
 | arming and disarming a fault | 7 |
 | the podman socket note for cadvisor | 7 |

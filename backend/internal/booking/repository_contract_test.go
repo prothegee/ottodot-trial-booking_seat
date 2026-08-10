@@ -467,6 +467,118 @@ func runRepositoryContract(t *testing.T, newFixture func(t *testing.T) repositor
 		}
 	})
 
+	t.Run("integration: expiring a lapsed hold releases the slot it occupied", func(t *testing.T) {
+		fixture := newFixture(t)
+		seedContractFixture(t, fixture)
+		repository := fixture.Repository()
+
+		granted := mustHold(t, repository, studentOne, classOpen, contractMoment)
+		afterDeadline := contractMoment.Add(contractHoldTTL)
+
+		lapsed, err := repository.Expire(ctx, booking.ExpireRequest{BookingID: granted.ID, Now: afterDeadline})
+		if err != nil {
+			t.Fatalf("expected the hold to expire, got: %v", err)
+		}
+
+		if lapsed.Status != booking.StatusExpired || lapsed.HasSeat() {
+			t.Fatalf("an expired hold holds no seat, got %s seat %d", lapsed.Status, lapsed.SeatNo)
+		}
+
+		if !lapsed.HoldExpiresAt.IsZero() {
+			t.Fatalf("an expired hold carries no deadline, got %v", lapsed.HoldExpiresAt)
+		}
+
+		// The child is free to start again, because uq_booking_active counts
+		// only live bookings and expired is not one.
+		mustHold(t, repository, studentOne, classOpen, afterDeadline)
+	})
+
+	t.Run("edge: a hold that has not run out yet is left alone", func(t *testing.T) {
+		// This is the one mistake an expiry job must never make: taking a seat
+		// away from a parent who is still on the payment screen.
+		fixture := newFixture(t)
+		seedContractFixture(t, fixture)
+		repository := fixture.Repository()
+
+		granted := mustHold(t, repository, studentOne, classOpen, contractMoment)
+
+		_, err := repository.Expire(ctx, booking.ExpireRequest{
+			BookingID: granted.ID,
+			Now:       contractMoment.Add(contractHoldTTL - time.Second),
+		})
+		if !errors.Is(err, booking.ErrHoldStillLive) {
+			t.Fatalf("expected ErrHoldStillLive, got: %v", err)
+		}
+
+		unchanged, err := repository.Booking(ctx, granted.ID)
+		if err != nil {
+			t.Fatalf("expected to read the booking back, got: %v", err)
+		}
+
+		if unchanged.Status != booking.StatusPendingPayment {
+			t.Fatalf("the hold must still stand, got %s", unchanged.Status)
+		}
+	})
+
+	t.Run("edge: a booking that already confirmed cannot be expired", func(t *testing.T) {
+		// The ordinary case for a job that arrives late: the parent paid while
+		// the job was waiting in the queue. Nothing is wrong, and nothing is to
+		// be done.
+		fixture := newFixture(t)
+		seedContractFixture(t, fixture)
+		repository := fixture.Repository()
+
+		granted := mustHold(t, repository, studentOne, classOpen, contractMoment)
+		mustConfirm(t, repository, granted.ID, contractMoment)
+
+		_, err := repository.Expire(ctx, booking.ExpireRequest{
+			BookingID: granted.ID,
+			Now:       contractMoment.Add(contractHoldTTL),
+		})
+		if !errors.Is(err, booking.ErrNotHolding) {
+			t.Fatalf("expected ErrNotHolding, got: %v", err)
+		}
+
+		confirmed, err := repository.Booking(ctx, granted.ID)
+		if err != nil {
+			t.Fatalf("expected to read the booking back, got: %v", err)
+		}
+
+		if confirmed.Status != booking.StatusConfirmed || !confirmed.HasSeat() {
+			t.Fatalf("the seat must be untouched, got %s seat %d", confirmed.Status, confirmed.SeatNo)
+		}
+	})
+
+	t.Run("edge: expiring the same hold twice is refused the second time", func(t *testing.T) {
+		// Two workers can both hold the same job when a lease lapses mid-run,
+		// so the second write has to be refused rather than duplicated.
+		fixture := newFixture(t)
+		seedContractFixture(t, fixture)
+		repository := fixture.Repository()
+
+		granted := mustHold(t, repository, studentOne, classOpen, contractMoment)
+		afterDeadline := contractMoment.Add(contractHoldTTL)
+
+		if _, err := repository.Expire(ctx, booking.ExpireRequest{BookingID: granted.ID, Now: afterDeadline}); err != nil {
+			t.Fatalf("expected the first expiry to land, got: %v", err)
+		}
+
+		_, err := repository.Expire(ctx, booking.ExpireRequest{BookingID: granted.ID, Now: afterDeadline})
+		if !errors.Is(err, booking.ErrNotHolding) {
+			t.Fatalf("expected ErrNotHolding, got: %v", err)
+		}
+
+		trail, err := repository.Events(ctx, granted.ID)
+		if err != nil {
+			t.Fatalf("expected the audit trail, got: %v", err)
+		}
+
+		// One hold granted, one expiry, and nothing from the second call.
+		if len(trail) != 2 {
+			t.Fatalf("expected two lines in the trail, got %d", len(trail))
+		}
+	})
+
 	t.Run("integration: every transition leaves a line in the audit trail", func(t *testing.T) {
 		fixture := newFixture(t)
 		seedContractFixture(t, fixture)

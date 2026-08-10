@@ -70,7 +70,7 @@ must send its own origin to the api, because the api checks it on mutations.
 | 6379 | redis | 127.0.0.1 |
 | 9000 | backend api | not built yet, phase 6 |
 | 9001 | frontend | 127.0.0.1 |
-| 9002 | worker metrics | not built yet, phase 4 |
+| 9002 | worker metrics | running |
 | 9003 | prometheus | not built yet, phase 7 |
 | 9004 | grafana | not built yet, phase 7 |
 | 9005 | node_exporter | not built yet, phase 7 |
@@ -157,9 +157,13 @@ Exit codes: 0 done, 1 declined, 2 refused by a guard.
 
 ## What Is Not Here Yet
 
-The api on 9000, the worker, and the monitoring stack are added in later phases,
-and their compose services join the file in the phase that builds them. That is
+The api on 9000 and the monitoring stack are added in later phases, and their
+compose services join the file in the phase that builds them. That is
 deliberate: `backend/compose.yml` never references a service that cannot start.
+
+The worker is there now. It has no public surface: the listener on 9002 carries
+liveness and its metrics, and nothing enqueues a job until the http layer lands,
+so a running worker finds an empty queue and says so.
 
 Progress per stack is in `backend/phase-track.md` and
 `frontend/phase-track.md`.

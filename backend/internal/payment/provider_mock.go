@@ -27,6 +27,10 @@ const (
 // row carrying one is never mistaken for something a real provider returned.
 const mockProviderRefPrefix = "mock_"
 
+// mockRefundRefPrefix does the same for a refund, and is a different prefix so
+// the two references can never be read as each other.
+const mockRefundRefPrefix = "mock_refund_"
+
 // declineReason is what an operator sees on a declined attempt. Like every
 // string in this package it carries no identifier, no name, and no amount.
 const declineReason = "the provider declined this charge"
@@ -38,14 +42,24 @@ const declineReason = "the provider declined this charge"
 // so this one decides from the request alone and answers the same way every
 // time.
 type MockProvider struct {
-	mutex   sync.Mutex
-	forced  map[string]Outcome
+	mutex  sync.Mutex
+	forced map[string]Outcome
+
 	charges int
+	refunds int
+
+	// settledRefunds is the mock's own idempotency store, keyed the way a real
+	// provider keys one. A refund has no unique index on this side, so this map
+	// is what a replayed reconciliation job runs into.
+	settledRefunds map[string]RefundResult
 }
 
 // NewMockProvider builds a provider that follows the amount rule above.
 func NewMockProvider() *MockProvider {
-	return &MockProvider{forced: make(map[string]Outcome)}
+	return &MockProvider{
+		forced:         make(map[string]Outcome),
+		settledRefunds: make(map[string]RefundResult),
+	}
 }
 
 // ForceOutcome pins the answer for one reference, whatever its amount.
@@ -86,6 +100,18 @@ func (provider *MockProvider) Charges() int {
 	return provider.charges
 }
 
+// Refunds is how many times this provider actually sent money back.
+//
+// It counts movements, not calls. A replayed key is answered from the store and
+// is not counted, which is what makes this number the thing that proves a
+// reconciliation job run twice refunded once.
+func (provider *MockProvider) Refunds() int {
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+
+	return provider.refunds
+}
+
 // Charge answers the way the rule above says, and counts the call.
 //
 // Note:
@@ -123,6 +149,47 @@ func (provider *MockProvider) Charge(_ context.Context, request ChargeRequest) (
 		Outcome:     OutcomeSettled,
 		ProviderRef: mockProviderRefPrefix + request.AttemptID,
 	}, nil
+}
+
+// Refund sends a settled charge back, once per key.
+//
+// Note:
+//   - the key is honoured the way a real provider honours one. A second call
+//     with the same key gets the first call's answer and moves no money, which
+//     is what stops a reconciliation job that failed halfway from refunding
+//     twice on its retry.
+//   - the forced outcome applies here too, and only one of the three values
+//     means anything: a reference pinned to OutcomeProviderError cannot be
+//     refunded either, which is how a test reaches the retry path. A pinned
+//     decline is ignored, because a refund has no declined answer to give.
+func (provider *MockProvider) Refund(_ context.Context, request RefundRequest) (RefundResult, error) {
+	if request.ProviderRef == "" || request.Reference == "" || request.IdempotencyKey == "" {
+		return RefundResult{}, ErrInvalidRequest
+	}
+
+	if err := request.Amount.Validate(); err != nil {
+		return RefundResult{}, err
+	}
+
+	provider.mutex.Lock()
+	defer provider.mutex.Unlock()
+
+	if already, replayed := provider.settledRefunds[request.IdempotencyKey]; replayed {
+		return already, nil
+	}
+
+	if forced, pinned := provider.forced[request.Reference]; pinned && forced == OutcomeProviderError {
+		// Nothing is stored, so a later call with the same key is a fresh
+		// attempt rather than a replay of a refund that never happened.
+		return RefundResult{}, ErrProviderUnavailable
+	}
+
+	settled := RefundResult{RefundRef: mockRefundRefPrefix + request.ProviderRef}
+
+	provider.settledRefunds[request.IdempotencyKey] = settled
+	provider.refunds++
+
+	return settled, nil
 }
 
 // DecideOutcome is the amount rule as a pure function.

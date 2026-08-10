@@ -44,6 +44,8 @@ flowchart TD
 
     worker[Go worker, metrics 9002] --> queue
     worker --> repo
+    worker --> pay[payment service]
+    prom[prometheus] -->|scrape| worker
 ```
 
 | component | owns | state today |
@@ -53,7 +55,7 @@ flowchart TD
 | booking repository | atomicity, and every invariant that has to hold under concurrency | built |
 | auth | tokens, rotation, reuse detection, the role check | phase 5 |
 | roster | confirmed bookings for a class, for a teacher | phase 6 |
-| worker | expiring lapsed holds, reconciling refunds | phase 4 |
+| worker | expiring lapsed holds, reconciling refunds | built |
 | payment | the charge: a deterministic provider behind the interface a real one would have, and one attempt per idempotency key | built |
 
 <br>
@@ -178,7 +180,7 @@ The interfaces exist so the fast tiers have something to run against.
 | :- | :- | :- |
 | `booking.Repository` | `PostgresRepository` | `MemoryRepository`, invariants under a mutex |
 | `payment.Repository` | `PostgresRepository` | `MemoryRepository`, one attempt per key under a mutex |
-| `queue.Queue` | postgres | in memory |
+| `queue.Queue` | `PostgresQueue`, one skip-locked claim statement | `MemoryQueue`, the same rules under a mutex |
 | `ratelimit.Limiter` | redis | in memory |
 | `cache.Store` | redis | in memory |
 | `auth.RefreshStore` | postgres | in memory |
@@ -189,6 +191,59 @@ They cannot prove that a lock serialized two transactions, because there is no
 transaction in a fake. That is what the fifth tier is for, and both
 implementations are held to one shared contract suite so the fake cannot quietly
 disagree with the sql.
+
+<br>
+
+## The Worker
+
+A second process, not a goroutine inside the api. The api can restart or scale
+without touching background work, the queue lives in the database so nothing in
+flight dies with a process, and a worker falling over shows up as a worker
+falling over rather than as slow requests.
+
+```mermaid
+sequenceDiagram
+    participant W as Worker
+    participant Q as job_queue
+    participant H as Handler
+    participant D as Domain service
+
+    W->>Q: claim, skip locked, lease and spend one attempt
+    Q-->>W: up to a batch of jobs
+    loop each job
+        W->>H: handle
+        H->>D: expire the hold, or refund and close
+        alt finished
+            H-->>W: nil
+            W->>Q: delete the row
+        else not finished
+            H-->>W: the failure
+            W->>Q: release with a backoff
+        end
+    end
+```
+
+Three packages meet here and none of them knows about the others:
+
+| package | knows about |
+| :- | :- |
+| `queue` | ids, kinds, opaque payloads, leases, attempts. No booking, no seat, no money |
+| `booking` and `payment` | their own domain. Neither has ever heard of a job |
+| `worker` | both, and nothing else does |
+
+That split is what lets the whole queue be tested with no class, no student, and
+no seat in sight, and it keeps the queue out of every request path.
+
+**What a handler returns decides what happens to the job.** `nil` removes it,
+including when there turned out to be nothing to do, because a job that arrives
+after a parent already paid has succeeded at its purpose. Anything else hands
+the job back for another attempt, until its attempts run out and it parks.
+
+**Who schedules the jobs.** Nothing yet. The queue and both handlers are built
+and proven, and the http layer in phase 6 is what enqueues `expire_hold` when a
+hold is granted and `reconcile_refund` when a confirm reports `ErrSeatLost`.
+Until then the simulations enqueue them, which is the same seam the handler will
+be called through.
 
 <br>
 

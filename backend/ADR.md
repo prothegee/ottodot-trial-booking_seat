@@ -218,16 +218,43 @@ survives a restart because it is rows in a table.
 
 ## ADR-011: The job queue is Postgres with FOR UPDATE SKIP LOCKED
 
-**Status:** planned, phase 4
+**Status:** accepted, phase 4
 
 **Context.** Expiring holds and reconciling refunds are background work. They
 must not be lost.
 
 **Decision.** A `job_queue` table, claimed with `for update skip locked`.
 
+The claim is one statement, not two:
+
+```sql
+with claimable as (
+    select id
+    from job_queue
+    where run_after <= $1
+      and (locked_until is null or locked_until <= $1)
+      and attempts < $2
+    order by run_after, id
+    limit $3
+    for update skip locked
+)
+update job_queue
+    set locked_until = $4, attempts = attempts + 1
+    where id in (select id from claimable)
+returning id, kind, payload, run_after, attempts, locked_until, created_at;
+```
+
+There is no instant between finding a job and owning it. A second worker
+arriving mid-flight sees locked rows, steps over them, and takes different ones.
+
 **Consequences.** Lower throughput than Redis Streams, and a polling worker
 rather than a pushed one. In exchange there is one datastore to back up, and a
 job that was mid-flight when a worker died is picked up by the next one.
+
+The proof has teeth rather than being assumed: eight parallel connections
+against twenty four jobs hand every job to exactly one worker. Removing
+`skip locked` makes that test hang rather than fail, which is itself the
+signal.
 
 <br>
 
@@ -433,3 +460,134 @@ belongs to another charge would be a lie.
 outside the request path to resolve it, and that is reconciliation work the
 worker already exists for. The alternative, charging again on a replay, is the
 one outcome this whole design refuses.
+
+
+<br>
+
+## ADR-022: A claim is a lease, and a lease is never cleared by the worker that holds it
+
+**Status:** accepted, phase 4
+
+**Context.** A worker that dies mid-job clears nothing. Something has to make
+that job runnable again, and the obvious answers are all worse than they look: a
+heartbeat needs a second write path, and a flag needs somebody to unset it.
+
+**Decision.** A claim writes `locked_until = now + lease` and nothing else. A
+job is held while that instant is in the future and free once it passes. Nobody
+ever writes the lease back to null on the recovery path, the value simply stops
+being believed.
+
+The boundary falls one way and it is worth naming: a lease ending on this exact
+instant is already lapsed, so recovery happens as early as it honestly can.
+
+**Consequences.** A crashed worker's job is recoverable without anybody noticing
+it crashed, and without a second mechanism to go wrong. The cost is that the
+lease has to be comfortably longer than the slowest handler. A lease that lapses
+mid-job lets a second worker start work the first is still doing, so the default
+is two minutes against handlers that take milliseconds.
+
+<br>
+
+## ADR-023: A job that keeps failing parks, and parking is an attempt count rather than a state
+
+**Status:** accepted, phase 4
+
+**Context.** A job that can never succeed will be retried forever. Two workers
+spend the night handing it back and forth, the log fills with the same line, and
+the failure that caused it is buried.
+
+**Decision.** The claim refuses any row whose `attempts` has reached the cap. A
+job at or past it is parked: it stays in the table, it is never handed out
+again, and the operator queue view in phase 6 is what surfaces it.
+
+Parking is deliberately not a status column. The alternatives were both worse:
+
+| approach | verdict |
+| :- | :- |
+| refuse rows at the attempt cap | chosen. No new column, no state to get out of step with the count, and the same number the runner uses is the one the depth query reports |
+| a `parked_at` column | rejected. A second fact about the same thing, which can disagree with the count that produced it |
+| push `run_after` far into the future | rejected. It hides the job from the depth query, so a queue full of broken work reports as healthy |
+| delete the job | rejected. Deleting the evidence is the one thing that guarantees nobody looks at it |
+
+**Consequences.** Five attempts at thirty seconds apart spans two and a half
+minutes of trouble before a job stops, which outlasts an ordinary restart and
+not much else. A job parked for a transient reason needs a hand to release it,
+and until phase 6 that hand is an `update` on the attempts column.
+
+<br>
+
+## ADR-024: job_queue hangs from no foreign key
+
+**Status:** accepted, phase 4
+
+**Context.** Every job so far names a booking. A foreign key would be the
+ordinary choice and would keep the table honest.
+
+**Decision.** No foreign key. The payload is opaque `jsonb`, and the queue
+package never reads inside it.
+
+**Consequences.** A job can outlive what it refers to, and that is deliberately
+the handler's problem rather than a write failure at three in the morning. The
+handler reports what it found, the job runs out of attempts, and it parks where
+somebody can see it. The alternative, a cascade that silently deletes queued
+work when a row goes, loses work without a word.
+
+It also keeps the queue package free of the booking package, which is what lets
+the whole queue be tested with no class, no student, and no seat in sight.
+
+<br>
+
+## ADR-025: A refund is guarded by an idempotency key, not by a row of its own
+
+**Status:** accepted, phase 4
+
+**Context.** Reconciliation refunds the settled charge and then closes the
+booking. Those are two writes and the second one can fail. The booking still
+says `refund_required`, so the retry comes straight back to the refund, and
+without a guard it sends the money a second time.
+
+**Decision.** The refund carries an idempotency key derived from the attempt it
+reverses, `refund_<attempt id>`. It is a pure function of the attempt, so the
+job produces the same key on every worker, after every restart, however many
+times it runs. The provider recognises the key and moves nothing.
+
+The booking status is still read first, so in the ordinary case the provider is
+not asked twice at all. The key is what covers the case the status cannot: a
+refund that settled and a close that did not.
+
+**Consequences.** This is a weaker guarantee than the one protecting a charge. A
+charge is guarded by `uq_payment_idempotency`, an index this service owns. A
+refund has no row and therefore no index, so the guard is the provider honouring
+the key. That is what a real integration does, and it is written down here
+rather than left to be discovered.
+
+The alternative was a refund row, or two nullable columns on `payment_attempts`.
+Both were rejected for the same reason: they hold a copy of the amount, the
+currency, and the provider reference that the attempt row already carries, and
+two places holding the same numbers is how they come to disagree. What the
+refund genuinely adds, its own reference, is written to the audit trail and the
+log instead.
+
+<br>
+
+## ADR-026: The worker refuses to expire a hold that is still standing
+
+**Status:** accepted, phase 4
+
+**Context.** An expiry job carries an instant chosen when it was written. By the
+time it runs, the booking may have been confirmed, cancelled, or given a fresh
+deadline. Acting on the job's own idea of the time would take a seat from a
+parent who is still on the payment screen.
+
+**Decision.** `Expire` locks the booking row, reads the deadline from it, and
+refuses with `ErrHoldStillLive` when the deadline has not passed. The instant it
+is judged against comes from the service clock, never from the job.
+
+**Consequences.** The one mistake this job must never make is refused by the
+same transaction that would have made it. A job that runs early is handed back
+and tried again, which costs an attempt and nothing else.
+
+The three answers the handler reads are deliberately distinct: `ErrNotHolding`
+finishes the job, because a booking that already moved on means the job did its
+work by arriving too late. `ErrHoldStillLive` hands it back. Anything else hands
+it back too, because unexpected work is retried rather than thrown away.
