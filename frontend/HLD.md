@@ -61,8 +61,8 @@ routing. So it reports, and something else acts. See ADR-F006.
 | route | purpose | state |
 | :- | :- | :- |
 | `/sign-in` | mock sign in, seeded email, no password | built |
-| `/` | class list with subject, start time, and seats remaining | phase 4 |
-| `/book/[classId]` | pick a child, submit, receive a hold | phase 4 |
+| `/` | class list with subject, start time, and seats remaining | built |
+| `/book/[classId]` | pick a child, submit, receive a hold | built |
 | `/pay/[bookingId]` | mock payment, hold countdown, honeypot, captcha | phase 5 |
 | `/booking/[bookingId]` | booking status in every terminal state | phase 5 |
 | `/roster/[classId]` | roster for an admin, hidden from a parent role | phase 7 |
@@ -100,8 +100,8 @@ previous screen showed. That is the shape of this application.
 | store | holds | notes | state |
 | :- | :- | :- | :- |
 | `auth.ts` | display name, parent id, children, role | memory only, cleared on a hard sign out | built |
-| `classes.ts` | the class list and its tags | reads through `classReader`, writes through `classMutator`, never trusted for a decision | phase 4 |
-| `booking.ts` | the booking in flight, its status, its deadline | drives the countdown | phase 5 |
+| `classes.ts` | the class list and its tags | reads through `classReader`, never trusted for a decision | built |
+| `booking.ts` | the booking in flight, its status, its deadline, and the key covering the attempt | writes through `classMutator`. Drives the countdown in phase 5 | built |
 | `status.ts` | backend version and readiness | populated only while `/status` is open | phase 7 |
 
 <br>
@@ -164,6 +164,58 @@ sequenceDiagram
 | cross-site request forgery | the api checks Origin on mutations, so this client sends from its real origin and never proxies through another host |
 
 That last line is why the two compose files share no network.
+
+<br>
+
+## The Booking Attempt
+
+One attempt by a parent is two calls, and they are held together by one
+idempotency key.
+
+```mermaid
+sequenceDiagram
+    participant P as Parent
+    participant S as booking store
+    participant M as classMutator
+    participant A as Api
+
+    P->>S: pick a child, submit
+    S->>S: mint a key for this attempt
+    S->>M: POST bookings, with the key
+    M->>A: send
+    A-->>M: pending_payment, hold deadline
+    M->>M: age every cached class entry
+    M-->>S: the booking
+    S-->>P: the payment screen, countdown from the api's deadline
+
+    P->>S: submit the payment
+    S->>M: POST payments, with the same key
+    M->>A: send
+    A-->>M: confirmed, seat number
+    M-->>S: the booking
+    S-->>P: confirmed, seat shown
+```
+
+The key is minted once and reused, so a retry of either call produces the first
+answer rather than a second charge. A new attempt mints a new key, which is what
+a decline needs and what an unresolved attempt must not do. See ADR-F017 and
+ADR-F014.
+
+Three of the four things that can go wrong are answered on this path rather than
+left to a screen:
+
+| refusal | what the client does |
+| :- | :- |
+| `class_full` | ages the cached list, so the next view asks the api rather than showing the seat again |
+| `already_booked` | shows the notice with a link to the booking the child already has |
+| `seat_lost` | ages the cached list for the same reason as `class_full` |
+
+Everything else leaves the cache alone, because a failure that says nothing
+about seats must not claim knowledge this client does not have. See ADR-F018.
+
+The payment call is here rather than on the payment screen because the key
+belongs to the attempt, and the attempt is what this store holds. Phase 5 builds
+the screen on top of behaviour that is already proven.
 
 <br>
 
