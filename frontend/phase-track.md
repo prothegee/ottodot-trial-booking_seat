@@ -56,14 +56,19 @@ the read path, and `mutation.ts` for the write path that owns its invalidation.
 
 ## Phase 4: booking flow
 
-- [ ] `/` class list with `ClassCard.svelte`
-- [ ] `lib/stores/classes.ts`
-- [ ] `/book/[classId]` with `ChildPicker.svelte`
-- [ ] `lib/stores/booking.ts`
-- [ ] edge test: zero seats renders as full
-- [ ] simulation F1: happy path booking
-- [ ] simulation F2: stale seat count, class full at hold time
-- [ ] simulation F4: duplicate booking
+- [x] `/` class list with `ClassCard.svelte`
+- [x] `lib/stores/classes.ts`
+- [x] `/book/[classId]` with `ChildPicker.svelte`
+- [x] `lib/stores/booking.ts`
+- [x] edge test: zero seats renders as full
+- [x] simulation F1: happy path booking
+- [x] simulation F2: stale seat count, class full at hold time
+- [x] simulation F4: duplicate booking
+
+Landed alongside them, because none of the three simulations can be written
+without either: `lib/api/idempotency.ts`, which mints one key per attempt, and
+the wire types for a class and a booking, which are the contract phase 6 of the
+backend has to serve.
 
 ## Phase 5: payment and status
 
