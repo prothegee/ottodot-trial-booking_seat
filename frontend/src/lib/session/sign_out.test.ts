@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { get } from "svelte/store";
 
 import { goto } from "$app/navigation";
+import { classListPath } from "$lib/cache/key";
+import { classCache } from "$lib/session/cache";
 import { hardSignOut, reasonForCode, signInRoute } from "$lib/session/sign_out";
 import { auth } from "$lib/stores/auth";
 import type { Session } from "$lib/api/types";
@@ -55,6 +57,16 @@ describe("a hard sign out", () => {
 
     test("edge: signing out with nothing in storage is not an error", async () => {
         await expect(hardSignOut("session_ended")).resolves.toBeUndefined();
+    });
+
+    test("edge: the cached class list is dropped from memory, not only from storage", async () => {
+        // Clearing storage alone would leave the previous parent's list in a
+        // map that outlives the sign out, because nothing reloads the page.
+        classCache.save(classListPath, { classes: [] }, "\"v41\"");
+
+        await hardSignOut("session_ended");
+
+        expect(classCache.read(classListPath)).toBeNull();
     });
 
     test("edge: storage written by an earlier session never survives", async () => {
