@@ -1,13 +1,10 @@
 ##
-## Indentation, one place, so an editor opening this repository agrees with the
-## files already in it.
+## Repository wide defaults.
 ##
-## Go is the reason this file exists. gofmt writes tabs and there is no option
-## to make it write spaces, so the width of an indent in a Go file is whatever
-## the reader's editor decides a tab is, which is eight almost everywhere by
-## default. Setting indent_size on a tab does not change the bytes. It tells the
-## editor to render that tab four columns wide, which is the width the rest of
-## this repository is written at.
+## Each stack carries its own .editorconfig as well, because either half can be
+## split out and still open correctly on its own. This file is what covers the
+## parts that belong to neither: the shared scripts, the root documents, and any
+## editor opened at the top of the tree.
 ##
 root = true
 
@@ -18,17 +15,6 @@ insert_final_newline = true
 trim_trailing_whitespace = true
 indent_style = space
 indent_size = 4
-
-##
-## Go: tabs in the file, shown four columns wide.
-##
-## gofmt owns the bytes. Anything else here would be a setting that loses to it
-## on the next save.
-##
-[*.go]
-indent_style = tab
-indent_size = 4
-tab_width = 4
 
 ##
 ## Makefile: tabs are the syntax, not a preference.
