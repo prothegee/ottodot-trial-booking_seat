@@ -8,6 +8,9 @@ import (
     "strings"
     "testing"
 
+    "github.com/prometheus/client_golang/prometheus"
+
+    "ottodot-trial-booking/backend/internal/observability"
     "ottodot-trial-booking/backend/internal/queue"
     "ottodot-trial-booking/backend/internal/worker"
 )
@@ -15,19 +18,32 @@ import (
 // errQueueUnreachable is what a depth reader reports when the database is gone.
 var errQueueUnreachable = errors.New("the queue could not be reached")
 
+// noopExposition is an exposition that publishes nothing, for the cases that
+// only care whether the listener was built at all.
+func noopExposition() http.Handler {
+    return observability.Handler(prometheus.NewRegistry())
+}
+
 // newTestListener builds the handler over a depth reader that answers with one
 // fixed value, or with a failure.
-func newTestListener(t *testing.T, counters *worker.Counters, depth queue.Depth, answer error) http.Handler {
+//
+// The counters and the exposition share one registry, which is the arrangement a
+// running worker uses. A test that gave them separate registries would pass
+// while the real scrape returned nothing.
+func newTestListener(t *testing.T, depth queue.Depth, answer error) (http.Handler, *worker.Counters) {
     t.Helper()
+
+    registry := prometheus.NewRegistry()
+    counters := worker.NewCounters(observability.NewMetrics(registry))
 
     handler, err := worker.NewListenerHandler(counters, func(_ context.Context) (queue.Depth, error) {
         return depth, answer
-    })
+    }, observability.Handler(registry))
     if err != nil {
         t.Fatalf("expected the listener to build, got: %v", err)
     }
 
-    return handler
+    return handler, counters
 }
 
 // call drives one request through the handler.
@@ -43,7 +59,7 @@ func TestTheWorkerAnswersOnItsMetricsPort(t *testing.T) {
     t.Run("integration: liveness answers without touching the queue", func(t *testing.T) {
         // A worker whose database is down is still alive, and restarting it
         // would not bring the database back.
-        handler := newTestListener(t, worker.NewCounters(), queue.Depth{}, errQueueUnreachable)
+        handler, _ := newTestListener(t, queue.Depth{}, errQueueUnreachable)
 
         recorded := call(handler, "/healthz")
 
@@ -53,11 +69,10 @@ func TestTheWorkerAnswersOnItsMetricsPort(t *testing.T) {
     })
 
     t.Run("integration: the scrape carries the counters and the depth together", func(t *testing.T) {
-        counters := worker.NewCounters()
+        handler, counters := newTestListener(t, queue.Depth{Ready: 4, Parked: 1}, nil)
+
         counters.Claimed(2)
         counters.Completed()
-
-        handler := newTestListener(t, counters, queue.Depth{Ready: 4, Parked: 1}, nil)
 
         recorded := call(handler, "/metrics")
 
@@ -82,7 +97,7 @@ func TestTheWorkerAnswersOnItsMetricsPort(t *testing.T) {
     t.Run("edge: a queue that cannot be read fails the scrape rather than reporting zeroes", func(t *testing.T) {
         // Zeroes would read as a healthy empty queue, which is the opposite of
         // what is happening, and no alert would fire.
-        handler := newTestListener(t, worker.NewCounters(), queue.Depth{}, errQueueUnreachable)
+        handler, _ := newTestListener(t, queue.Depth{}, errQueueUnreachable)
 
         recorded := call(handler, "/metrics")
 
@@ -96,7 +111,7 @@ func TestTheWorkerAnswersOnItsMetricsPort(t *testing.T) {
     })
 
     t.Run("edge: the scrape declares the format Prometheus expects", func(t *testing.T) {
-        handler := newTestListener(t, worker.NewCounters(), queue.Depth{}, nil)
+        handler, _ := newTestListener(t, queue.Depth{}, nil)
 
         contentType := call(handler, "/metrics").Header().Get("Content-Type")
 
@@ -108,7 +123,7 @@ func TestTheWorkerAnswersOnItsMetricsPort(t *testing.T) {
     t.Run("edge: nothing else is served", func(t *testing.T) {
         // The worker has no public surface. Anything beyond these two routes
         // arriving here is a misrouted request, not a feature.
-        handler := newTestListener(t, worker.NewCounters(), queue.Depth{}, nil)
+        handler, _ := newTestListener(t, queue.Depth{}, nil)
 
         if recorded := call(handler, "/api/v1/bookings"); recorded.Code != http.StatusNotFound {
             t.Fatalf("expected 404, got %d", recorded.Code)
@@ -116,13 +131,13 @@ func TestTheWorkerAnswersOnItsMetricsPort(t *testing.T) {
     })
 
     t.Run("edge: a listener with no way to read the queue is refused at construction", func(t *testing.T) {
-        if _, err := worker.NewListenerHandler(worker.NewCounters(), nil); !errors.Is(err, worker.ErrInvalidSettings) {
+        if _, err := worker.NewListenerHandler(worker.NewCounters(nil), nil, noopExposition()); !errors.Is(err, worker.ErrInvalidSettings) {
             t.Fatalf("expected ErrInvalidSettings, got: %v", err)
         }
 
         if _, err := worker.NewListenerHandler(nil, func(_ context.Context) (queue.Depth, error) {
             return queue.Depth{}, nil
-        }); !errors.Is(err, worker.ErrInvalidSettings) {
+        }, noopExposition()); !errors.Is(err, worker.ErrInvalidSettings) {
             t.Fatalf("expected ErrInvalidSettings, got: %v", err)
         }
     })
@@ -132,7 +147,7 @@ func TestTheListenerIsBuiltWithTimeouts(t *testing.T) {
     t.Run("unit: the server refuses to hold a connection open forever", func(t *testing.T) {
         // A scrape runs on a timer. A hung connection with no timeout stacks up
         // one per scrape until the worker runs out of sockets.
-        handler := newTestListener(t, worker.NewCounters(), queue.Depth{}, nil)
+        handler, _ := newTestListener(t, queue.Depth{}, nil)
 
         server := worker.NewListener("127.0.0.1:9002", handler)
 
