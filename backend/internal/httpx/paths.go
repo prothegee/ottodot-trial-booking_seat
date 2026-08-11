@@ -34,7 +34,19 @@ const (
 
     AdminQueuePath    = "GET /api/v1/admin/queue"
     AdminBookingsPath = "GET /api/v1/admin/bookings"
+
+    // TelemetryPath is where the client posts what it saw. It is a write in
+    // every sense that matters here, so it carries the origin check and the
+    // write rate limit like the rest of them.
+    TelemetryPath = "POST /api/v1/telemetry"
 )
+
+// MetricsPath is where Prometheus scrapes.
+//
+// It sits outside /api/v1 with the other operations routes, because a metric
+// name is not part of the contract the client is written against and versioning
+// it would suggest otherwise.
+const MetricsPath = "GET /metrics"
 
 // The path parameters those routes carry.
 const (
