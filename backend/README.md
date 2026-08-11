@@ -18,21 +18,24 @@ The badges go green once the workflows are added, which is the last phase.
 ## State
 
 Phases run in order and land as each one finishes, one commit per file, so the
-history reads as small reviewable steps rather than one bulk drop. Phases 1 to 4
+history reads as small reviewable steps rather than one bulk drop. Phases 1 to 6
 are done. Progress is tracked in `phase-track.md`.
 
 | exists | not yet |
 | :- | :- |
-| the schema, its four unique indexes, and seed data | the http api and the roster on 9000, phase 6 |
-| configuration, with secrets that mask themselves | monitoring and fault injection, phase 7 |
-| separate primary and replica connection pools | the continuous integration workflows, phase 9 |
-| the booking core: hold, confirm, cancel, expire, the audit trail | a real payment provider, out of scope by design |
+| the schema, its four unique indexes, and seed data | monitoring and fault injection, phase 7 |
+| configuration, with secrets that mask themselves | the continuous integration workflows, phase 9 |
+| separate primary and replica connection pools | a real payment provider, out of scope by design |
+| the booking core: hold, confirm, cancel, fail, expire, the audit trail | a real captcha provider, same reason |
 | the payment path: a deterministic provider, one charge per idempotency key | a password, cut on purpose, see the note below |
 | the job queue, and the worker that drains it on 9002 | |
 | authentication: HS256 access tokens, rotating refresh tokens, the four auth routes | |
+| the whole http surface on 9000, including the operator and roster routes | |
+| ETag caching, a Redis token bucket, and the cooperative bot checks | |
 | the last-seat race proven against real Postgres | |
 | two workers proven never to claim one job | |
 | one refresh token proven to be spendable exactly once | |
+| read routing proven against a real primary and a real standby | |
 
 Sign in takes a seeded email and no password. That is the brief's cut rather
 than an oversight: everything around it is real, so a password or a provider
@@ -55,17 +58,28 @@ backend
 |   |___Containerfile.worker
 |
 |___/cmd
+|   |___/api
+|   |   |___main.go                        (the http surface on 9000, the wiring and nothing else)
+|   |
 |   |___/worker
 |       |___main.go                        (the queue consumer, metrics on 9002)
 |
 |___/internal
 |   |___/auth                              (tokens, rotation, and who may act)
 |   |___/booking                           (the seat, and everything that decides it)
+|   |___/cache                             (the etag, the stored body, the version counter)
+|   |___/captcha                           (a challenge provider's shape, and a mock)
+|   |___/catalogue                         (the class list, advisory, from the replica)
+|   |___/checkout                          (the order a hold and a payment happen in)
 |   |___/config                            (every port and secret, from the environment)
 |   |___/database                          (primary and replica pools, no queries)
+|   |___/httpx                             (the routes, the chain, and the one envelope)
 |   |___/identifier                        (the only place an id is minted)
+|   |___/operations                        (liveness, readiness, build identity)
 |   |___/payment                           (the charge, and nothing about seats)
 |   |___/queue                             (jobs, leases, and attempts. No domain at all)
+|   |___/ratelimit                         (the token bucket, and two implementations)
+|   |___/roster                            (who owns a seat, admin only)
 |   |___/worker                            (where the queue meets the domain)
 |
 |___/migrations
@@ -77,6 +91,7 @@ backend
 |   |   |___database.sh                    (psql inside the primary container)
 |   |
 |   |___db_reset.sh                        (destructive, dev only, prompts)
+|   |___format.sh                          (gofmt, then leading tabs to four spaces)
 |   |___migrate.sh
 |   |___seed.sh
 |
@@ -90,8 +105,8 @@ backend
 |___phase-track.md
 ```
 
-`cmd/api` joins in the phase that builds it, and its compose service joins with
-it. `compose.yml` never references a service that cannot start.
+Every service in `compose.yml` can start today. A service joins the file in the
+phase that builds it, so it never references something that does not exist.
 
 <br>
 
@@ -102,7 +117,7 @@ it. `compose.yml` never references a service that cannot start.
 | 5432 | postgres primary | running |
 | 5433 | postgres replica | running |
 | 6379 | redis | running |
-| 9000 | api | phase 6 |
+| 9000 | api | running |
 | 9002 | worker metrics | running |
 
 Containers keep their own default ports, and a second instance takes the next
@@ -120,8 +135,10 @@ export APP_ENV=development
 scripts/migrate.sh
 scripts/seed.sh
 
+go run ./cmd/api                  # the http surface on 9000
+
 go test ./...                     # four fast tiers, nothing needs to run
-go test -tags=containers ./...    # the real database proof
+go test -tags=containers ./...    # the real database and Redis proofs
 ```
 
 Full detail, including what to do when something refuses to start, is in
@@ -149,6 +166,12 @@ no database. The refresh token is the opposite: opaque, stored only as a hash,
 rotated on every use, so presenting a spent one is how a stolen token becomes
 visible. Both live in HttpOnly cookies, which is why no code in the client ever
 reads one.
+
+**Nothing that decides anything is cached.** Only the class list and one class
+carry an ETag, and both are advisory by construction, so a stale copy costs a
+parent a wasted click and can never cost anybody a seat. A repeat request costs
+one Redis read and zero database queries, and a test counts the reader's calls
+to prove it.
 
 **Fakes are fast, and they are not trusted alone.** The four fast tiers run
 against an in-memory repository in about a second. The same behaviour suite runs
