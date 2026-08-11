@@ -1,0 +1,431 @@
+{
+    "uid": "ottodot-frontend",
+    "title": "Ottodot frontend",
+    "description": "The Svelte client. Its container comes from cAdvisor and everything else arrives through the telemetry endpoint on the api, which is why this dashboard ships with the backend.",
+    "tags": [
+        "ottodot",
+        "frontend"
+    ],
+    "timezone": "browser",
+    "editable": false,
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "10s",
+    "time": {
+        "from": "now-30m",
+        "to": "now"
+    },
+    "timepicker": {
+        "refresh_intervals": [
+            "5s",
+            "10s",
+            "30s",
+            "1m",
+            "5m"
+        ]
+    },
+    "panels": [
+        {
+            "id": 1,
+            "type": "row",
+            "title": "Resources",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 0
+            },
+            "panels": [],
+            "description": "The client cannot be scraped, so its container is read from cAdvisor exactly like every other container. Everything below this row arrives through the telemetry endpoint instead."
+        },
+        {
+            "id": 2,
+            "type": "timeseries",
+            "title": "Container cpu",
+            "description": "Cpu for the container serving the static bundle.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 0,
+                "y": 1
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "rate(container_cpu_usage_seconds_total{name=\"ottodot-frontend\"}[5m])",
+                    "legendFormat": "frontend",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percentunit"
+                },
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 3,
+            "type": "timeseries",
+            "title": "Container memory",
+            "description": "Working set for the frontend container, which is the number that would get it killed.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 8,
+                "y": 1
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "container_memory_working_set_bytes{name=\"ottodot-frontend\"}",
+                    "legendFormat": "frontend",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "bytes"
+                },
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 4,
+            "type": "timeseries",
+            "title": "Container drive and network",
+            "description": "A static bundle holds no state, so drive used here should be flat. Anything else is worth asking about.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 16,
+                "y": 1
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "container_fs_usage_bytes{name=\"ottodot-frontend\"}",
+                    "legendFormat": "drive used",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "B",
+                    "expr": "rate(container_network_receive_bytes_total{name=\"ottodot-frontend\"}[5m])",
+                    "legendFormat": "received",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "bytes"
+                },
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 5,
+            "type": "row",
+            "title": "Access and transaction failures",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 8
+            },
+            "panels": [],
+            "description": "Every typed code the client showed somebody. The three groups are split because they mean different things: a session problem, a booking answer, and something that broke."
+        },
+        {
+            "id": 6,
+            "type": "timeseries",
+            "title": "Session codes",
+            "description": "Refusals about who the caller is. A rise in token_expired alone is ordinary, and a rise in token_reused is not.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 0,
+                "y": 9
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (code) (rate(frontend_api_error_total{code=~\"token_expired|token_invalid|token_reused|not_your_child|forbidden_role|rate_limited\"}[5m]))",
+                    "legendFormat": "{{code}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 7,
+            "type": "timeseries",
+            "title": "Booking codes",
+            "description": "Answers a parent can act on. None of these is a fault, and seat_lost is the one worth watching because it means somebody was charged.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 8,
+                "y": 9
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (code) (rate(frontend_api_error_total{code=~\"already_booked|too_many_holds|class_full|seat_lost|payment_declined|invalid_request\"}[5m]))",
+                    "legendFormat": "{{code}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 8,
+            "type": "timeseries",
+            "title": "Fault codes",
+            "description": "The two codes that mean something broke, split out from the groups either side so they are never read as ordinary refusals.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 16,
+                "y": 9
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (code) (rate(frontend_api_error_total{code=~\"internal_error|dependency_unavailable\"}[5m]))",
+                    "legendFormat": "{{code}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 9,
+            "type": "row",
+            "title": "Funnel",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 16
+            },
+            "panels": []
+        },
+        {
+            "id": 10,
+            "type": "timeseries",
+            "title": "Steps reached",
+            "description": "list, hold, pay, confirmed. All four series exist from the first request, so the drop off between two steps is a real ratio rather than a panel waiting for somebody to reach the last one.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 12,
+                "x": 0,
+                "y": 17
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (step) (rate(frontend_booking_funnel_total[5m]))",
+                    "legendFormat": "{{step}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 11,
+            "type": "timeseries",
+            "title": "Reaching confirmation",
+            "description": "The whole funnel as one number. It is a ratio of rates rather than of totals, so an afternoon of history does not flatten what is happening now.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 12,
+                "x": 12,
+                "y": 17
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "rate(frontend_booking_funnel_total{step=\"confirmed\"}[5m]) / rate(frontend_booking_funnel_total{step=\"list\"}[5m])",
+                    "legendFormat": "confirmed per list view",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percentunit"
+                },
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 12,
+            "type": "row",
+            "title": "Performance",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 24
+            },
+            "panels": []
+        },
+        {
+            "id": 13,
+            "type": "timeseries",
+            "title": "Page load",
+            "description": "Measured in the browser and posted here, because nothing on the server can see how long a route took to become usable.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 12,
+                "x": 0,
+                "y": 25
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "histogram_quantile(0.95, sum by (le, route) (rate(frontend_page_load_seconds_bucket[5m])))",
+                    "legendFormat": "p95 {{route}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "B",
+                    "expr": "histogram_quantile(0.50, sum by (le) (rate(frontend_page_load_seconds_bucket[5m])))",
+                    "legendFormat": "p50",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 14,
+            "type": "timeseries",
+            "title": "Client cache",
+            "description": "fresh, stale, revalidated, and miss. A fresh read sends no request at all, and a revalidated one is a 304 that cost no body.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 12,
+                "x": 12,
+                "y": 25
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (result) (rate(frontend_cache_lookup_total[5m]))",
+                    "legendFormat": "{{result}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        }
+    ]
+}
