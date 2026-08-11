@@ -833,6 +833,151 @@ whether money moved and any status written would be a guess.
 
 <br>
 
+## What Is Measured
+
+Every series this service publishes, with the exact label values each one can
+take. A metric name is a contract with a dashboard and an alert rule, and both
+of those live in files nobody compiles, so the list is written out rather than
+left to be read off the code. `dashboard_test.go` checks that every name a panel
+or a rule queries is a name this package actually registers.
+
+Two rules hold everywhere below. Every label is a bounded enumeration, so no
+label ever holds a uuid, an email, or free text: ADR-042. Every series is created
+at zero when the process starts, so a counter that has not moved reads zero
+rather than being absent, which is the difference between a panel that says "no
+denials" and one that says nothing at all.
+
+### Resources, in three layers
+
+None of these are declared by this project. They arrive from collectors, which
+is why a missing layer costs coverage rather than a broken dashboard.
+
+| layer | source | port | covers |
+| :- | :- | :- | :- |
+| 1 | Go process and runtime collectors | on `/metrics` itself | cpu, memory, file descriptors, goroutines, heap, gc pauses, per process |
+| 2 | node_exporter | 9005 | host cpu, memory available, drive space, inodes, disk saturation, load |
+| 3 | cAdvisor | 9006 | the same per container, plus restart detection |
+
+Layer 3 needs a container runtime socket and is allowed to fail. Layers 1 and 2
+still answer cpu, memory, and drive without it, and the dashboard degrades from
+per-container to host-wide rather than going blank.
+
+### Access failures
+
+Refusals about who the caller was, rather than about what they asked for.
+
+| metric | type | labels |
+| :- | :- | :- |
+| `access_denied_total` | counter | `reason`: token_expired, token_invalid, token_reused, not_your_child, forbidden_role, origin_refused |
+| `rate_limit_rejected_total` | counter | `scope`: subject, ip |
+| `bot_check_rejected_total` | counter | `check`: honeypot, fill_time, captcha |
+| `auth_token_issued_total` | counter | `kind`: access, refresh |
+| `auth_refresh_rotated_total` | counter | none |
+| `auth_refresh_reuse_detected_total` | counter | none |
+| `auth_login_refused_total` | counter | none |
+
+`origin_refused` is not in the plan's table. It is here because a cross-site
+write and an expired session are different events, and folding them together
+would make a spike of the first look like ordinary sessions timing out.
+
+Rotation is counted alongside reuse deliberately. Reuse on its own is a number
+with no denominator, and "one reuse in a thousand rotations" and "one reuse in
+three" call for different reactions.
+
+### Transaction failures
+
+| metric | type | labels |
+| :- | :- | :- |
+| `db_transaction_total` | counter | `name`, `outcome`: commit, rollback, conflict |
+| `confirm_transaction_total` | counter | `outcome`: confirmed, seat_lost, error |
+| `confirm_transaction_duration_seconds` | histogram | none |
+| `payment_attempt_total` | counter | `outcome`: settled, declined, error |
+| `queue_job_failed_total` | counter | `kind` |
+| `refund_pending_bookings` | gauge | none |
+
+A rollback is not automatically a fault. A confirm that loses the race rolls back
+by design, which is why `seat_lost` and `error` are separate outcomes on the same
+counter. Only `error` is alerted on. Counted together, the healthy case and the
+broken case would be the same number.
+
+The confirm is counted and timed in one call, so a confirm can never appear in
+the count without appearing in the histogram.
+
+`refund_pending_bookings` is the one gauge whose non-zero value means somebody's
+money is sitting in the wrong place.
+
+### Application
+
+Everything that is neither a resource number nor a failure count.
+
+| metric | type | labels |
+| :- | :- | :- |
+| `http_request_duration_seconds` | histogram | `route`, `method`, `status` |
+| `http_not_modified_total` | counter | `route` |
+| `panic_recovered_total` | counter | none |
+| `booking_hold_granted_total` | counter | `outcome`: granted, refused |
+| `booking_confirmed_total` | counter | none |
+| `booking_race_lost_total` | counter | none |
+| `booking_duplicate_rejected_total` | counter | none |
+| `booking_hold_expired_total` | counter | none |
+| `queue_depth` | gauge | `state`: ready, claimed, parked |
+| `queue_job_duration_seconds` | histogram | `kind`, `outcome` |
+| `worker_jobs_claimed_total` | counter | none |
+| `worker_jobs_completed_total` | counter | none |
+| `cache_lookup_total` | counter | `endpoint`, `result`: hit, miss, stale |
+| `db_pool_connections` | gauge | `pool`: primary, replica, `state`: acquired, idle, total |
+| `replication_lag_bytes` | gauge | none |
+| `fault_injection_enabled` | gauge | none, 1 while the fault surface is live |
+| `fault_injected_total` | counter | `point` |
+
+The `route` label is the registered pattern, never the path that arrived.
+`GET /api/v1/bookings/{bookingId}` is one series. The path would be one series
+per booking, which leaks who booked what into a system with no access control on
+it and exhausts the monitoring host at the same time. ADR-042.
+
+Two labels here differ from the plan's table on purpose, and ADR-043 records why:
+`booking_confirmed_total` carries no `subject`, and `queue_depth` is labelled by
+`state` rather than by `kind`.
+
+`fault_injection_enabled` is published whether the surface is on or off, so the
+dashboard banner reads a confident zero rather than an empty panel that could
+equally mean the metric was renamed.
+
+The two gauges that need a query to read, `db_pool_connections` and
+`replication_lag_bytes`, are sampled on a timer rather than during the scrape, so
+`/metrics` still answers when the database is the thing that is broken. A value
+that cannot be read keeps its last one, because a zero lag would read as
+perfectly caught up. ADR-047.
+
+Replication lag is read on the replica, not the primary. The primary's
+`pg_stat_replication` has no row at all while a replica is disconnected, so a
+replica that has fallen over reports perfect health from that side.
+
+### Frontend, by way of telemetry
+
+The browser cannot be scraped, so it posts events to `/api/v1/telemetry` and this
+service turns them into series.
+
+| metric | type | labels |
+| :- | :- | :- |
+| `frontend_page_load_seconds` | histogram | `route` |
+| `frontend_api_error_total` | counter | `code` |
+| `frontend_booking_funnel_total` | counter | `step`: list, hold, pay, confirmed |
+| `frontend_cache_lookup_total` | counter | `result`: fresh, stale, revalidated, miss |
+
+| label | accepted values |
+| :- | :- |
+| `route` | `/`, `/sign-in`, `/book/[classId]`, `/pay/[bookingId]`, `/booking/[bookingId]`, `/roster/[classId]`, `/status` |
+| `code` | invalid_request, token_expired, token_invalid, token_reused, not_your_child, forbidden_role, payment_declined, already_booked, too_many_holds, class_full, seat_lost, rate_limited, internal_error, dependency_unavailable |
+
+These four are the only metrics whose label values arrive from outside. Every
+other surface here is something this project runs, and a telemetry endpoint is
+something anybody can post to, so an unrecognised value is dropped rather than
+folded into a neighbour. One bad event is dropped on its own and the rest of the
+batch is still recorded. ADR-049.
+
+<br>
+
 ## Test Tiers
 
 | command | runs |

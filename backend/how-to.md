@@ -116,15 +116,22 @@ with none of them set.
 | :- | :- | :- |
 | `APP_ENV` | development | one of development, staging, production |
 | `API_PORT` | 9000 | must differ from the worker port |
+| `API_READ_TIMEOUT` | 10s | how long a request has to arrive |
+| `API_WRITE_TIMEOUT` | 15s | an answer has to be fully written inside it |
+| `API_SHUTDOWN_TIMEOUT` | 20s | how long a stop waits for requests in flight |
 | `WORKER_METRICS_PORT` | 9002 | |
+| `WORKER_POLL_INTERVAL` | 2s | how often the worker looks for a claimable job |
 | `DATABASE_PRIMARY_URL` | the local primary | must be a postgres url with a host |
 | `DATABASE_REPLICA_URL` | the local replica | same |
 | `DATABASE_MAX_CONNECTIONS` | 10 | at least 1 |
 | `DATABASE_CONNECT_TIMEOUT` | 5s | greater than zero |
 | `REDIS_ADDRESS` | 127.0.0.1:6379 | |
+| `REDIS_PASSWORD` | empty | held as a secret, so it is never echoed in an error |
+| `REDIS_DATABASE` | 0 | |
 | `JWT_SECRET` | a throwaway in development | required everywhere, at least 32 characters outside development |
 | `ACCESS_TOKEN_TTL` | 15m | |
 | `REFRESH_TOKEN_TTL` | 720h | must be longer than the access lifetime |
+| `COOKIE_DOMAIN` | empty | empty means host-only, which is what a single origin wants |
 | `COOKIE_SECURE` | false in development | must be true outside development |
 | `FRONTEND_ORIGIN` | http://127.0.0.1:9001 | needs a scheme and a host |
 | `FAULT_INJECTION_ENABLED` | false | true outside development is a startup failure |

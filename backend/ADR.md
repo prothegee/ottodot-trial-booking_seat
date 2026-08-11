@@ -201,7 +201,7 @@ back.
 
 ## ADR-010: Postgres holds all state, Redis is cache and rate limit only
 
-**Status:** planned, phases 6 and 7
+**Status:** accepted, phases 6 and 7
 
 **Context.** Redis is faster and tempting for seat counts, locks, and the job
 queue.
@@ -383,7 +383,7 @@ to.
 
 ## ADR-019: The failure path is proven by making it fail
 
-**Status:** planned, phase 7
+**Status:** accepted, phase 7
 
 **Context.** An alert nobody has watched fire is a query somebody wrote once.
 
@@ -1034,7 +1034,7 @@ page create series at will.
 
 <br>
 
-## ADR-043: two metric labels differ from the plan's table, on purpose
+## ADR-043: Two metric labels differ from the plan's table, on purpose
 
 **Status:** accepted, phase 7
 

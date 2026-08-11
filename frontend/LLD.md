@@ -720,6 +720,26 @@ break a booking. ADR-F031.
 
 The timer only runs while something is queued, so an idle tab costs nothing.
 
+**The closed vocabulary.** Every field on every event is a label value or a
+duration, and there is nowhere on any of them to put an identifier. The api holds
+the same lists and drops an event whose value is not on them, so anything added
+here without being added there is silently discarded rather than reported.
+
+| event kind | field | accepted values |
+| :- | :- | :- |
+| `page_load` | route | `/`, `/sign-in`, `/book/[classId]`, `/pay/[bookingId]`, `/booking/[bookingId]`, `/roster/[classId]`, `/status` |
+| `page_load` | seconds | a duration, dropped at zero or below and above 120 |
+| `funnel_step` | step | list, hold, pay, confirmed |
+| `cache_lookup` | result | fresh, stale, revalidated, miss |
+| `api_error` | code | the typed api codes: invalid_request, token_expired, token_invalid, token_reused, not_your_child, forbidden_role, payment_declined, already_booked, too_many_holds, class_full, seat_lost, rate_limited, internal_error, dependency_unavailable |
+
+A route is always the pattern and never the path. `/book/0192a000-...` would put
+a class id on a metric label, which is one series per class and an identifier in
+a system with no access control on it.
+
+The batch cap is 50, the same number the api enforces, so this client can never
+assemble a batch the api will refuse whole.
+
 **Where each event is recorded from, and why it is there rather than somewhere
 else.**
 
