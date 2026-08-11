@@ -3,9 +3,18 @@
 
     interface Props {
         trialClass: TrialClass;
+
+        /**
+         * Whether the reader may open this class's roster.
+         *
+         * It decides one link and nothing else. The api refuses the route for a
+         * parent whatever this says, which is what actually protects the names
+         * on the other side of it.
+         */
+        showRoster?: boolean;
     }
 
-    let { trialClass }: Props = $props();
+    let { trialClass, showRoster = false }: Props = $props();
 
     /**
      * Whether this class has room, as far as anyone here can tell.
@@ -62,6 +71,10 @@
     {:else}
         <a class="book" href="/book/{trialClass.id}" data-testid="class-card-book">Book a place</a>
     {/if}
+
+    {#if showRoster}
+        <a class="roster" href="/roster/{trialClass.id}" data-testid="class-card-roster">See the roster</a>
+    {/if}
 </article>
 
 <style>
@@ -110,6 +123,13 @@
         margin: 0.5rem 0 0;
         font-size: 0.85rem;
         color: #6b7280;
+    }
+
+    .roster {
+        margin-top: 0.35rem;
+        font-size: 0.85rem;
+        text-align: center;
+        color: #1d4ed8;
     }
 
     .book {
