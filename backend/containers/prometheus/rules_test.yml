@@ -1,0 +1,105 @@
+# ---------------------------------------------------------------------------- #
+# Proof that the two alerts that matter most actually fire.
+#
+# Run with:
+#   promtool test rules containers/prometheus/rules_test.yml
+#
+# An alert nobody has ever seen fire is worse than no alert, because it is
+# mistaken for coverage. This file replays a synthetic series through the real
+# rule file and asserts what comes out, so a rule broken by an edit fails a pull
+# request instead of failing a night.
+#
+# It covers three things: that TransactionErrorSpike fires on a broken
+# transaction, that it does NOT fire on a lost race, and that RefundBacklog fires
+# while somebody is owed money. The middle one is the case worth the most: those
+# two outcomes look identical in a rollback count, and telling them apart is the
+# whole reason confirm_transaction_total carries an outcome label.
+# ---------------------------------------------------------------------------- #
+
+rule_files:
+    - rules.yml
+
+evaluation_interval: 1m
+
+tests:
+    - interval: 1m
+      name: a broken confirm transaction raises the alert
+      input_series:
+          - series: 'confirm_transaction_total{outcome="error"}'
+            values: "0 0 1 1 1 1 1 1 1"
+          - series: 'confirm_transaction_total{outcome="seat_lost"}'
+            values: "0 0 0 0 0 0 0 0 0"
+
+      alert_rule_test:
+          - eval_time: 1m
+            alertname: TransactionErrorSpike
+            exp_alerts: []
+
+          - eval_time: 4m
+            alertname: TransactionErrorSpike
+            exp_alerts:
+                - exp_labels:
+                      severity: critical
+                      outcome: error
+                  exp_annotations:
+                      summary: "The confirm transaction is failing"
+                      description: "confirm_transaction_total with outcome=error is rising. This is not a lost race, it is a transaction that broke."
+
+    - interval: 1m
+      name: a lost race is correct behaviour and raises nothing
+      input_series:
+          # Twenty parents reach the last seat second over twenty minutes. That
+          # is the system working exactly as designed, and an alert here would
+          # train somebody to ignore the one that means something.
+          - series: 'confirm_transaction_total{outcome="seat_lost"}'
+            values: "0+1x20"
+          - series: 'confirm_transaction_total{outcome="error"}'
+            values: "0x20"
+
+      alert_rule_test:
+          - eval_time: 15m
+            alertname: TransactionErrorSpike
+            exp_alerts: []
+
+    - interval: 1m
+      name: a parent owed money raises the alert after five minutes
+      input_series:
+          - series: "refund_pending_bookings"
+            values: "0 1 1 1 1 1 1 1 1 1"
+
+      alert_rule_test:
+          - eval_time: 4m
+            alertname: RefundBacklog
+            exp_alerts: []
+
+          - eval_time: 7m
+            alertname: RefundBacklog
+            exp_alerts:
+                - exp_labels:
+                      severity: critical
+                  exp_annotations:
+                      summary: "A parent has been charged and not yet refunded"
+                      description: "refund_pending_bookings has been above zero for five minutes. Every one of these is money somebody is owed."
+
+    - interval: 1m
+      name: a replayed refresh token raises the alert at once
+      input_series:
+          # No `for` window on this one, so it fires on the first evaluation that
+          # sees an increase. A stolen token is not worth waiting five minutes
+          # to mention.
+          - series: "auth_refresh_reuse_detected_total"
+            values: "0 0 1 1 1"
+
+      alert_rule_test:
+          - eval_time: 1m
+            alertname: RefreshReuse
+            exp_alerts: []
+
+          - eval_time: 3m
+            alertname: RefreshReuse
+            exp_alerts:
+                - exp_labels:
+                      severity: critical
+                  exp_annotations:
+                      summary: "A spent refresh token was presented again"
+                      description: "The whole token family was revoked, which signs the real parent out too. That is the correct trade for a stolen token and it is worth knowing about."
