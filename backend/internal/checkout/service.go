@@ -41,6 +41,10 @@ type Settings struct {
     // the booking side refuses an early expiry anyway, so this is the second of
     // two defences rather than the only one.
     ExpiryGrace time.Duration
+
+    // Metrics is where this package's numbers go. Nil means nowhere, which is
+    // what every test runs with.
+    Metrics MetricSink
 }
 
 // DefaultSettings are the values this package runs with when nothing overrides
@@ -71,6 +75,7 @@ type Service struct {
     bookings *booking.Service
     payments *payment.Service
     jobs     queue.Queue
+    metrics  MetricSink
     settings Settings
 }
 
@@ -103,6 +108,7 @@ func NewService(bookings *booking.Service, payments *payment.Service, jobs queue
         bookings: bookings,
         payments: payments,
         jobs:     jobs,
+        metrics:  settings.Metrics,
         settings: settings.withDefaults(),
     }, nil
 }
