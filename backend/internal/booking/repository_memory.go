@@ -6,6 +6,7 @@ import (
     "sync"
     "time"
 
+    "ottodot-trial-booking/backend/internal/faults"
     "ottodot-trial-booking/backend/internal/identifier"
 )
 
@@ -24,6 +25,7 @@ type MemoryRepository struct {
     parents  map[string]string
     bookings map[string]Booking
     events   map[string][]Event
+    fault    Fault
 }
 
 // NewMemoryRepository builds an empty repository. Classes and students are put
@@ -36,6 +38,19 @@ func NewMemoryRepository() *MemoryRepository {
         bookings: make(map[string]Booking),
         events:   make(map[string][]Event),
     }
+}
+
+// InjectFaults points this repository at a fault source.
+//
+// The fake carries the same two injection points the real one does, at the same
+// two moments. That is what lets the leak and rollback simulations run in the
+// fast tier in a second with nothing running, and still describe the same thing
+// the live stack does when the same point is armed over http.
+func (repository *MemoryRepository) InjectFaults(fault Fault) {
+    repository.mutex.Lock()
+    defer repository.mutex.Unlock()
+
+    repository.fault = fault
 }
 
 // AddClass puts a class in front of the repository. It stands in for a row in
@@ -182,6 +197,12 @@ func (repository *MemoryRepository) Confirm(_ context.Context, request ConfirmRe
     repository.mutex.Lock()
     defer repository.mutex.Unlock()
 
+    // Injection point: the class lock. The real repository fails at its
+    // SELECT ... FOR UPDATE, and this mutex is what stands in for that lock.
+    if repository.fault.triggered(faults.PointConfirmLockWait) {
+        return Booking{}, ErrLockWaitTimeout
+    }
+
     stored, found := repository.bookings[request.BookingID]
     if !found {
         return Booking{}, ErrBookingNotFound
@@ -218,6 +239,14 @@ func (repository *MemoryRepository) Confirm(_ context.Context, request ConfirmRe
     won.ConfirmedAt = request.Now
     won.HoldExpiresAt = time.Time{}
     won.UpdatedAt = request.Now
+
+    // Injection point: the seat is decided and nothing is stored yet, which is
+    // where the real repository sits when its commit is about to fail. Returning
+    // here is this repository's rollback: no map is written, so no seat is
+    // consumed, no event is recorded, and the booking is still holding.
+    if repository.fault.triggered(faults.PointConfirmBeforeCommit) {
+        return Booking{}, ErrTransactionBroken
+    }
 
     repository.bookings[won.ID] = won
 
