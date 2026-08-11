@@ -671,3 +671,162 @@ Swapping in Turnstile or hCaptcha replaces this one file, because nothing
 outside it knows what a token looks like. The shared token string is what makes
 both halves testable end to end without an account anywhere, and it is the one
 thing a real provider replaces on both sides at once.
+
+<br>
+
+## ADR-F031: Monitoring never breaks a booking, which decides everything about the emitter
+
+**Status:** accepted, phase 7
+
+**Context.** The client cannot be scraped, so it posts what it saw to the api.
+That post is a network call on the same connection as a booking, made from the
+same tab, competing for the same attention. Every design question about it has
+the same answer.
+
+**Decision.** Every failure is swallowed, including the reason. Nothing a screen
+does awaits a post. A failed batch is thrown away rather than retried. The queue
+is capped at the backend's own batch cap. The timer only runs while something is
+queued.
+
+**Consequences.** A telemetry post that fails leaves no trace anywhere the parent
+can see, and not even a console line. That is uncomfortable to write and it is
+correct: a monitoring failure a parent can see has already cost more than it was
+ever going to save.
+
+Not retrying is the part worth defending. A retry would turn an unreachable api
+into a growing queue and then into repeated requests at exactly the moment the
+api is least able to answer them. Losing a page load timing is not worth that.
+
+The cap is what stops a tab left open overnight with the api down from being a
+memory leak. Reaching it forces a post rather than dropping the oldest event,
+because a batch that goes out and fails costs nothing and a batch that is
+silently trimmed is a number nobody can explain.
+
+<br>
+
+## ADR-F032: The event vocabulary is closed, and it is closed on both sides
+
+**Status:** accepted, phase 7
+
+**Context.** Every field the client posts becomes a Prometheus label. A route
+posted as a path would be one time series per booking, which is a leak of who
+booked what into a system with no access control in front of it.
+
+**Decision.** `TelemetryRoute` is a union of route patterns, not a string.
+`FunnelStep` and `CacheResult` are unions too. The backend checks the same lists
+again on the way in and drops anything it does not recognise.
+
+**Consequences.** `/booking/[bookingId]` is one series. The type is what makes
+the wrong value impossible to pass, and the backend's check is what makes it
+impossible to send from a page somebody modified.
+
+The duplication is deliberate rather than an oversight. This is the one endpoint
+where the api takes a label value from outside itself, and it is worth being
+unable to get wrong from either direction.
+
+Adding a screen means adding its pattern here and in the backend's list. That is
+one more step than it would otherwise be, and it is the step that keeps the
+series count bounded.
+
+<br>
+
+## ADR-F033: A page load is measured to usable, not to mounted
+
+**Status:** accepted, phase 7
+
+**Context.** Nothing on the server can see how long a screen took. A request
+duration ends when the body is written, and what a parent experiences is that
+plus the network, the parse, and the render.
+
+A screen mounts long before it is usable. A class list that mounted instantly
+and then waited two seconds for its data was not usable for two seconds.
+
+**Decision.** `measurePageLoad` starts a monotonic timer and returns a function
+the screen calls when it has something a parent can act on. Calling it twice
+reports once.
+
+**Consequences.** The number describes the wait rather than the render, which is
+the only version of it anybody would act on.
+
+Reporting once is what stops a screen whose data arrives in two parts from
+recording the second part as a second page load. That would fill the histogram
+with numbers nobody meant, and a histogram is exactly the shape that cannot be
+cleaned up afterwards.
+
+<br>
+
+## ADR-F034: The roster is never cached, and its link is a courtesy
+
+**Status:** accepted, phase 7
+
+**Context.** Every cacheable read in this client is advisory: a stale seat count
+costs a parent one wasted click. The roster is neither. It is the only shape in
+the whole client that carries a child's name next to a seat.
+
+**Decision.** The roster store reads through the api client, never through the
+cached reader, and drops what it holds when the screen is destroyed. The link is
+shown to an admin role and hidden from a parent.
+
+**Consequences.** A stored roster would be the one place in the browser where
+another family's name outlives the screen that showed it, and `sessionStorage`
+survives a reload. Nothing about a roster is worth that.
+
+The hidden link is a courtesy and is written down here as one. Anybody can type
+the route, and what actually refuses them is the api answering `forbidden_role`.
+A client that treated a hidden link as protection would be one developer tools
+window away from handing over every other family's name, which is why simulation
+F11 drives the refusal rather than only checking that the link is absent.
+
+The refused case has a screen of its own rather than sharing the generic failure
+message, because a parent who reached it by typing deserves a plain sentence
+rather than a sentence about a roster.
+
+<br>
+
+## ADR-F035: The status route is the only thing that polls, and it stops
+
+**Status:** accepted, phase 7
+
+**Context.** Readiness is a question about right now. A cached answer to "is the
+database up" is an answer about a moment that has passed, and a client that
+polled it everywhere would turn a readiness probe into traffic.
+
+**Decision.** `/status` polls `/readyz` and `/version` every fifteen seconds while
+it is open, and nowhere else in this client polls anything. The store's `close`
+stops the timer, and the screen calls it when it is destroyed.
+
+**Consequences.** A timer that outlives its screen is a request every fifteen
+seconds for a page nobody is looking at, and in a test it is a warning after the
+case has finished. Simulation F15 asserts that the requests stop after the screen
+unmounts, which is the only way to know the cleanup is real.
+
+A 503 from readiness is treated as a successful read of a real answer. The api
+answers unready with the report naming which dependency is down, and treating
+the status as a failure would throw away the only information the screen exists
+to show. That is why `ApiError` carries the parsed body.
+
+<br>
+
+## ADR-F036: Degraded is amber, and no answer is a fourth state
+
+**Status:** accepted, phase 7
+
+**Context.** The api reports three readiness states. Two of them are obvious. The
+third, degraded, means every required dependency answered and an optional one did
+not, which for this service means the replica is down.
+
+**Decision.** Green, amber, red for the three, and grey for a backend that
+answered nothing at all.
+
+**Consequences.** Amber rather than red for degraded, because no seat is ever
+decided from the replica. A degraded service is correct and a class list may be a
+moment stale, and colouring that red would send somebody looking for a problem
+that is not costing anybody a booking.
+
+Grey is a fourth state and not a synonym for red. A service telling the truth
+about being broken and a service that is not there are different facts, and a
+dot that showed the same thing for both would be lying about one of them.
+
+The label is the answer and the dot is the decoration. Three states carried by a
+colour alone would say nothing at all to somebody who cannot see it, which is why
+the dot is hidden from assistive technology and the word is not.
