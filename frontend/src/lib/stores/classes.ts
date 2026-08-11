@@ -17,6 +17,7 @@ import type { ClassList, TrialClass } from "$lib/api/types";
 import type { CacheLookupResult } from "$lib/cache/read_through";
 import { classReader } from "$lib/session/cached_api";
 import { auth } from "$lib/stores/auth";
+import { reportCacheLookup, reportFunnel } from "$lib/telemetry/report";
 
 /** The path the list is read from. */
 export const classListPath = "/api/v1/classes";
@@ -94,6 +95,13 @@ export function createClassesStore(options: ClassesStoreOptions = {}) {
                     failure: "",
                     lastResult: answer.result,
                 });
+
+                // Which tier served the list, and the first step of the funnel.
+                // Both are recorded here rather than in the screen, because the
+                // screen does not know which tier answered and should not have
+                // to remember to say it reached the list.
+                reportCacheLookup(answer.result);
+                reportFunnel("list");
 
                 return answer.revalidation;
             } catch (error) {
