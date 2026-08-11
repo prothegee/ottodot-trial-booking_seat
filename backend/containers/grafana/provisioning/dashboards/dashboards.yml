@@ -1,0 +1,23 @@
+# ---------------------------------------------------------------------------- #
+# Where Grafana finds the dashboards.
+#
+# The three json files are loaded from disk on every start and are not editable
+# in the browser. That is deliberate: a dashboard edited in a browser lives in
+# Grafana's own database, disappears with the container, and is invisible to code
+# review. These are files in the repository, so a panel change is a diff.
+# ---------------------------------------------------------------------------- #
+
+apiVersion: 1
+
+providers:
+    - name: ottodot
+      orgId: 1
+      folder: Ottodot
+      type: file
+      disableDeletion: true
+      editable: false
+      updateIntervalSeconds: 30
+      allowUiUpdates: false
+      options:
+          path: /var/lib/grafana/dashboards
+          foldersFromFilesStructure: false
