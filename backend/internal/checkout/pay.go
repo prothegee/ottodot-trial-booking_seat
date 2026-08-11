@@ -88,6 +88,8 @@ func (service *Service) Pay(ctx context.Context, command PayCommand) (PayResult,
         IdempotencyKey: command.IdempotencyKey,
     })
 
+    service.recordPayment(err)
+
     if errors.Is(err, payment.ErrDeclined) {
         return service.endOnDecline(ctx, command.BookingID, attempt)
     }
@@ -99,7 +101,11 @@ func (service *Service) Pay(ctx context.Context, command PayCommand) (PayResult,
         return PayResult{Attempt: attempt}, err
     }
 
+    startedConfirm := service.settings.Clock()
+
     confirmed, confirmErr := service.bookings.Confirm(ctx, command.BookingID)
+
+    service.recordConfirm(confirmErr, service.settings.Clock().Sub(startedConfirm))
 
     if errors.Is(confirmErr, booking.ErrSeatLost) {
         return service.queueRefund(ctx, confirmed, attempt)
