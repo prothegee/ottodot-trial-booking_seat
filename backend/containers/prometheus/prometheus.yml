@@ -1,0 +1,68 @@
+# ---------------------------------------------------------------------------- #
+# What Prometheus scrapes, and how often.
+#
+# Four targets, one per layer of the monitoring plan:
+#   api 9000        the process, and everything the service counts about itself
+#   worker 9002     the process, and what the queue holds
+#   node_exporter   the host: cpu, memory, drive, and inodes
+#   cadvisor        each container: cpu, memory, drive, and restarts
+#
+# Five seconds is deliberate and it is faster than the usual fifteen. This stack
+# is demonstrated on camera, and a counter that takes fifteen seconds to appear
+# is a counter nobody is still looking at the panel for. The cost is more samples
+# for a stack that runs for an afternoon, which is nothing.
+#
+# Every target is named by its compose service rather than by an address, so this
+# file works unchanged whatever the host publishes the ports as.
+# ---------------------------------------------------------------------------- #
+
+global:
+    scrape_interval: 5s
+    scrape_timeout: 4s
+    evaluation_interval: 5s
+
+    external_labels:
+        stack: ottodot-backend
+
+rule_files:
+    - /etc/prometheus/rules.yml
+
+scrape_configs:
+    - job_name: api
+      metrics_path: /metrics
+      static_configs:
+          - targets: ["api:9000"]
+            labels:
+                component: api
+
+    - job_name: worker
+      metrics_path: /metrics
+      static_configs:
+          - targets: ["worker:9002"]
+            labels:
+                component: worker
+
+    - job_name: node
+      static_configs:
+          - targets: ["node-exporter:9100"]
+            labels:
+                component: host
+
+    # cAdvisor is the one target allowed to be absent. It reads a container
+    # runtime socket and is written against Docker, so under rootless Podman it
+    # needs a socket mounted where it expects one. When it will not start, layers
+    # one and two still cover cpu, memory, and drive, and the dashboard degrades
+    # from per container to host wide. how-to.md carries the exact command.
+    - job_name: cadvisor
+      static_configs:
+          - targets: ["cadvisor:8080"]
+            labels:
+                component: containers
+
+    # Prometheus scrapes itself, so "is monitoring up" is answerable from
+    # monitoring rather than from somebody noticing a blank dashboard.
+    - job_name: prometheus
+      static_configs:
+          - targets: ["localhost:9090"]
+            labels:
+                component: monitoring
