@@ -50,11 +50,11 @@ flowchart TD
 
 | component | owns | state today |
 | :- | :- | :- |
-| api | the http surface, authentication, rate limiting, caching | phase 6 |
+| api | the http surface, authentication, rate limiting, caching | built |
 | booking service | policy: hold lifetime, the per-parent hold cap, the clock | built |
 | booking repository | atomicity, and every invariant that has to hold under concurrency | built |
 | auth | tokens, rotation, reuse detection, the role check, the four auth routes | built |
-| roster | confirmed bookings for a class, for a teacher | phase 6 |
+| roster | confirmed bookings for a class, for a teacher | built |
 | worker | expiring lapsed holds, reconciling refunds | built |
 | payment | the charge: a deterministic provider behind the interface a real one would have, and one attempt per idempotency key | built |
 
@@ -76,7 +76,7 @@ either unenforceable or unhelpful.
 | is this token still believed | api middleware, signature then denylist | the signature costs no database read, and the denylist is what makes a sign out real |
 | one refresh token is spent once | the rotation transaction, primary | a read followed by a write lets one stolen token become two sessions |
 | did this write come from our own page | api middleware, Origin check on mutations | cookies travel by themselves, so this is what a cookie session costs |
-| is the caller a person | api middleware | rate limit, honeypot, fill timer, captcha, all before the repository is touched |
+| is the caller a person | api middleware and the write handlers | rate limit, honeypot, fill timer, captcha, all before the repository is touched |
 | seat counts on screen | the client, advisory only | stale by the time a parent clicks, and every screen handles the rejection |
 | expiring a lapsed hold | the worker | nothing on a request path should depend on a timer |
 | sending money back | the worker | it must survive a restart, so it is a queued job, not a deferred call |
@@ -242,11 +242,11 @@ including when there turned out to be nothing to do, because a job that arrives
 after a parent already paid has succeeded at its purpose. Anything else hands
 the job back for another attempt, until its attempts run out and it parks.
 
-**Who schedules the jobs.** Nothing yet. The queue and both handlers are built
-and proven, and the http layer in phase 6 is what enqueues `expire_hold` when a
-hold is granted and `reconcile_refund` when a confirm reports `ErrSeatLost`.
-Until then the simulations enqueue them, which is the same seam the handler will
-be called through.
+**Who schedules the jobs.** `internal/checkout`. It enqueues `expire_hold` when
+a hold is granted, at the deadline plus a grace period, and `reconcile_refund`
+when a confirm reports `ErrSeatLost`. Both are written after the transaction
+they follow rather than inside it, and ADR-037 explains why that order is the
+survivable one.
 
 <br>
 
@@ -321,13 +321,96 @@ mutation, which does not depend on the browser getting it right.
 
 **Sign out, and what it can and cannot do.** The `jti` goes on a denylist for
 exactly the token's remaining life, and the refresh family is revoked, so both
-halves of the session stop working. The denylist is per-process until Redis
-arrives in phase 6, which is written down in ADR-031 rather than left to be
-discovered.
+halves of the session stop working. The denylist is in Redis, so a sign out on
+one api instance is honoured by every other. A Redis that cannot be read is a
+refused request rather than an honoured token: a denylist that cannot say no
+must not say yes.
 
 **Sign in is mocked, deliberately.** A seeded email, no password, because the
 brief asks for no auth. Everything around it is real, so a password or a
 provider later replaces one method.
+
+<br>
+
+## The Http Surface
+
+Two groups of routes, split on purpose. Operations routes never move, so they
+stay unversioned at the root. Business routes carry `/api/v1`, so a breaking
+change becomes `/api/v2` rather than a silent contract shift.
+
+```mermaid
+flowchart TD
+    request[incoming request] --> id[request id stamped]
+    id --> recover[panic recovery]
+    recover --> ops{operations route}
+    ops -->|yes| answer[healthz, readyz, version, no token]
+    ops -->|no| origin{write, and from our own page}
+    origin -->|no| refuse400[400 invalid_request]
+    origin -->|yes| token{access token valid}
+    token -->|no| refuse401[401 token_expired or token_invalid]
+    token -->|yes| role{admin route, and an admin}
+    role -->|no| refuse403[403 forbidden_role]
+    role -->|yes| bucket{token bucket has room}
+    bucket -->|no| refuse429[429 rate_limited]
+    bucket -->|yes| handler[the handler]
+```
+
+**The order is the design.** Authentication comes before the rate limit, and it
+has to: a request counted before its identity is known is a request counted
+against an address rather than an account, and an address is shared by everyone
+behind one office connection.
+
+**Each layer is cheaper than the one below it.** A signature check costs no
+database read, the ownership check costs one, the bucket costs one shared store
+read, and only then does anything reach a transaction. Simulation 10 walks every
+branch and asserts that a refusal at each one leaves the repository untouched.
+
+**Where each thing lives.**
+
+| package | owns |
+| :- | :- |
+| `httpx` | the routes, the middleware chain, and the one failure envelope |
+| `operations` | liveness, readiness, and build identity, all unversioned and open |
+| `catalogue` | the class list and its advisory seat counts, from the replica |
+| `roster` | who owns a seat in one class, from the replica, admin only |
+| `checkout` | the order a hold and a payment happen in, and what is queued |
+| `cache` | the etag, the stored body, and the version counter |
+| `ratelimit` | the token bucket, as arithmetic and as two implementations |
+| `captcha` | the challenge provider's shape, and a deterministic mock |
+
+<br>
+
+## Caching, And Why It Is Safe Here
+
+Only two documents are cacheable: the class list and one class. Both are
+advisory by construction, so a stale copy can cost a parent a wasted click and
+can never cost anybody a seat.
+
+```mermaid
+sequenceDiagram
+    participant UI as Client
+    participant API as Go api
+    participant R as Redis
+    participant PG as Postgres replica
+
+    UI->>API: GET /api/v1/classes, If-None-Match "41-a1b2"
+    API->>R: read the stored body
+    R-->>API: the same tag
+    API-->>UI: 304, no body, no database read
+
+    Note over PG: a booking confirms, the version is bumped
+
+    UI->>API: GET /api/v1/classes, If-None-Match "41-a1b2"
+    API->>R: read the stored body
+    R-->>API: nothing, it was dropped
+    API->>PG: read the classes and their confirmed counts
+    API->>R: store the body under tag "42-c3d4"
+    API-->>UI: 200, ETag "42-c3d4"
+```
+
+The tag carries a version as well as a digest, and ADR-036 explains the case
+that needs both: cancelling a booking puts a seat straight back, so the body
+becomes byte for byte what it was, and only the counter tells the two apart.
 
 <br>
 

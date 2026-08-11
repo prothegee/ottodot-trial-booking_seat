@@ -12,22 +12,22 @@
 package main
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"log"
-	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
+    "context"
+    "errors"
+    "fmt"
+    "log"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    "time"
 
-	"ottodot-trial-booking/backend/internal/booking"
-	"ottodot-trial-booking/backend/internal/config"
-	"ottodot-trial-booking/backend/internal/database"
-	"ottodot-trial-booking/backend/internal/payment"
-	"ottodot-trial-booking/backend/internal/queue"
-	"ottodot-trial-booking/backend/internal/worker"
+    "ottodot-trial-booking/backend/internal/booking"
+    "ottodot-trial-booking/backend/internal/config"
+    "ottodot-trial-booking/backend/internal/database"
+    "ottodot-trial-booking/backend/internal/payment"
+    "ottodot-trial-booking/backend/internal/queue"
+    "ottodot-trial-booking/backend/internal/worker"
 )
 
 // startupTimeout caps how long the process waits for both pools. Past it, a
@@ -45,52 +45,52 @@ const shutdownTimeout = 10 * time.Second
 // lapsed and whether money has gone back, and both are decisions, so neither
 // may read a replica that is a moment behind.
 func buildRunner(pools *database.Pools, settings config.Config) (*worker.Runner, error) {
-	bookingService, err := booking.NewService(booking.NewPostgresRepository(pools.Primary()), booking.DefaultSettings())
-	if err != nil {
-		return nil, fmt.Errorf("the booking service: %w", err)
-	}
+    bookingService, err := booking.NewService(booking.NewPostgresRepository(pools.Primary()), booking.DefaultSettings())
+    if err != nil {
+        return nil, fmt.Errorf("the booking service: %w", err)
+    }
 
-	paymentService, err := payment.NewService(
-		payment.NewPostgresRepository(pools.Primary()),
-		payment.NewMockProvider(),
-		payment.Settings{})
-	if err != nil {
-		return nil, fmt.Errorf("the payment service: %w", err)
-	}
+    paymentService, err := payment.NewService(
+        payment.NewPostgresRepository(pools.Primary()),
+        payment.NewMockProvider(),
+        payment.Settings{})
+    if err != nil {
+        return nil, fmt.Errorf("the payment service: %w", err)
+    }
 
-	expireHold, err := worker.NewExpireHoldHandler(bookingService)
-	if err != nil {
-		return nil, fmt.Errorf("the expiry handler: %w", err)
-	}
+    expireHold, err := worker.NewExpireHoldHandler(bookingService)
+    if err != nil {
+        return nil, fmt.Errorf("the expiry handler: %w", err)
+    }
 
-	reconcile, err := worker.NewReconcileRefundHandler(bookingService, paymentService, recordRefund)
-	if err != nil {
-		return nil, fmt.Errorf("the reconciliation handler: %w", err)
-	}
+    reconcile, err := worker.NewReconcileRefundHandler(bookingService, paymentService, recordRefund)
+    if err != nil {
+        return nil, fmt.Errorf("the reconciliation handler: %w", err)
+    }
 
-	handlers := worker.Registry{}
+    handlers := worker.Registry{}
 
-	if err := handlers.Register(queue.KindExpireHold, expireHold); err != nil {
-		return nil, fmt.Errorf("registering the expiry handler: %w", err)
-	}
+    if err := handlers.Register(queue.KindExpireHold, expireHold); err != nil {
+        return nil, fmt.Errorf("registering the expiry handler: %w", err)
+    }
 
-	if err := handlers.Register(queue.KindReconcileRefund, reconcile); err != nil {
-		return nil, fmt.Errorf("registering the reconciliation handler: %w", err)
-	}
+    if err := handlers.Register(queue.KindReconcileRefund, reconcile); err != nil {
+        return nil, fmt.Errorf("registering the reconciliation handler: %w", err)
+    }
 
-	runnerSettings := worker.DefaultSettings()
-	runnerSettings.PollInterval = settings.Worker.PollInterval
-	runnerSettings.OnError = func(err error) { log.Printf("worker: %v", err) }
+    runnerSettings := worker.DefaultSettings()
+    runnerSettings.PollInterval = settings.Worker.PollInterval
+    runnerSettings.OnError = func(err error) { log.Printf("worker: %v", err) }
 
-	return worker.NewRunner(queue.NewPostgresQueue(pools.Primary()), handlers, runnerSettings)
+    return worker.NewRunner(queue.NewPostgresQueue(pools.Primary()), handlers, runnerSettings)
 }
 
 // buildVersion and buildCommit are stamped at link time by
 // containers/Containerfile.worker. They are values rather than constants for
 // exactly that reason, and the defaults are what a local go build produces.
 var (
-	buildVersion = "dev"
-	buildCommit  = "unknown"
+    buildVersion = "dev"
+    buildCommit  = "unknown"
 )
 
 // metricsAddress is where the listener binds.
@@ -106,7 +106,7 @@ var (
 // boundary is what makes "every interface" mean "the container's own network",
 // which is the narrow thing the rule is asking for.
 func metricsAddress(port int) string {
-	return fmt.Sprintf(":%d", port)
+    return fmt.Sprintf(":%d", port)
 }
 
 // refundLine is what gets written down when money goes back.
@@ -116,94 +116,94 @@ func metricsAddress(port int) string {
 // two provider references, and nothing about a person: no parent, no child, no
 // class, and no amount.
 func refundLine(refund payment.Refund) string {
-	return fmt.Sprintf("worker: refund settled, attempt %s, charge %s, refund %s",
-		refund.AttemptID, refund.ProviderRef, refund.RefundRef)
+    return fmt.Sprintf("worker: refund settled, attempt %s, charge %s, refund %s",
+        refund.AttemptID, refund.ProviderRef, refund.RefundRef)
 }
 
 // recordRefund puts that line where an operator will find it.
 func recordRefund(refund payment.Refund) {
-	log.Print(refundLine(refund))
+    log.Print(refundLine(refund))
 }
 
 // serveMetrics starts the listener and reports a failure that is not the
 // ordinary shutdown.
 func serveMetrics(listener *http.Server) {
-	if err := listener.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Printf("worker: the metrics listener stopped: %v", err)
-	}
+    if err := listener.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+        log.Printf("worker: the metrics listener stopped: %v", err)
+    }
 }
 
 // run is the whole process, written to return an error rather than to exit, so
 // every failure leaves through one place.
 func run() error {
-	settings, err := config.LoadFromEnvironment()
-	if err != nil {
-		return fmt.Errorf("the configuration was refused: %w", err)
-	}
+    settings, err := config.LoadFromEnvironment()
+    if err != nil {
+        return fmt.Errorf("the configuration was refused: %w", err)
+    }
 
-	startupCtx, cancelStartup := context.WithTimeout(context.Background(), startupTimeout)
-	defer cancelStartup()
+    startupCtx, cancelStartup := context.WithTimeout(context.Background(), startupTimeout)
+    defer cancelStartup()
 
-	pools, err := database.Open(startupCtx, database.Settings{
-		PrimaryURL:     settings.Database.PrimaryURL.Reveal(),
-		ReplicaURL:     settings.Database.ReplicaURL.Reveal(),
-		MaxConnections: settings.Database.MaxConnections,
-		ConnectTimeout: settings.Database.ConnectTimeout,
-	})
-	if err != nil {
-		return fmt.Errorf("the database is not reachable: %w", err)
-	}
+    pools, err := database.Open(startupCtx, database.Settings{
+        PrimaryURL:     settings.Database.PrimaryURL.Reveal(),
+        ReplicaURL:     settings.Database.ReplicaURL.Reveal(),
+        MaxConnections: settings.Database.MaxConnections,
+        ConnectTimeout: settings.Database.ConnectTimeout,
+    })
+    if err != nil {
+        return fmt.Errorf("the database is not reachable: %w", err)
+    }
 
-	defer pools.Close()
+    defer pools.Close()
 
-	runner, err := buildRunner(pools, settings)
-	if err != nil {
-		return fmt.Errorf("the worker could not be wired: %w", err)
-	}
+    runner, err := buildRunner(pools, settings)
+    if err != nil {
+        return fmt.Errorf("the worker could not be wired: %w", err)
+    }
 
-	jobs := queue.NewPostgresQueue(pools.Primary())
+    jobs := queue.NewPostgresQueue(pools.Primary())
 
-	handler, err := worker.NewListenerHandler(runner.Counters(), func(ctx context.Context) (queue.Depth, error) {
-		return jobs.Depth(ctx, queue.DepthRequest{
-			Now:         time.Now(),
-			MaxAttempts: worker.DefaultSettings().MaxAttempts,
-		})
-	})
-	if err != nil {
-		return fmt.Errorf("the metrics listener could not be wired: %w", err)
-	}
+    handler, err := worker.NewListenerHandler(runner.Counters(), func(ctx context.Context) (queue.Depth, error) {
+        return jobs.Depth(ctx, queue.DepthRequest{
+            Now:         time.Now(),
+            MaxAttempts: worker.DefaultSettings().MaxAttempts,
+        })
+    })
+    if err != nil {
+        return fmt.Errorf("the metrics listener could not be wired: %w", err)
+    }
 
-	address := metricsAddress(settings.Worker.MetricsPort)
-	listener := worker.NewListener(address, handler)
+    address := metricsAddress(settings.Worker.MetricsPort)
+    listener := worker.NewListener(address, handler)
 
-	go serveMetrics(listener)
+    go serveMetrics(listener)
 
-	log.Printf("worker: version %s, commit %s, consuming the queue, metrics on %s", buildVersion, buildCommit, address)
+    log.Printf("worker: version %s, commit %s, consuming the queue, metrics on %s", buildVersion, buildCommit, address)
 
-	// The signal context is what ends the loop. Everything below it unwinds in
-	// order: stop claiming, then stop answering scrapes, then close the pools.
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+    // The signal context is what ends the loop. Everything below it unwinds in
+    // order: stop claiming, then stop answering scrapes, then close the pools.
+    ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+    defer stop()
 
-	if err := runner.Run(ctx); err != nil {
-		return fmt.Errorf("the worker stopped: %w", err)
-	}
+    if err := runner.Run(ctx); err != nil {
+        return fmt.Errorf("the worker stopped: %w", err)
+    }
 
-	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), shutdownTimeout)
-	defer cancelShutdown()
+    shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), shutdownTimeout)
+    defer cancelShutdown()
 
-	if err := listener.Shutdown(shutdownCtx); err != nil {
-		log.Printf("worker: the metrics listener did not close cleanly: %v", err)
-	}
+    if err := listener.Shutdown(shutdownCtx); err != nil {
+        log.Printf("worker: the metrics listener did not close cleanly: %v", err)
+    }
 
-	log.Print("worker: stopped")
+    log.Print("worker: stopped")
 
-	return nil
+    return nil
 }
 
 func main() {
-	if err := run(); err != nil {
-		log.Printf("worker: %v", err)
-		os.Exit(1)
-	}
+    if err := run(); err != nil {
+        log.Printf("worker: %v", err)
+        os.Exit(1)
+    }
 }

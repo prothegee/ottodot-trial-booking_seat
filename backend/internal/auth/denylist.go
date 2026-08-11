@@ -1,8 +1,8 @@
 package auth
 
 import (
-	"context"
-	"time"
+    "context"
+    "time"
 )
 
 // Denylist holds the access tokens that must stop being believed before they
@@ -16,11 +16,11 @@ import (
 // Entries are never read after that instant, so nothing here grows without
 // bound: a jti stops mattering at the moment the signature stops verifying.
 type Denylist interface {
-	// Deny withdraws one token id until the given instant, which is the
-	// token's own expiry and never longer.
-	Deny(ctx context.Context, tokenID string, until time.Time) error
+    // Deny withdraws one token id until the given instant, which is the
+    // token's own expiry and never longer.
+    Deny(ctx context.Context, tokenID string, until time.Time) error
 
-	// IsDenied reports whether a token id was withdrawn and has not yet
-	// expired.
-	IsDenied(ctx context.Context, tokenID string, now time.Time) (bool, error)
+    // IsDenied reports whether a token id was withdrawn and has not yet
+    // expired.
+    IsDenied(ctx context.Context, tokenID string, now time.Time) (bool, error)
 }

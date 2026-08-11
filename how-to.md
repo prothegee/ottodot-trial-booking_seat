@@ -68,7 +68,7 @@ must send its own origin to the api, because the api checks it on mutations.
 | 5432 | postgres primary | 127.0.0.1 |
 | 5433 | postgres replica | 127.0.0.1 |
 | 6379 | redis | 127.0.0.1 |
-| 9000 | backend api | not built yet, phase 6 |
+| 9000 | backend api | 127.0.0.1 |
 | 9001 | frontend | 127.0.0.1 |
 | 9002 | worker metrics | running |
 | 9003 | prometheus | not built yet, phase 7 |
@@ -157,19 +157,19 @@ Exit codes: 0 done, 1 declined, 2 refused by a guard.
 
 ## What Is Not Here Yet
 
-The api on 9000 and the monitoring stack are added in later phases, and their
-compose services join the file in the phase that builds them. That is
-deliberate: `backend/compose.yml` never references a service that cannot start.
+The monitoring stack is added in a later phase, and its compose services join the
+file in the phase that builds them. That is deliberate:
+`backend/compose.yml` never references a service that cannot start.
 
-The worker is there now. It has no public surface: the listener on 9002 carries
-liveness and its metrics, and nothing enqueues a job until the http layer lands,
-so a running worker finds an empty queue and says so.
+Everything else is there now. The api serves on 9000 and the worker has no public
+surface at all: its listener on 9002 carries liveness and its metrics, and the
+api is what fills the queue, so a worker on a stack nobody has booked on finds an
+empty queue and says so.
 
-Authentication is built and tested, and it is not reachable over http yet for
-the same reason: the four auth routes register themselves on a mux, and nothing
-listens on 9000 until `cmd/api` arrives. Signing in from a browser is a phase 6
-thing. What exists today runs in the fast test tiers and, for the rotation
-invariant, against real Postgres.
+Signing in from a browser works today. The client on 9001 and the api on 9000 are
+different origins, so `FRONTEND_ORIGIN` on the api has to name exactly what the
+client is served from, or every write is refused as `invalid_request`. That is
+the csrf check doing its job rather than a misconfiguration to work around.
 
 Progress per stack is in `backend/phase-track.md` and
 `frontend/phase-track.md`.

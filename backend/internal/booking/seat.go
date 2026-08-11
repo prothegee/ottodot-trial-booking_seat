@@ -20,23 +20,23 @@ package booking
 //   - the lowest free seat and true
 //   - 0 and false when every seat is taken, or when capacity is not positive
 func LowestFreeSeat(capacity int16, taken []int16) (int16, bool) {
-	if capacity < 1 {
-		return 0, false
-	}
+    if capacity < 1 {
+        return 0, false
+    }
 
-	occupied := make(map[int16]struct{}, len(taken))
+    occupied := make(map[int16]struct{}, len(taken))
 
-	for _, seat := range taken {
-		occupied[seat] = struct{}{}
-	}
+    for _, seat := range taken {
+        occupied[seat] = struct{}{}
+    }
 
-	// The counter is an int rather than an int16 so a class at the top of the
-	// smallint range cannot overflow the loop into a negative seat number.
-	for seat := 1; seat <= int(capacity); seat++ {
-		if _, found := occupied[int16(seat)]; !found {
-			return int16(seat), true
-		}
-	}
+    // The counter is an int rather than an int16 so a class at the top of the
+    // smallint range cannot overflow the loop into a negative seat number.
+    for seat := 1; seat <= int(capacity); seat++ {
+        if _, found := occupied[int16(seat)]; !found {
+            return int16(seat), true
+        }
+    }
 
-	return 0, false
+    return 0, false
 }

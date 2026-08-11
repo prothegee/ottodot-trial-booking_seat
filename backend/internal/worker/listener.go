@@ -1,12 +1,12 @@
 package worker
 
 import (
-	"context"
-	"fmt"
-	"net/http"
-	"time"
+    "context"
+    "fmt"
+    "net/http"
+    "time"
 
-	"ottodot-trial-booking/backend/internal/queue"
+    "ottodot-trial-booking/backend/internal/queue"
 )
 
 // The two routes this listener serves.
@@ -19,21 +19,21 @@ import (
 // `internal/operations` in phase 6. They are left out rather than written twice
 // and thrown away.
 const (
-	healthPath  = "/healthz"
-	metricsPath = "/metrics"
+    healthPath  = "/healthz"
+    metricsPath = "/metrics"
 )
 
 // The timeouts on the listener. They are short because the two handlers here do
 // almost nothing: a scrape that cannot finish in five seconds is a queue that
 // stopped answering, and hanging on to the connection helps nobody.
 const (
-	listenerReadTimeout  = 5 * time.Second
-	listenerWriteTimeout = 5 * time.Second
-	listenerIdleTimeout  = 30 * time.Second
+    listenerReadTimeout  = 5 * time.Second
+    listenerWriteTimeout = 5 * time.Second
+    listenerIdleTimeout  = 30 * time.Second
 
-	// depthTimeout caps the one query a scrape makes. Prometheus scrapes on a
-	// timer, so a slow answer must fail rather than pile up.
-	depthTimeout = 3 * time.Second
+    // depthTimeout caps the one query a scrape makes. Prometheus scrapes on a
+    // timer, so a slow answer must fail rather than pile up.
+    depthTimeout = 3 * time.Second
 )
 
 // DepthReader is how the listener asks the queue what it is holding.
@@ -57,43 +57,43 @@ type DepthReader func(ctx context.Context) (queue.Depth, error)
 //   - ErrInvalidSettings when either argument is missing, refused here rather
 //     than as a panic on the first scrape
 func NewListenerHandler(counters *Counters, readDepth DepthReader) (http.Handler, error) {
-	if counters == nil || readDepth == nil {
-		return nil, fmt.Errorf("%w: the listener needs counters and a way to read the queue", ErrInvalidSettings)
-	}
+    if counters == nil || readDepth == nil {
+        return nil, fmt.Errorf("%w: the listener needs counters and a way to read the queue", ErrInvalidSettings)
+    }
 
-	routes := http.NewServeMux()
+    routes := http.NewServeMux()
 
-	routes.HandleFunc(healthPath, func(writer http.ResponseWriter, _ *http.Request) {
-		// Liveness touches no dependency on purpose. A worker whose database is
-		// down is still alive, and restarting it would not bring the database
-		// back.
-		writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		writer.WriteHeader(http.StatusOK)
+    routes.HandleFunc(healthPath, func(writer http.ResponseWriter, _ *http.Request) {
+        // Liveness touches no dependency on purpose. A worker whose database is
+        // down is still alive, and restarting it would not bring the database
+        // back.
+        writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
+        writer.WriteHeader(http.StatusOK)
 
-		fmt.Fprintln(writer, "ok")
-	})
+        fmt.Fprintln(writer, "ok")
+    })
 
-	routes.HandleFunc(metricsPath, func(writer http.ResponseWriter, request *http.Request) {
-		ctx, cancel := context.WithTimeout(request.Context(), depthTimeout)
-		defer cancel()
+    routes.HandleFunc(metricsPath, func(writer http.ResponseWriter, request *http.Request) {
+        ctx, cancel := context.WithTimeout(request.Context(), depthTimeout)
+        defer cancel()
 
-		depth, err := readDepth(ctx)
-		if err != nil {
-			// A scrape that cannot read the queue must fail rather than
-			// publish zeroes. Zeroes would read as a healthy empty queue, which
-			// is the opposite of what is happening.
-			http.Error(writer, "the queue depth could not be read", http.StatusServiceUnavailable)
+        depth, err := readDepth(ctx)
+        if err != nil {
+            // A scrape that cannot read the queue must fail rather than
+            // publish zeroes. Zeroes would read as a healthy empty queue, which
+            // is the opposite of what is happening.
+            http.Error(writer, "the queue depth could not be read", http.StatusServiceUnavailable)
 
-			return
-		}
+            return
+        }
 
-		writer.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		writer.WriteHeader(http.StatusOK)
+        writer.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+        writer.WriteHeader(http.StatusOK)
 
-		WriteExposition(writer, counters.Snapshot(), depth)
-	})
+        WriteExposition(writer, counters.Snapshot(), depth)
+    })
 
-	return routes, nil
+    return routes, nil
 }
 
 // NewListener builds the http server the worker's metrics port runs.
@@ -105,11 +105,11 @@ func NewListenerHandler(counters *Counters, readDepth DepthReader) (http.Handler
 // Return:
 //   - the server, which the caller starts and shuts down
 func NewListener(address string, handler http.Handler) *http.Server {
-	return &http.Server{
-		Addr:         address,
-		Handler:      handler,
-		ReadTimeout:  listenerReadTimeout,
-		WriteTimeout: listenerWriteTimeout,
-		IdleTimeout:  listenerIdleTimeout,
-	}
+    return &http.Server{
+        Addr:         address,
+        Handler:      handler,
+        ReadTimeout:  listenerReadTimeout,
+        WriteTimeout: listenerWriteTimeout,
+        IdleTimeout:  listenerIdleTimeout,
+    }
 }

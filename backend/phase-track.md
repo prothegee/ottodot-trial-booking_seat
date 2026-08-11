@@ -108,18 +108,46 @@ endpoint cannot be used to find out who has an account, ADR-032.
 
 ## Phase 6: http surface
 
-- [ ] `internal/httpx/router.go`, `middleware.go`, `errors.go`
-- [ ] `internal/operations/health.go` and `version.go`
-- [ ] `internal/ratelimit` interface plus both implementations
-- [ ] `internal/cache` etag builder, store interface, both implementations
-- [ ] `internal/roster/service.go`
-- [ ] admin queue and admin bookings endpoints, role gated
-- [ ] `cmd/api/main.go` on port 9000
-- [ ] unit tests: every typed error maps to its status and code, etag builder
-- [ ] simulation 10: bot prevention layers
-- [ ] simulation 11: conditional request served without a database read
-- [ ] simulation 12: readiness reflects reality
-- [ ] test: read routing sends deciding reads to the primary, proof tier
+- [x] `internal/httpx/router.go`, `middleware.go`, `errors.go`
+- [x] `internal/operations/health.go` and `version.go`
+- [x] `internal/ratelimit` interface plus both implementations
+- [x] `internal/cache` etag builder, store interface, both implementations
+- [x] `internal/roster/service.go`
+- [x] admin queue and admin bookings endpoints, role gated
+- [x] `cmd/api/main.go` on port 9000
+- [x] unit tests: every typed error maps to its status and code, etag builder
+- [x] simulation 10: bot prevention layers
+- [x] simulation 11: conditional request served without a database read
+- [x] simulation 12: readiness reflects reality
+- [x] test: read routing sends deciding reads to the primary, proof tier
+
+Landed alongside them, because the routes above cannot be served without them:
+
+`internal/catalogue`, the advisory read side. The class list and its seat counts
+read the replica and are safe to cache, and the booking repository is bound to
+the primary because it decides. One package cannot be both.
+
+`internal/checkout`, where the seat, the money, and the queue meet. Booking knows
+nothing about money, payment knows nothing about seats, and the queue knows
+nothing about either, which left the order of a checkout owned by nobody. It is
+a package rather than a handler method so the sequence can be tested without an
+http request anywhere near it.
+
+`internal/captcha`, the interface and a deterministic mock, recorded in ADR-039.
+`internal/operations/readiness.go`, split from `health.go` because liveness and
+readiness answer opposite questions. `auth/denylist_redis.go`, which closes the
+gap ADR-031 wrote down.
+
+Three additions to what phase 2 built, each with a case in the shared contract
+suite: `Repository.Fail`, so a declined payment can reach `payment_failed` at
+all, ADR-034. `Repository.Worklist`, which the admin screen reads.
+`Repository.LiveBooking`, so a refused duplicate can name the booking the parent
+already has instead of sending them looking for it.
+
+Two decisions were taken here rather than in planning, and both are written up.
+The client still sends the amount and the service refuses anything but its own
+price, ADR-033. A not-found and a not-yours give the same answer, so the api
+cannot be asked which identifiers exist, ADR-038.
 
 ## Phase 7: monitoring and data hygiene
 

@@ -1,12 +1,12 @@
 package booking
 
 import (
-	"context"
-	"sort"
-	"sync"
-	"time"
+    "context"
+    "sort"
+    "sync"
+    "time"
 
-	"ottodot-trial-booking/backend/internal/identifier"
+    "ottodot-trial-booking/backend/internal/identifier"
 )
 
 // MemoryRepository is the fake every fast test runs against.
@@ -19,87 +19,106 @@ import (
 // transactions, because there is no transaction here. That is why the same
 // behaviour suite also runs against Postgres in the proof tier.
 type MemoryRepository struct {
-	mutex    sync.Mutex
-	classes  map[string]Class
-	parents  map[string]string
-	bookings map[string]Booking
-	events   map[string][]Event
+    mutex    sync.Mutex
+    classes  map[string]Class
+    parents  map[string]string
+    bookings map[string]Booking
+    events   map[string][]Event
 }
 
 // NewMemoryRepository builds an empty repository. Classes and students are put
 // in with AddClass and AddStudent, because a fake with rows already in it hides
 // what a test depends on.
 func NewMemoryRepository() *MemoryRepository {
-	return &MemoryRepository{
-		classes:  make(map[string]Class),
-		parents:  make(map[string]string),
-		bookings: make(map[string]Booking),
-		events:   make(map[string][]Event),
-	}
+    return &MemoryRepository{
+        classes:  make(map[string]Class),
+        parents:  make(map[string]string),
+        bookings: make(map[string]Booking),
+        events:   make(map[string][]Event),
+    }
 }
 
 // AddClass puts a class in front of the repository. It stands in for a row in
 // trial_classes.
 func (repository *MemoryRepository) AddClass(class Class) {
-	repository.mutex.Lock()
-	defer repository.mutex.Unlock()
+    repository.mutex.Lock()
+    defer repository.mutex.Unlock()
 
-	repository.classes[class.ID] = class
+    repository.classes[class.ID] = class
 }
 
 // AddStudent records which parent a child belongs to. It stands in for a row in
 // students, and it is the only reason this repository knows about parents at
 // all: the hold cap is counted per parent.
 func (repository *MemoryRepository) AddStudent(studentID string, parentID string) {
-	repository.mutex.Lock()
-	defer repository.mutex.Unlock()
+    repository.mutex.Lock()
+    defer repository.mutex.Unlock()
 
-	repository.parents[studentID] = parentID
+    repository.parents[studentID] = parentID
 }
 
 // Class reads one class.
 func (repository *MemoryRepository) Class(_ context.Context, classID string) (Class, error) {
-	repository.mutex.Lock()
-	defer repository.mutex.Unlock()
+    repository.mutex.Lock()
+    defer repository.mutex.Unlock()
 
-	class, found := repository.classes[classID]
-	if !found {
-		return Class{}, ErrClassNotFound
-	}
+    class, found := repository.classes[classID]
+    if !found {
+        return Class{}, ErrClassNotFound
+    }
 
-	return class, nil
+    return class, nil
 }
 
 // Booking reads one booking.
 func (repository *MemoryRepository) Booking(_ context.Context, bookingID string) (Booking, error) {
-	repository.mutex.Lock()
-	defer repository.mutex.Unlock()
+    repository.mutex.Lock()
+    defer repository.mutex.Unlock()
 
-	stored, found := repository.bookings[bookingID]
-	if !found {
-		return Booking{}, ErrBookingNotFound
-	}
+    stored, found := repository.bookings[bookingID]
+    if !found {
+        return Booking{}, ErrBookingNotFound
+    }
 
-	return stored, nil
+    return stored, nil
+}
+
+// LiveBooking finds the booking that stands between this child and a second one
+// for this class.
+func (repository *MemoryRepository) LiveBooking(_ context.Context, studentID string, classID string) (Booking, error) {
+    repository.mutex.Lock()
+    defer repository.mutex.Unlock()
+
+    for _, stored := range repository.bookings {
+        if stored.StudentID != studentID || stored.ClassID != classID {
+            continue
+        }
+
+        if stored.Status.IsLive() {
+            return stored, nil
+        }
+    }
+
+    return Booking{}, ErrBookingNotFound
 }
 
 // SeatsTaken lists the seats currently held in a class, ascending.
 func (repository *MemoryRepository) SeatsTaken(_ context.Context, classID string) ([]int16, error) {
-	repository.mutex.Lock()
-	defer repository.mutex.Unlock()
+    repository.mutex.Lock()
+    defer repository.mutex.Unlock()
 
-	return repository.seatsTakenLocked(classID), nil
+    return repository.seatsTakenLocked(classID), nil
 }
 
 // Events reads the audit trail for one booking, oldest first.
 func (repository *MemoryRepository) Events(_ context.Context, bookingID string) ([]Event, error) {
-	repository.mutex.Lock()
-	defer repository.mutex.Unlock()
+    repository.mutex.Lock()
+    defer repository.mutex.Unlock()
 
-	trail := make([]Event, len(repository.events[bookingID]))
-	copy(trail, repository.events[bookingID])
+    trail := make([]Event, len(repository.events[bookingID]))
+    copy(trail, repository.events[bookingID])
 
-	return trail, nil
+    return trail, nil
 }
 
 // Hold grants a place on the payment screen.
@@ -108,48 +127,48 @@ func (repository *MemoryRepository) Events(_ context.Context, bookingID string) 
 // specific answer first. Already booked says exactly what happened, the hold
 // cap is about this parent, and a full class is about everyone.
 func (repository *MemoryRepository) Hold(_ context.Context, request HoldRequest) (Booking, error) {
-	repository.mutex.Lock()
-	defer repository.mutex.Unlock()
+    repository.mutex.Lock()
+    defer repository.mutex.Unlock()
 
-	class, found := repository.classes[request.ClassID]
-	if !found {
-		return Booking{}, ErrClassNotFound
-	}
+    class, found := repository.classes[request.ClassID]
+    if !found {
+        return Booking{}, ErrClassNotFound
+    }
 
-	parentID, found := repository.parents[request.StudentID]
-	if !found {
-		return Booking{}, ErrStudentNotFound
-	}
+    parentID, found := repository.parents[request.StudentID]
+    if !found {
+        return Booking{}, ErrStudentNotFound
+    }
 
-	if repository.hasLiveBookingLocked(request.StudentID, request.ClassID) {
-		return Booking{}, ErrAlreadyBooked
-	}
+    if repository.hasLiveBookingLocked(request.StudentID, request.ClassID) {
+        return Booking{}, ErrAlreadyBooked
+    }
 
-	if repository.liveHoldsForParentLocked(parentID, request.Now) >= request.MaxHoldsPerParent {
-		return Booking{}, ErrTooManyHolds
-	}
+    if repository.liveHoldsForParentLocked(parentID, request.Now) >= request.MaxHoldsPerParent {
+        return Booking{}, ErrTooManyHolds
+    }
 
-	if repository.holdersLocked(request.ClassID, request.Now) >= MaxHolders(class) {
-		return Booking{}, ErrClassFull
-	}
+    if repository.holdersLocked(request.ClassID, request.Now) >= MaxHolders(class) {
+        return Booking{}, ErrClassFull
+    }
 
-	granted := Booking{
-		ID:            request.BookingID,
-		StudentID:     request.StudentID,
-		ClassID:       request.ClassID,
-		Status:        StatusPendingPayment,
-		HoldExpiresAt: request.ExpiresAt,
-		CreatedAt:     request.Now,
-		UpdatedAt:     request.Now,
-	}
+    granted := Booking{
+        ID:            request.BookingID,
+        StudentID:     request.StudentID,
+        ClassID:       request.ClassID,
+        Status:        StatusPendingPayment,
+        HoldExpiresAt: request.ExpiresAt,
+        CreatedAt:     request.Now,
+        UpdatedAt:     request.Now,
+    }
 
-	repository.bookings[granted.ID] = granted
+    repository.bookings[granted.ID] = granted
 
-	if err := repository.recordLocked(granted.ID, "", StatusPendingPayment, ActorParent, "hold granted", request.Now); err != nil {
-		return Booking{}, err
-	}
+    if err := repository.recordLocked(granted.ID, "", StatusPendingPayment, ActorParent, "hold granted", request.Now); err != nil {
+        return Booking{}, err
+    }
 
-	return granted, nil
+    return granted, nil
 }
 
 // Confirm runs the last-seat decision.
@@ -160,83 +179,152 @@ func (repository *MemoryRepository) Hold(_ context.Context, request HoldRequest)
 // countdown ran out a moment earlier. A hold the worker already expired is
 // caught by the status check instead, which is the honest signal.
 func (repository *MemoryRepository) Confirm(_ context.Context, request ConfirmRequest) (Booking, error) {
-	repository.mutex.Lock()
-	defer repository.mutex.Unlock()
+    repository.mutex.Lock()
+    defer repository.mutex.Unlock()
 
-	stored, found := repository.bookings[request.BookingID]
-	if !found {
-		return Booking{}, ErrBookingNotFound
-	}
+    stored, found := repository.bookings[request.BookingID]
+    if !found {
+        return Booking{}, ErrBookingNotFound
+    }
 
-	if stored.Status != StatusPendingPayment {
-		return stored, ErrNotHolding
-	}
+    if stored.Status != StatusPendingPayment {
+        return stored, ErrNotHolding
+    }
 
-	class, found := repository.classes[stored.ClassID]
-	if !found {
-		return Booking{}, ErrClassNotFound
-	}
+    class, found := repository.classes[stored.ClassID]
+    if !found {
+        return Booking{}, ErrClassNotFound
+    }
 
-	seat, free := LowestFreeSeat(class.Capacity, repository.seatsTakenLocked(stored.ClassID))
-	if !free {
-		lost := stored
-		lost.Status = StatusRefundRequired
-		lost.HoldExpiresAt = time.Time{}
-		lost.UpdatedAt = request.Now
+    seat, free := LowestFreeSeat(class.Capacity, repository.seatsTakenLocked(stored.ClassID))
+    if !free {
+        lost := stored
+        lost.Status = StatusRefundRequired
+        lost.HoldExpiresAt = time.Time{}
+        lost.UpdatedAt = request.Now
 
-		repository.bookings[lost.ID] = lost
+        repository.bookings[lost.ID] = lost
 
-		if err := repository.recordLocked(lost.ID, stored.Status, StatusRefundRequired, ActorSystem, "no free seat under the class lock", request.Now); err != nil {
-			return Booking{}, err
-		}
+        if err := repository.recordLocked(lost.ID, stored.Status, StatusRefundRequired, ActorSystem, "no free seat under the class lock", request.Now); err != nil {
+            return Booking{}, err
+        }
 
-		return lost, ErrSeatLost
-	}
+        return lost, ErrSeatLost
+    }
 
-	won := stored
-	won.Status = StatusConfirmed
-	won.SeatNo = seat
-	won.ConfirmedAt = request.Now
-	won.HoldExpiresAt = time.Time{}
-	won.UpdatedAt = request.Now
+    won := stored
+    won.Status = StatusConfirmed
+    won.SeatNo = seat
+    won.ConfirmedAt = request.Now
+    won.HoldExpiresAt = time.Time{}
+    won.UpdatedAt = request.Now
 
-	repository.bookings[won.ID] = won
+    repository.bookings[won.ID] = won
 
-	if err := repository.recordLocked(won.ID, stored.Status, StatusConfirmed, ActorSystem, "seat assigned under the class lock", request.Now); err != nil {
-		return Booking{}, err
-	}
+    if err := repository.recordLocked(won.ID, stored.Status, StatusConfirmed, ActorSystem, "seat assigned under the class lock", request.Now); err != nil {
+        return Booking{}, err
+    }
 
-	return won, nil
+    return won, nil
 }
 
 // Cancel withdraws a booking and releases the seat it held, which is what makes
 // the seat available to the next confirm.
 func (repository *MemoryRepository) Cancel(_ context.Context, request CancelRequest) (Booking, error) {
-	repository.mutex.Lock()
-	defer repository.mutex.Unlock()
+    repository.mutex.Lock()
+    defer repository.mutex.Unlock()
 
-	stored, found := repository.bookings[request.BookingID]
-	if !found {
-		return Booking{}, ErrBookingNotFound
-	}
+    stored, found := repository.bookings[request.BookingID]
+    if !found {
+        return Booking{}, ErrBookingNotFound
+    }
 
-	if !CanTransition(stored.Status, StatusCancelled) {
-		return stored, ErrInvalidTransition
-	}
+    if !CanTransition(stored.Status, StatusCancelled) {
+        return stored, ErrInvalidTransition
+    }
 
-	withdrawn := stored
-	withdrawn.Status = StatusCancelled
-	withdrawn.SeatNo = 0
-	withdrawn.HoldExpiresAt = time.Time{}
-	withdrawn.UpdatedAt = request.Now
+    withdrawn := stored
+    withdrawn.Status = StatusCancelled
+    withdrawn.SeatNo = 0
+    withdrawn.HoldExpiresAt = time.Time{}
+    withdrawn.UpdatedAt = request.Now
 
-	repository.bookings[withdrawn.ID] = withdrawn
+    repository.bookings[withdrawn.ID] = withdrawn
 
-	if err := repository.recordLocked(withdrawn.ID, stored.Status, StatusCancelled, request.Actor, request.Reason, request.Now); err != nil {
-		return Booking{}, err
-	}
+    if err := repository.recordLocked(withdrawn.ID, stored.Status, StatusCancelled, request.Actor, request.Reason, request.Now); err != nil {
+        return Booking{}, err
+    }
 
-	return withdrawn, nil
+    return withdrawn, nil
+}
+
+// Fail ends a booking whose payment was declined.
+//
+// It is a transition and nothing else. No seat was ever held by this booking, so
+// there is nothing to release, and no money moved, so there is nothing to send
+// back. That is the whole difference between this and the refund_required path.
+func (repository *MemoryRepository) Fail(_ context.Context, request FailRequest) (Booking, error) {
+    repository.mutex.Lock()
+    defer repository.mutex.Unlock()
+
+    stored, found := repository.bookings[request.BookingID]
+    if !found {
+        return Booking{}, ErrBookingNotFound
+    }
+
+    if stored.Status != StatusPendingPayment {
+        return stored, ErrNotHolding
+    }
+
+    declined := stored
+    declined.Status = StatusPaymentFailed
+    declined.HoldExpiresAt = time.Time{}
+    declined.UpdatedAt = request.Now
+
+    repository.bookings[declined.ID] = declined
+
+    if err := repository.recordLocked(declined.ID, stored.Status, StatusPaymentFailed, ActorPayment, request.Reason, request.Now); err != nil {
+        return Booking{}, err
+    }
+
+    return declined, nil
+}
+
+// Worklist lists bookings for an operator, newest first.
+func (repository *MemoryRepository) Worklist(_ context.Context, request WorklistRequest) ([]Booking, error) {
+    if err := request.Validate(); err != nil {
+        return nil, err
+    }
+
+    repository.mutex.Lock()
+    defer repository.mutex.Unlock()
+
+    matched := make([]Booking, 0, len(repository.bookings))
+
+    for _, stored := range repository.bookings {
+        if request.Status != "" && stored.Status != request.Status {
+            continue
+        }
+
+        matched = append(matched, stored)
+    }
+
+    // Newest first, and the identifier breaks a tie. Two bookings written in the
+    // same instant would otherwise come back in map order, which changes between
+    // runs and makes a paging screen jump.
+    sort.Slice(matched, func(first int, second int) bool {
+        if !matched[first].CreatedAt.Equal(matched[second].CreatedAt) {
+            return matched[first].CreatedAt.After(matched[second].CreatedAt)
+        }
+
+        return matched[first].ID > matched[second].ID
+    })
+
+    if len(matched) > request.Limit {
+        matched = matched[:request.Limit]
+    }
+
+    return matched, nil
 }
 
 // Expire releases a hold whose deadline has passed, which is what puts the seat
@@ -247,34 +335,34 @@ func (repository *MemoryRepository) Cancel(_ context.Context, request CancelRequ
 // booking may have been confirmed, cancelled, or given a fresh deadline. The
 // row is the only thing worth believing.
 func (repository *MemoryRepository) Expire(_ context.Context, request ExpireRequest) (Booking, error) {
-	repository.mutex.Lock()
-	defer repository.mutex.Unlock()
+    repository.mutex.Lock()
+    defer repository.mutex.Unlock()
 
-	stored, found := repository.bookings[request.BookingID]
-	if !found {
-		return Booking{}, ErrBookingNotFound
-	}
+    stored, found := repository.bookings[request.BookingID]
+    if !found {
+        return Booking{}, ErrBookingNotFound
+    }
 
-	if stored.Status != StatusPendingPayment {
-		return stored, ErrNotHolding
-	}
+    if stored.Status != StatusPendingPayment {
+        return stored, ErrNotHolding
+    }
 
-	if HoldIsLive(stored.HoldExpiresAt, request.Now) {
-		return stored, ErrHoldStillLive
-	}
+    if HoldIsLive(stored.HoldExpiresAt, request.Now) {
+        return stored, ErrHoldStillLive
+    }
 
-	lapsed := stored
-	lapsed.Status = StatusExpired
-	lapsed.HoldExpiresAt = time.Time{}
-	lapsed.UpdatedAt = request.Now
+    lapsed := stored
+    lapsed.Status = StatusExpired
+    lapsed.HoldExpiresAt = time.Time{}
+    lapsed.UpdatedAt = request.Now
 
-	repository.bookings[lapsed.ID] = lapsed
+    repository.bookings[lapsed.ID] = lapsed
 
-	if err := repository.recordLocked(lapsed.ID, stored.Status, StatusExpired, ActorSystem, "hold deadline passed", request.Now); err != nil {
-		return Booking{}, err
-	}
+    if err := repository.recordLocked(lapsed.ID, stored.Status, StatusExpired, ActorSystem, "hold deadline passed", request.Now); err != nil {
+        return Booking{}, err
+    }
 
-	return lapsed, nil
+    return lapsed, nil
 }
 
 // hasLiveBookingLocked mirrors the uq_booking_active index: one live booking per
@@ -282,39 +370,39 @@ func (repository *MemoryRepository) Expire(_ context.Context, request ExpireRequ
 // released by the worker, and until it is, the index would refuse a second row
 // anyway.
 func (repository *MemoryRepository) hasLiveBookingLocked(studentID string, classID string) bool {
-	for _, stored := range repository.bookings {
-		if stored.StudentID != studentID || stored.ClassID != classID {
-			continue
-		}
+    for _, stored := range repository.bookings {
+        if stored.StudentID != studentID || stored.ClassID != classID {
+            continue
+        }
 
-		if stored.Status.IsLive() {
-			return true
-		}
-	}
+        if stored.Status.IsLive() {
+            return true
+        }
+    }
 
-	return false
+    return false
 }
 
 // liveHoldsForParentLocked counts holds still standing for one parent, across
 // every class.
 func (repository *MemoryRepository) liveHoldsForParentLocked(parentID string, now time.Time) int {
-	standing := 0
+    standing := 0
 
-	for _, stored := range repository.bookings {
-		if repository.parents[stored.StudentID] != parentID {
-			continue
-		}
+    for _, stored := range repository.bookings {
+        if repository.parents[stored.StudentID] != parentID {
+            continue
+        }
 
-		if stored.Status != StatusPendingPayment {
-			continue
-		}
+        if stored.Status != StatusPendingPayment {
+            continue
+        }
 
-		if HoldIsLive(stored.HoldExpiresAt, now) {
-			standing++
-		}
-	}
+        if HoldIsLive(stored.HoldExpiresAt, now) {
+            standing++
+        }
+    }
 
-	return standing
+    return standing
 }
 
 // holdersLocked counts how many parents are on the payment screen for one
@@ -325,61 +413,61 @@ func (repository *MemoryRepository) liveHoldsForParentLocked(parentID string, no
 // mirrors a database invariant, this one describes who is actually sitting on
 // the payment screen right now.
 func (repository *MemoryRepository) holdersLocked(classID string, now time.Time) int {
-	holders := 0
+    holders := 0
 
-	for _, stored := range repository.bookings {
-		if stored.ClassID != classID {
-			continue
-		}
+    for _, stored := range repository.bookings {
+        if stored.ClassID != classID {
+            continue
+        }
 
-		switch stored.Status {
-		case StatusConfirmed:
-			holders++
-		case StatusPendingPayment:
-			if HoldIsLive(stored.HoldExpiresAt, now) {
-				holders++
-			}
-		}
-	}
+        switch stored.Status {
+        case StatusConfirmed:
+            holders++
+        case StatusPendingPayment:
+            if HoldIsLive(stored.HoldExpiresAt, now) {
+                holders++
+            }
+        }
+    }
 
-	return holders
+    return holders
 }
 
 // seatsTakenLocked lists held seats ascending, so the caller gets the same order
 // the sql version produces.
 func (repository *MemoryRepository) seatsTakenLocked(classID string) []int16 {
-	var seats []int16
+    var seats []int16
 
-	for _, stored := range repository.bookings {
-		if stored.ClassID != classID || !stored.HasSeat() {
-			continue
-		}
+    for _, stored := range repository.bookings {
+        if stored.ClassID != classID || !stored.HasSeat() {
+            continue
+        }
 
-		seats = append(seats, stored.SeatNo)
-	}
+        seats = append(seats, stored.SeatNo)
+    }
 
-	sort.Slice(seats, func(first int, second int) bool { return seats[first] < seats[second] })
+    sort.Slice(seats, func(first int, second int) bool { return seats[first] < seats[second] })
 
-	return seats
+    return seats
 }
 
 // recordLocked appends one line to the audit trail. The id is minted here
 // because an event is this repository's own record of what it did.
 func (repository *MemoryRepository) recordLocked(bookingID string, from Status, to Status, actor Actor, reason string, now time.Time) error {
-	eventID, err := identifier.NewUUIDv7()
-	if err != nil {
-		return err
-	}
+    eventID, err := identifier.NewUUIDv7()
+    if err != nil {
+        return err
+    }
 
-	repository.events[bookingID] = append(repository.events[bookingID], Event{
-		ID:         eventID,
-		BookingID:  bookingID,
-		FromStatus: from,
-		ToStatus:   to,
-		Actor:      actor,
-		Reason:     reason,
-		CreatedAt:  now,
-	})
+    repository.events[bookingID] = append(repository.events[bookingID], Event{
+        ID:         eventID,
+        BookingID:  bookingID,
+        FromStatus: from,
+        ToStatus:   to,
+        Actor:      actor,
+        Reason:     reason,
+        CreatedAt:  now,
+    })
 
-	return nil
+    return nil
 }

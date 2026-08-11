@@ -97,11 +97,31 @@ to mint a key or mint one it should not have, ADR-F021.
 
 ## Phase 6: bot prevention cooperation
 
-- [ ] honeypot field and fill timer in `PaymentForm.svelte`
-- [ ] mock captcha widget
-- [ ] idempotency key lifecycle in the api client
-- [ ] edge test: a new attempt after a decline gets a fresh key
-- [ ] simulation F7: honeypot and fill timer
+- [x] honeypot field and fill timer in `PaymentForm.svelte`
+- [x] mock captcha widget
+- [x] idempotency key lifecycle in the api client
+- [x] edge test: a new attempt after a decline gets a fresh key
+- [x] simulation F7: honeypot and fill timer
+
+Landed alongside them: `lib/booking/bot_signals.ts`, the measurement as
+arithmetic rather than as state in a component, and `BotSignals` in
+`lib/api/types.ts`, because the three fields are a wire shape and belong with
+the rest of the contract.
+
+The key lifecycle moved out of the booking store into `lib/api/attempt.ts`, next
+to the client. The rule was already correct, so this is not a fix: it is the
+difference between a rule that can only be tested through a store and one that
+can be read on its own. `withIdempotencyKey` moved into `lib/api/idempotency.ts`
+for the same reason, so no caller writes the header name for itself.
+
+The edge test the plan lists was already written in phase 5, under ADR-F021. It
+is ticked here because the rule it covers now lives in its own file and has a
+suite of its own around it.
+
+One thing this phase deliberately does not do: block anything. Every signal is
+measured and sent, and the backend decides. A client that refused its own
+submission would teach a script exactly which value to change, and would refuse
+a slow person on a bad connection for no reason. ADR-F026.
 
 ## Phase 7: roster, status, telemetry
 

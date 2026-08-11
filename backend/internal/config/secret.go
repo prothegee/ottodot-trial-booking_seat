@@ -12,31 +12,31 @@ type Secret string
 // String satisfies fmt.Stringer, so %v and %s render the mask instead of the
 // value.
 func (secret Secret) String() string {
-	if secret == "" {
-		return "[unset]"
-	}
+    if secret == "" {
+        return "[unset]"
+    }
 
-	return "[redacted]"
+    return "[redacted]"
 }
 
 // GoString satisfies fmt.GoStringer, so %#v renders the mask as well.
 func (secret Secret) GoString() string {
-	return secret.String()
+    return secret.String()
 }
 
 // MarshalJSON keeps the value out of anything serialized, including a
 // diagnostic endpoint that marshals a configuration struct.
 func (secret Secret) MarshalJSON() ([]byte, error) {
-	return []byte(`"` + secret.String() + `"`), nil
+    return []byte(`"` + secret.String() + `"`), nil
 }
 
 // Reveal returns the real value. Call it at the point of use, never to build a
 // message.
 func (secret Secret) Reveal() string {
-	return string(secret)
+    return string(secret)
 }
 
 // IsEmpty reports whether the secret was never set.
 func (secret Secret) IsEmpty() bool {
-	return secret == ""
+    return secret == ""
 }

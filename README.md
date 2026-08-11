@@ -18,21 +18,23 @@ last phase of this build.
 ## Current State
 
 This repository is built in phases and this document is kept honest about which
-of them exist. Five of nine phases are finished on each stack.
+of them exist. Six of nine phases are finished on each stack.
 
 | stack | done | next |
 | :- | :- | :- |
-| backend | phase 1 foundation, phase 2 booking core, phase 3 payment, phase 4 queue and worker, phase 5 authentication | phase 6 http surface |
-| frontend | phase 1 scaffold, phase 2 api client and auth, phase 3 internal cache, phase 4 booking flow, phase 5 payment and status | phase 6 bot prevention cooperation |
+| backend | phase 1 foundation, phase 2 booking core, phase 3 payment, phase 4 queue and worker, phase 5 authentication, phase 6 http surface | phase 7 monitoring and data hygiene |
+| frontend | phase 1 scaffold, phase 2 api client and auth, phase 3 internal cache, phase 4 booking flow, phase 5 payment and status, phase 6 bot prevention cooperation | phase 7 roster, status, telemetry |
 
 What that means in practice today:
 
 | works now | not built yet |
 | :- | :- |
-| the schema, its four unique indexes, and seed data | the http api on port 9000, which is what mounts the auth routes |
-| the booking core: hold, confirm, cancel, expire, and the last-seat transaction | the honeypot, the fill timer, and the captcha |
-| the payment path: a deterministic provider, and one charge per idempotency key | monitoring, and the video walkthrough |
-| the job queue and the worker that drains it, on port 9002 | the continuous integration workflows |
+| the schema, its four unique indexes, and seed data | monitoring and fault injection, and the video walkthrough |
+| the booking core: hold, confirm, cancel, fail, expire, and the last-seat transaction | the roster and status screens on the client |
+| the payment path: a deterministic provider, and one charge per idempotency key | the continuous integration workflows |
+| the job queue and the worker that drains it, on port 9002 | |
+| the http api on port 9000, end to end from sign in to a seat number | |
+| ETag caching, a Redis token bucket, and the honeypot, fill timer, and challenge | |
 | authentication: HS256 access tokens, rotating refresh tokens, and the four auth routes | |
 | the last-seat race proven against real Postgres, and two workers proven never to share a job | |
 | one refresh token proven to be spendable exactly once, under real parallelism | |

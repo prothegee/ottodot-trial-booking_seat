@@ -512,7 +512,8 @@ the class list while their hold is still standing.
 | `ClassCard.svelte` | `trialClass` | one class, and either a way in or the reason there is none |
 | `ChildPicker.svelte` | `childrenOnAccount`, `selected` (bound), `disabled` | radio group, one child preselected when there is only one |
 | `HoldCountdown.svelte` | `deadline`, `onExpire`, `now` | ticks once a second, reports zero once |
-| `PaymentForm.svelte` | `amountCents`, `currency`, `submitting`, `closed`, `retryOf`, `onSubmit` | no typeable field at all |
+| `PaymentForm.svelte` | `amountCents`, `currency`, `submitting`, `closed`, `retryOf`, `onSubmit` | one field, and nobody can see or reach it |
+| `CaptchaWidget.svelte` | `onToken` | a mock in the shape a real provider's widget has |
 | `BookingStatus.svelte` | `booking` | a headline and guidance for every status the enum can hold |
 
 `ChildPicker` names its list `childrenOnAccount` rather than `children`, which
@@ -529,9 +530,15 @@ remainder out from the deadline and the clock, so a suspended tab shows the
 right number on its first frame back. `onExpire` fires once rather than on every
 tick, because what it does is ask the api a question. See ADR-F022 and ADR-F023.
 
-`PaymentForm` has no input, textarea, or select, and a test asserts that. There
-is nothing to type, so there is nothing to leak, and a mock payment screen that
-looked like a real one would be worse than one that says what it is.
+`PaymentForm` has exactly one field, and it is the honeypot. There is nothing
+for a person to type, so there is nothing to leak, and a mock payment screen that
+looked like a real one would be worse than one that says what it is. A test
+asserts the count is one and that the one is named `website`, so a card field
+added later fails a test rather than shipping.
+
+It hands its measurements up rather than sending them, because it owns a form
+and not a request. `onSubmit` receives the three signals and the screen makes the
+call.
 
 `BookingStatus` carries a `data-status` attribute, so a screen above it branches
 on the enum rather than on wording. Its two tables cover all six statuses: a
@@ -581,6 +588,65 @@ export function newIdempotencyKey(): string;
 does not. Never a timestamp and never a counter: both are unique and both are
 guessable, and the backend honours a matching key as a promise that two calls
 are the same call. See ADR-F017.
+
+`withIdempotencyKey` puts the key on a request's headers, so no caller writes
+the header name for itself. A route that spelt it differently would send a key
+the api never reads, and the failure would be a second charge rather than an
+error anybody sees.
+
+`lib/api/attempt.ts` owns when a key is spent.
+
+```ts
+export const kindsThatEndTheAttempt: ReadonlySet<string>;
+export function createAttemptKey(newKey?: () => string): AttemptKey;
+```
+
+| call | does |
+| :- | :- |
+| `current()` | the key in force, minting one on first use rather than answering empty |
+| `restart()` | begins a new attempt |
+| `settle(kind)` | mints a fresh key only for a kind that ends an attempt, and reports whether it did |
+| `clear()` | forgets the attempt, which a sign out does |
+
+The rule is two kinds and no more. `PaymentDeclined` is a finished attempt, so
+retrying under the same key replays the decline forever. `InvalidRequest` is a
+submission the api would refuse identically every time. Everything else keeps
+the key, including a kind this build has never heard of, because the safe
+default is that a retry stays a retry. See ADR-F029.
+
+<br>
+
+## Bot Prevention Cooperation
+
+`lib/booking/bot_signals.ts`. The backend owns every decision, and this side
+measures and sends. Nothing here refuses anything, and ADR-F026 explains why
+that is a decision rather than an omission.
+
+```ts
+export function botSignals(
+    honeypot: string,
+    mountedAt: number,
+    submittedAt: number,
+    captchaToken: string,
+): BotSignals;
+```
+
+| field | comes from | rule |
+| :- | :- | :- |
+| `website` | the honeypot input | sent exactly as it stands, filled or not |
+| `filled_in_ms` | mount to submit | a real measurement, rounded, and zero when the clock went backwards |
+| `captcha_token` | the widget | passed through untouched, empty until it answers |
+
+The honeypot is a real text input moved off screen, not `type="hidden"` and not
+`display: none`, because both are the first thing a script looks for. It carries
+`tabindex="-1"` so nobody tabs into it, `autocomplete="off"` so no browser fills
+it in on the parent's behalf, and an `aria-hidden` wrapper so it is never read
+out. See ADR-F027.
+
+The timer runs from mount rather than from a first keystroke, because there is
+nothing on this form to type. `performance.now` where it exists, `Date.now`
+otherwise, and a negative elapsed time is sent as zero, which the api reads as
+"not measured" rather than as evidence. See ADR-F028.
 
 <br>
 
@@ -656,6 +722,11 @@ that says it is running.
 | `tests/simulation_f01_happy_path_booking.test.ts` | behaviour | pick, hold, pay, seat number. One key on both calls |
 | `tests/simulation_f02_stale_seat_count.test.ts` | behaviour | a full class refuses, the entry is aged, the next read shows the real count |
 | `tests/simulation_f04_duplicate_booking.test.ts` | behaviour | one call, no retry, and a link to the booking that exists |
+| `lib/api/attempt.test.ts` | unit, behaviour, edge | which kinds spend a key, and that an unknown kind keeps it |
+| `lib/booking/bot_signals.test.ts` | unit, edge | a real measurement, a backwards clock, and a rounded fraction |
+| `lib/components/CaptchaWidget.test.ts` | unit, behaviour, edge | one token, the unanswered state, and no callback after unmount |
+| `lib/components/PaymentForm.test.ts` | unit, behaviour, edge | one field only, the honeypot sent as it stands, the token carried |
+| `tests/simulation_f07_honeypot_and_fill_timer.test.ts` | behaviour | the field is hidden, unreachable, and empty, and the elapsed time is measured rather than fixed |
 
 The error mapping table is written out by hand in its test rather than read from
 the implementation. A test that asks the mapping what it maps and then agrees

@@ -1,8 +1,8 @@
 package payment
 
 import (
-	"context"
-	"time"
+    "context"
+    "time"
 )
 
 // Refund is one charge sent back.
@@ -17,19 +17,19 @@ import (
 // booking's audit trail, carrying the refund reference, put there by the caller
 // that also moves the booking to cancelled.
 type Refund struct {
-	// AttemptID is the charge that was reversed.
-	AttemptID string
+    // AttemptID is the charge that was reversed.
+    AttemptID string
 
-	// ProviderRef is the provider's identifier for that charge.
-	ProviderRef string
+    // ProviderRef is the provider's identifier for that charge.
+    ProviderRef string
 
-	// RefundRef is the provider's identifier for the refund itself. It is what
-	// an operator quotes when a parent asks where their money is.
-	RefundRef string
+    // RefundRef is the provider's identifier for the refund itself. It is what
+    // an operator quotes when a parent asks where their money is.
+    RefundRef string
 
-	Amount Amount
+    Amount Amount
 
-	RefundedAt time.Time
+    RefundedAt time.Time
 }
 
 // RefundCommand asks for the settled charge on one booking to be sent back.
@@ -39,7 +39,7 @@ type Refund struct {
 // which of that booking's attempts actually settled is this package's job, not
 // the worker's.
 type RefundCommand struct {
-	BookingID string
+    BookingID string
 }
 
 // Refund sends back the settled charge against one booking.
@@ -67,32 +67,32 @@ type RefundCommand struct {
 //   - ErrNothingToRefund when no attempt against this booking ever settled
 //   - ErrProviderUnavailable when the provider could not be reached
 func (service *Service) Refund(ctx context.Context, command RefundCommand) (Refund, error) {
-	if command.BookingID == "" {
-		return Refund{}, ErrInvalidRequest
-	}
+    if command.BookingID == "" {
+        return Refund{}, ErrInvalidRequest
+    }
 
-	settled, err := service.settledAttempt(ctx, command.BookingID)
-	if err != nil {
-		return Refund{}, err
-	}
+    settled, err := service.settledAttempt(ctx, command.BookingID)
+    if err != nil {
+        return Refund{}, err
+    }
 
-	answer, err := service.provider.Refund(ctx, RefundRequest{
-		ProviderRef:    settled.ProviderRef,
-		Reference:      settled.BookingID,
-		Amount:         settled.Amount,
-		IdempotencyKey: RefundKeyFor(settled.ID),
-	})
-	if err != nil {
-		return Refund{}, err
-	}
+    answer, err := service.provider.Refund(ctx, RefundRequest{
+        ProviderRef:    settled.ProviderRef,
+        Reference:      settled.BookingID,
+        Amount:         settled.Amount,
+        IdempotencyKey: RefundKeyFor(settled.ID),
+    })
+    if err != nil {
+        return Refund{}, err
+    }
 
-	return Refund{
-		AttemptID:   settled.ID,
-		ProviderRef: settled.ProviderRef,
-		RefundRef:   answer.RefundRef,
-		Amount:      settled.Amount,
-		RefundedAt:  service.settings.Clock(),
-	}, nil
+    return Refund{
+        AttemptID:   settled.ID,
+        ProviderRef: settled.ProviderRef,
+        RefundRef:   answer.RefundRef,
+        Amount:      settled.Amount,
+        RefundedAt:  service.settings.Clock(),
+    }, nil
 }
 
 // refundKeyPrefix keeps a refund key from ever being mistaken for the charge
@@ -114,7 +114,7 @@ const refundKeyPrefix = "refund_"
 // Return:
 //   - the key, prefixed so it cannot collide with a charge key
 func RefundKeyFor(attemptID string) string {
-	return refundKeyPrefix + attemptID
+    return refundKeyPrefix + attemptID
 }
 
 // settledAttempt finds the one charge against a booking that moved money.
@@ -124,16 +124,16 @@ func RefundKeyFor(attemptID string) string {
 // booking that was declined before it settled carries more than one row and
 // only the last of them is the charge.
 func (service *Service) settledAttempt(ctx context.Context, bookingID string) (Attempt, error) {
-	attempts, err := service.repository.AttemptsFor(ctx, bookingID)
-	if err != nil {
-		return Attempt{}, err
-	}
+    attempts, err := service.repository.AttemptsFor(ctx, bookingID)
+    if err != nil {
+        return Attempt{}, err
+    }
 
-	for _, attempt := range attempts {
-		if attempt.Status == StatusSucceeded && attempt.ProviderRef != "" {
-			return attempt, nil
-		}
-	}
+    for _, attempt := range attempts {
+        if attempt.Status == StatusSucceeded && attempt.ProviderRef != "" {
+            return attempt, nil
+        }
+    }
 
-	return Attempt{}, ErrNothingToRefund
+    return Attempt{}, ErrNothingToRefund
 }

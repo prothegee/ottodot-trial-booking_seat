@@ -13,8 +13,9 @@
  */
 import { writable } from "svelte/store";
 
+import { createAttemptKey } from "$lib/api/attempt";
 import { ApiError } from "$lib/api/errors";
-import { idempotencyKeyHeader, newIdempotencyKey } from "$lib/api/idempotency";
+import { newIdempotencyKey, withIdempotencyKey } from "$lib/api/idempotency";
 import type { Booking, CreateBookingRequest, PayRequest } from "$lib/api/types";
 import type { TransportRequest } from "$lib/api/transport";
 import { api } from "$lib/session/client";
@@ -115,26 +116,6 @@ export interface BookingStoreOptions {
 const kindsThatMoveASeatCount: ReadonlySet<string> = new Set(["ClassFull", "SeatLost"]);
 
 /**
- * The failures that end the attempt they were sent under.
- *
- * This set is the whole idempotency rule, and it is worth reading slowly
- * because the two halves fail in opposite directions.
- *
- * A decline is a finished attempt. The provider looked at it and said no, and
- * no money moved, so paying again is a new attempt and needs a new key. Sending
- * the old one back would replay the decline for as long as the parent kept
- * trying.
- *
- * `Unavailable` is the opposite and the reason this set exists at all. The call
- * broke without an answer, so nothing here knows whether the charge went
- * through. The same key has to go back, or a retry risks charging twice.
- *
- * `SeatLost` and `ClassFull` are in neither camp because there is no retry to
- * make: both are terminal for that class, and the screen offers no way forward.
- */
-const kindsThatEndTheAttempt: ReadonlySet<string> = new Set(["PaymentDeclined", "InvalidRequest"]);
-
-/**
  * Turns any thrown value into something a screen can render.
  *
  * A failure that is not an ApiError came from somewhere other than the api, and
@@ -188,14 +169,13 @@ export function createBookingStore(options: BookingStoreOptions = {}) {
 
     const { subscribe, set, update } = writable<BookingState>(emptyState);
 
-    // The key is held here as well as in the state, so `pay` can read the
-    // attempt's key without subscribing to its own store to find out.
-    let attemptKey = "";
+    // The key lifecycle lives in the api layer, not here. This store decides
+    // when an attempt starts, and `attempt.ts` decides when one is spent, which
+    // keeps the rule readable without a store around it.
+    const attempt = createAttemptKey(newKey);
 
     /** Runs one call, recording that it is in flight and what it produced. */
     async function submit(request: (key: string) => TransportRequest, key: string): Promise<Booking | null> {
-        attemptKey = key;
-
         update((state) => ({ ...state, attemptKey: key, submitting: true, failure: null }));
 
         try {
@@ -216,11 +196,14 @@ export function createBookingStore(options: BookingStoreOptions = {}) {
             // a decline would replay the decline, and a screen that minted one
             // after an `internal_error` would risk a second charge. Neither is
             // a mistake a component should be able to make.
-            if (kindsThatEndTheAttempt.has(refusal.kind)) {
-                attemptKey = newKey();
-            }
+            attempt.settle(refusal.kind);
 
-            update((state) => ({ ...state, attemptKey, submitting: false, failure: refusal }));
+            update((state) => ({
+                ...state,
+                attemptKey: attempt.current(),
+                submitting: false,
+                failure: refusal,
+            }));
 
             return null;
         }
@@ -242,9 +225,9 @@ export function createBookingStore(options: BookingStoreOptions = {}) {
                     method: "POST",
                     path: bookingsPath,
                     body: request,
-                    headers: { [idempotencyKeyHeader]: key },
+                    headers: withIdempotencyKey(key),
                 }),
-                newKey(),
+                attempt.restart(),
             );
         },
 
@@ -297,18 +280,18 @@ export function createBookingStore(options: BookingStoreOptions = {}) {
          * - null when it was refused, with the reason in the store
          */
         pay(bookingId: string, amount: PayRequest): Promise<Booking | null> {
-            // An attempt that somehow has no key gets one rather than sending
-            // an empty header, which the api would refuse.
-            const key = attemptKey === "" ? newKey() : attemptKey;
-
+            // The key in force, which the keeper mints if this is somehow the
+            // first call of the attempt. Sending an empty header would be
+            // refused by the api, and sending a fresh key here would turn a
+            // retry into a second charge.
             return submit(
-                (attempt) => ({
+                (key) => ({
                     method: "POST",
                     path: paymentPathFor(bookingId),
                     body: amount,
-                    headers: { [idempotencyKeyHeader]: attempt },
+                    headers: withIdempotencyKey(key),
                 }),
-                key,
+                attempt.current(),
             );
         },
 
@@ -327,7 +310,7 @@ export function createBookingStore(options: BookingStoreOptions = {}) {
 
         /** Empties the store, which a sign out does before the screen changes. */
         reset(): void {
-            attemptKey = "";
+            attempt.clear();
 
             set(emptyState);
         },

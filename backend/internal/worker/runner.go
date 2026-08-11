@@ -1,46 +1,46 @@
 package worker
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"time"
+    "context"
+    "errors"
+    "fmt"
+    "time"
 
-	"ottodot-trial-booking/backend/internal/queue"
+    "ottodot-trial-booking/backend/internal/queue"
 )
 
 // Settings are the policy the runner applies. They are values rather than
 // constants because a busy queue and a quiet one want different numbers, and
 // neither should need a rebuild.
 type Settings struct {
-	// PollInterval is how long the runner waits after a poll that found
-	// nothing. A poll that filled its batch does not wait at all.
-	PollInterval time.Duration
+    // PollInterval is how long the runner waits after a poll that found
+    // nothing. A poll that filled its batch does not wait at all.
+    PollInterval time.Duration
 
-	// Lease is how long a claim holds. It has to be comfortably longer than the
-	// slowest handler: a lease that lapses mid-job lets a second worker start
-	// the same work while the first is still doing it.
-	Lease time.Duration
+    // Lease is how long a claim holds. It has to be comfortably longer than the
+    // slowest handler: a lease that lapses mid-job lets a second worker start
+    // the same work while the first is still doing it.
+    Lease time.Duration
 
-	// BatchSize caps how many jobs one poll takes. It exists so one worker
-	// cannot lease the whole queue and then die holding it.
-	BatchSize int
+    // BatchSize caps how many jobs one poll takes. It exists so one worker
+    // cannot lease the whole queue and then die holding it.
+    BatchSize int
 
-	// MaxAttempts is where a failing job stops. Past it the job parks, stays in
-	// the table, and waits for somebody to look at it.
-	MaxAttempts int
+    // MaxAttempts is where a failing job stops. Past it the job parks, stays in
+    // the table, and waits for somebody to look at it.
+    MaxAttempts int
 
-	// RetryBackoff is how long a failed job waits before it is claimable again.
-	RetryBackoff time.Duration
+    // RetryBackoff is how long a failed job waits before it is claimable again.
+    RetryBackoff time.Duration
 
-	// Clock is where every instant comes from. Nil means the real clock. A test
-	// sets it so a lease boundary is exact rather than approximately right.
-	Clock func() time.Time
+    // Clock is where every instant comes from. Nil means the real clock. A test
+    // sets it so a lease boundary is exact rather than approximately right.
+    Clock func() time.Time
 
-	// OnError is told about anything that went wrong, one call per failure. Nil
-	// means silence, which is what a test wants and what production must never
-	// have. The api and the worker both hand in a logger here in phase 7.
-	OnError func(err error)
+    // OnError is told about anything that went wrong, one call per failure. Nil
+    // means silence, which is what a test wants and what production must never
+    // have. The api and the worker both hand in a logger here in phase 7.
+    OnError func(err error)
 }
 
 // DefaultSettings are the values the worker runs with when nothing overrides
@@ -53,13 +53,13 @@ type Settings struct {
 // spans two and a half minutes of trouble before a job parks, which outlasts an
 // ordinary restart and not much else.
 func DefaultSettings() Settings {
-	return Settings{
-		PollInterval: 5 * time.Second,
-		Lease:        2 * time.Minute,
-		BatchSize:    10,
-		MaxAttempts:  5,
-		RetryBackoff: 30 * time.Second,
-	}
+    return Settings{
+        PollInterval: 5 * time.Second,
+        Lease:        2 * time.Minute,
+        BatchSize:    10,
+        MaxAttempts:  5,
+        RetryBackoff: 30 * time.Second,
+    }
 }
 
 // Runner claims jobs and hands each to the handler for its kind.
@@ -68,10 +68,10 @@ func DefaultSettings() Settings {
 // what to do when a handler says it is finished, and what to do when one says
 // it is not.
 type Runner struct {
-	queue    queue.Queue
-	handlers Registry
-	settings Settings
-	counters *Counters
+    queue    queue.Queue
+    handlers Registry
+    settings Settings
+    counters *Counters
 }
 
 // NewRunner builds the runner and fills in whatever the settings left out.
@@ -91,37 +91,37 @@ type Runner struct {
 //   - ErrInvalidSettings when a policy value cannot work
 //   - ErrHandlerMissing when a kind has nothing to run it
 func NewRunner(jobs queue.Queue, handlers Registry, settings Settings) (*Runner, error) {
-	if jobs == nil {
-		return nil, fmt.Errorf("%w: the runner needs a queue", ErrInvalidSettings)
-	}
+    if jobs == nil {
+        return nil, fmt.Errorf("%w: the runner needs a queue", ErrInvalidSettings)
+    }
 
-	if !handlers.Covers() {
-		return nil, ErrHandlerMissing
-	}
+    if !handlers.Covers() {
+        return nil, ErrHandlerMissing
+    }
 
-	if settings.PollInterval <= 0 || settings.Lease <= 0 || settings.RetryBackoff <= 0 {
-		return nil, fmt.Errorf("%w: every interval must be greater than zero", ErrInvalidSettings)
-	}
+    if settings.PollInterval <= 0 || settings.Lease <= 0 || settings.RetryBackoff <= 0 {
+        return nil, fmt.Errorf("%w: every interval must be greater than zero", ErrInvalidSettings)
+    }
 
-	if settings.BatchSize < 1 || settings.MaxAttempts < 1 {
-		return nil, fmt.Errorf("%w: the batch and the attempt cap must be at least one", ErrInvalidSettings)
-	}
+    if settings.BatchSize < 1 || settings.MaxAttempts < 1 {
+        return nil, fmt.Errorf("%w: the batch and the attempt cap must be at least one", ErrInvalidSettings)
+    }
 
-	if settings.Clock == nil {
-		settings.Clock = time.Now
-	}
+    if settings.Clock == nil {
+        settings.Clock = time.Now
+    }
 
-	return &Runner{
-		queue:    jobs,
-		handlers: handlers,
-		settings: settings,
-		counters: NewCounters(),
-	}, nil
+    return &Runner{
+        queue:    jobs,
+        handlers: handlers,
+        settings: settings,
+        counters: NewCounters(),
+    }, nil
 }
 
 // Counters is what this runner has done so far.
 func (runner *Runner) Counters() *Counters {
-	return runner.counters
+    return runner.counters
 }
 
 // RunOnce claims one batch and runs it to the end.
@@ -135,23 +135,23 @@ func (runner *Runner) Counters() *Counters {
 //     failed is not an error here, it is a job that will be tried again, and it
 //     reaches OnError instead
 func (runner *Runner) RunOnce(ctx context.Context) (int, error) {
-	leased, err := runner.queue.Claim(ctx, queue.ClaimRequest{
-		Now:         runner.settings.Clock(),
-		Lease:       runner.settings.Lease,
-		Limit:       runner.settings.BatchSize,
-		MaxAttempts: runner.settings.MaxAttempts,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("the queue could not be polled: %w", err)
-	}
+    leased, err := runner.queue.Claim(ctx, queue.ClaimRequest{
+        Now:         runner.settings.Clock(),
+        Lease:       runner.settings.Lease,
+        Limit:       runner.settings.BatchSize,
+        MaxAttempts: runner.settings.MaxAttempts,
+    })
+    if err != nil {
+        return 0, fmt.Errorf("the queue could not be polled: %w", err)
+    }
 
-	runner.counters.Claimed(len(leased))
+    runner.counters.Claimed(len(leased))
 
-	for _, job := range leased {
-		runner.dispatch(ctx, job)
-	}
+    for _, job := range leased {
+        runner.dispatch(ctx, job)
+    }
 
-	return len(leased), nil
+    return len(leased), nil
 }
 
 // Run polls until the context is cancelled.
@@ -164,26 +164,26 @@ func (runner *Runner) RunOnce(ctx context.Context) (int, error) {
 //   - nil on cancellation, which is the ordinary way this ends. A shutdown is
 //     not a failure, so the caller does not have to unwrap one to find out
 func (runner *Runner) Run(ctx context.Context) error {
-	for {
-		if ctx.Err() != nil {
-			return nil
-		}
+    for {
+        if ctx.Err() != nil {
+            return nil
+        }
 
-		claimed, err := runner.RunOnce(ctx)
-		if err != nil {
-			runner.report(err)
-		}
+        claimed, err := runner.RunOnce(ctx)
+        if err != nil {
+            runner.report(err)
+        }
 
-		if err == nil && claimed >= runner.settings.BatchSize {
-			continue
-		}
+        if err == nil && claimed >= runner.settings.BatchSize {
+            continue
+        }
 
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(runner.settings.PollInterval):
-		}
-	}
+        select {
+        case <-ctx.Done():
+            return nil
+        case <-time.After(runner.settings.PollInterval):
+        }
+    }
 }
 
 // dispatch runs one job and decides what becomes of it.
@@ -193,50 +193,50 @@ func (runner *Runner) Run(ctx context.Context) error {
 // a worker that is stuck, so there is no early return here without one or the
 // other.
 func (runner *Runner) dispatch(ctx context.Context, job queue.Job) {
-	handler, found := runner.handlers[job.Kind]
-	if !found {
-		runner.handBack(ctx, job, fmt.Errorf("job %s: %w", job.ID, ErrHandlerMissing))
+    handler, found := runner.handlers[job.Kind]
+    if !found {
+        runner.handBack(ctx, job, fmt.Errorf("job %s: %w", job.ID, ErrHandlerMissing))
 
-		return
-	}
+        return
+    }
 
-	if err := handler.Handle(ctx, job); err != nil {
-		runner.handBack(ctx, job, fmt.Errorf("job %s (%s) failed on attempt %d: %w", job.ID, job.Kind, job.Attempts, err))
+    if err := handler.Handle(ctx, job); err != nil {
+        runner.handBack(ctx, job, fmt.Errorf("job %s (%s) failed on attempt %d: %w", job.ID, job.Kind, job.Attempts, err))
 
-		return
-	}
+        return
+    }
 
-	if err := runner.queue.Complete(ctx, job.ID); err != nil {
-		// The work is done and the row is not gone. The lease will lapse and
-		// another worker will run the same job, which is exactly why every
-		// handler here is written to be safe when there is nothing to do.
-		runner.report(fmt.Errorf("job %s ran but could not be completed: %w", job.ID, err))
+    if err := runner.queue.Complete(ctx, job.ID); err != nil {
+        // The work is done and the row is not gone. The lease will lapse and
+        // another worker will run the same job, which is exactly why every
+        // handler here is written to be safe when there is nothing to do.
+        runner.report(fmt.Errorf("job %s ran but could not be completed: %w", job.ID, err))
 
-		return
-	}
+        return
+    }
 
-	runner.counters.Completed()
+    runner.counters.Completed()
 }
 
 // handBack releases a job for another try and reports why.
 func (runner *Runner) handBack(ctx context.Context, job queue.Job, cause error) {
-	runner.counters.Failed()
-	runner.report(cause)
+    runner.counters.Failed()
+    runner.report(cause)
 
-	if job.IsParked(runner.settings.MaxAttempts) {
-		// It has spent its attempts, so this release is the last one. Saying so
-		// is what turns a line in a log into something an operator acts on.
-		runner.report(fmt.Errorf("job %s (%s) has spent its %d attempts and is parked", job.ID, job.Kind, runner.settings.MaxAttempts))
-	}
+    if job.IsParked(runner.settings.MaxAttempts) {
+        // It has spent its attempts, so this release is the last one. Saying so
+        // is what turns a line in a log into something an operator acts on.
+        runner.report(fmt.Errorf("job %s (%s) has spent its %d attempts and is parked", job.ID, job.Kind, runner.settings.MaxAttempts))
+    }
 
-	release := queue.ReleaseRequest{
-		JobID:    job.ID,
-		RunAfter: runner.settings.Clock().Add(runner.settings.RetryBackoff),
-	}
+    release := queue.ReleaseRequest{
+        JobID:    job.ID,
+        RunAfter: runner.settings.Clock().Add(runner.settings.RetryBackoff),
+    }
 
-	if err := runner.queue.Release(ctx, release); err != nil && !errors.Is(err, queue.ErrJobNotFound) {
-		runner.report(fmt.Errorf("job %s could not be released: %w", job.ID, err))
-	}
+    if err := runner.queue.Release(ctx, release); err != nil && !errors.Is(err, queue.ErrJobNotFound) {
+        runner.report(fmt.Errorf("job %s could not be released: %w", job.ID, err))
+    }
 }
 
 // report hands one failure to whoever is listening, and drops it when nobody
@@ -244,9 +244,9 @@ func (runner *Runner) handBack(ctx context.Context, job queue.Job, cause error) 
 // falls into, because NewRunner is given the logger by the process that starts
 // it.
 func (runner *Runner) report(err error) {
-	if runner.settings.OnError == nil {
-		return
-	}
+    if runner.settings.OnError == nil {
+        return
+    }
 
-	runner.settings.OnError(err)
+    runner.settings.OnError(err)
 }

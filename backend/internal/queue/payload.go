@@ -1,8 +1,8 @@
 package queue
 
 import (
-	"encoding/json"
-	"errors"
+    "encoding/json"
+    "errors"
 )
 
 // BookingPayload is what both job kinds carry today: which booking the work is
@@ -13,7 +13,7 @@ import (
 // it matters. The booking id is the one value that cannot go out of date, and
 // the handler reads the current row for everything else.
 type BookingPayload struct {
-	BookingID string `json:"booking_id"`
+    BookingID string `json:"booking_id"`
 }
 
 // EncodeBookingPayload turns the payload into the bytes the column stores.
@@ -26,11 +26,11 @@ type BookingPayload struct {
 //   - ErrInvalidRequest when the identifier is empty, refused here rather than
 //     leaving a job nobody can act on in the table
 func EncodeBookingPayload(bookingID string) ([]byte, error) {
-	if bookingID == "" {
-		return nil, ErrInvalidRequest
-	}
+    if bookingID == "" {
+        return nil, ErrInvalidRequest
+    }
 
-	return json.Marshal(BookingPayload{BookingID: bookingID})
+    return json.Marshal(BookingPayload{BookingID: bookingID})
 }
 
 // DecodeBookingPayload reads a payload back.
@@ -40,17 +40,17 @@ func EncodeBookingPayload(bookingID string) ([]byte, error) {
 //   - ErrInvalidPayload when the bytes are not that object, or the identifier
 //     inside is empty
 func DecodeBookingPayload(payload []byte) (BookingPayload, error) {
-	var decoded BookingPayload
+    var decoded BookingPayload
 
-	if err := json.Unmarshal(payload, &decoded); err != nil {
-		return BookingPayload{}, errors.Join(ErrInvalidPayload, err)
-	}
+    if err := json.Unmarshal(payload, &decoded); err != nil {
+        return BookingPayload{}, errors.Join(ErrInvalidPayload, err)
+    }
 
-	if decoded.BookingID == "" {
-		return BookingPayload{}, ErrInvalidPayload
-	}
+    if decoded.BookingID == "" {
+        return BookingPayload{}, ErrInvalidPayload
+    }
 
-	return decoded, nil
+    return decoded, nil
 }
 
 // validPayload reports whether these bytes are a json object.
@@ -60,11 +60,11 @@ func DecodeBookingPayload(payload []byte) (BookingPayload, error) {
 // ErrInvalidPayload before either implementation is reached, which is also what
 // lets the fake refuse exactly what the sql refuses.
 func validPayload(payload []byte) bool {
-	if len(payload) == 0 {
-		return false
-	}
+    if len(payload) == 0 {
+        return false
+    }
 
-	var object map[string]json.RawMessage
+    var object map[string]json.RawMessage
 
-	return json.Unmarshal(payload, &object) == nil
+    return json.Unmarshal(payload, &object) == nil
 }

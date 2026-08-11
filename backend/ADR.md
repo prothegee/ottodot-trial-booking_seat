@@ -753,3 +753,218 @@ contract for the sole purpose of confirming who has an account.
 The counter is where enumeration becomes visible: one refusal is a typo, a
 thousand is somebody working through a list, and neither needs an identifier in
 a metric label to be seen.
+
+<br>
+
+## ADR-033: The client sends the amount, and the service refuses anything but its own price
+
+**Status:** accepted, phase 6
+
+**Context.** The payment body carries `amount_cents` and `currency`. A charge
+whose size comes from the request body is a charge a caller sets for
+themselves, and a trial that can be bought for one cent is worse than a trial
+that cannot be bought at all.
+
+Removing the fields was the obvious answer and it costs something real: the mock
+provider decides its outcome from the last two digits of the amount, which is
+what lets a reviewer demonstrate a decline without an account anywhere.
+
+**Decision.** `checkout.AcceptAmount` compares the requested amount against
+`TrialPriceCents`, exactly, and refuses anything else with
+`payment.ErrInvalidAmount` before the provider is reached. Overpaying is refused
+as firmly as underpaying. In development only, the two amounts the mock reads as
+a decline and as an unreachable provider are also accepted.
+
+**Consequences.** The client still states what it believes it is paying, so a
+client that has drifted from the price is told rather than charged the right
+amount for the wrong reason. The demonstration path exists locally and is
+impossible anywhere else, because the relaxation is bound to `APP_ENV` in one
+function with a test either side of it.
+
+The day a class carries its own price, this function reads it from the class
+instead of from a constant, and no handler changes.
+
+<br>
+
+## ADR-034: A declined payment ends the booking, and that transition is new
+
+**Status:** accepted, phase 6
+
+**Context.** The state machine has allowed `pending_payment -> payment_failed`
+since phase 2 and nothing could write it. The repository had `Hold`, `Confirm`,
+`Cancel`, and `Expire`, so a declined charge left a booking sitting in
+`pending_payment` until the worker expired the hold. The enum value existed, the
+frontend rendered it, and no path in the service could produce it.
+
+**Decision.** `Repository.Fail` was added, with both implementations and a
+contract case in the shared suite. `checkout.Pay` calls it when the provider
+declines. It is separate from `Cancel` because the two mean different things to
+whoever reads the row later: no money moved here, so nothing has to move back,
+and the audit trail records the payment path as the cause rather than a person.
+
+**Consequences.** A declined booking finishes immediately and its hold is
+released, so the seat is free for the next parent rather than parked for the
+rest of the countdown. That is the behaviour simulation 2 describes and the
+first thing the frontend's declined screen needed to be true.
+
+The alternative, leaving the booking to expire, would have been a seat held for
+ten minutes by somebody who has already been told no.
+
+<br>
+
+## ADR-035: Caching is an optimisation, and every failure of it is a miss
+
+**Status:** accepted, phase 6
+
+**Context.** Redis holds the cached class list, the rate limit buckets, and the
+access token denylist. Those three have different consequences when Redis cannot
+be reached, and treating them the same way is how one outage becomes three.
+
+**Decision.** Three separate rules, each stated where it is applied:
+
+| surface | Redis unreachable |
+| :- | :- |
+| response cache | a miss. The read goes to the replica and the tag is dropped |
+| rate limit, safe methods | fail open. A read costs a cached body |
+| rate limit, writes | fail closed, 503 `dependency_unavailable` |
+| access token denylist | refuse. A denylist that cannot say no must not say yes |
+
+**Consequences.** The readiness route reports Redis as required, so a service
+that cannot reach it stops taking traffic before most of the above matters. The
+rules are what govern the window between Redis failing and readiness noticing,
+and the split is deliberate: a flood during an outage is exactly when an
+unlimited write path does damage, and a parent refused a class list because a
+cache is down is an outage this design was built to avoid.
+
+The denylist rule is the one that could surprise. It makes an unreachable Redis
+into failed requests rather than into honoured tokens, and that is the correct
+direction: the alternative is believing a token somebody has already signed out
+of.
+
+<br>
+
+## ADR-036: The etag carries a version counter as well as a digest
+
+**Status:** accepted, phase 6
+
+**Context.** A tag built from the payload alone repeats whenever a document
+returns to something it held before. Cancelling a booking puts a seat straight
+back, so the class list becomes byte for byte what it was a moment earlier, and
+a client holding the old tag would be told nothing had changed.
+
+**Decision.** The tag is `"<version>-<digest>"`. The version is a counter in
+Redis, bumped by every mutation that can move a seat count. The digest is the
+first 64 bits of the payload's sha256.
+
+**Consequences.** A repeat needs both halves to collide at once, which is what
+makes an invalidation visible even when the bytes are identical. The version
+counter carries no expiry, because a counter that reset would hand out a tag a
+client is still holding.
+
+The counter is not bumped inside the transaction that changed the seat count.
+Redis and Postgres cannot share one, so the bump is a separate call made after
+the write commits, and a crash between the two leaves a stale body for at most
+its thirty second lifetime. Everything cacheable here is advisory, so the worst
+case is a wasted click.
+
+<br>
+
+## ADR-037: The worker's expiry is not the only thing that releases a hold
+
+**Status:** accepted, phase 6
+
+**Context.** Phase 4 built the expiry job and nothing scheduled it. The http
+layer is where a hold is granted, so it is where the release has to be
+scheduled.
+
+**Decision.** `checkout.Hold` grants the hold first and writes the job second,
+with the job's instant set past the deadline by a grace period. The reverse
+order was rejected.
+
+**Consequences.** A crash between the two leaves a hold with no scheduled
+release. That is survivable: the deadline is on the row, so the class stops
+counting the holder the moment it passes, and the only cost is a row sitting in
+`pending_payment` until something looks at it. The operator worklist is where it
+surfaces.
+
+The other order is not survivable. Scheduling first would write a job for a
+booking that may never exist, and a worker would be handed an id it can never
+resolve, on every attempt, until it parks.
+
+The grace period exists so the worker loses a race it should lose. A job that
+ran at the exact instant a deadline passed would compete with the parent
+pressing pay at that instant. The booking side refuses an early expiry anyway,
+so this is the second of two defences rather than the only one.
+
+<br>
+
+## ADR-038: A not-found and a not-yours give the same answer
+
+**Status:** accepted, phase 6
+
+**Context.** A parent asking for a booking id can be told three things: here it
+is, there is no such booking, or that one is not yours. The last two are
+different facts, and telling them apart lets anyone with an account discover
+which identifiers exist by asking for them.
+
+**Decision.** `ErrBookingNotFound` and `ErrNotYourChild` both reach the client
+as a refusal with no detail: the first as 400 `invalid_request`, the second as
+403 `not_your_child`, and neither message repeats the identifier. The ownership
+check runs after the read, so the two paths cost the same and are
+indistinguishable from the outside by timing as well as by wording.
+
+**Consequences.** A parent who mistypes a link gets a generic refusal, which is
+slightly worse than a specific one. The identifiers are UUIDv7 and are not
+guessable, so this is defence in depth rather than the only thing standing in
+the way, but an endpoint that confirms existence is an endpoint that can be
+walked.
+
+The admin worklist is where an operator sees bookings across parents, and it is
+role gated. That is the route for the question this one refuses to answer.
+
+<br>
+
+## ADR-039: The challenge is verified when offered and required only by configuration
+
+**Status:** accepted, phase 6
+
+**Context.** The bot prevention table lists a CAPTCHA as its last layer. Making
+it mandatory means every test, every script, and every reviewer has to produce a
+token, and a mock that accepts anything would make the layer decorative.
+
+**Decision.** `internal/captcha` holds the interface and a deterministic mock in
+the shape Turnstile has. The http layer verifies a token whenever one arrives
+and does not hold its absence against a caller, unless `RequireCaptcha` is on,
+which refuses a submission with no token. It is off by default.
+
+**Consequences.** The layer is real and provable: a refused token is refused, a
+passing token passes, and a provider that cannot be reached is a pass rather
+than a refusal, so a third party's outage does not become ours. Turning it on is
+a configuration change rather than a code change.
+
+What it does not do is stop a determined caller, who simply omits the field
+while the flag is off. That is stated here rather than implied, and it is why
+the challenge is the last layer rather than a load bearing one. Everything above
+it works on properties nobody can decline to send.
+
+<br>
+
+## ADR-040: The api does not trust a forwarded-for header
+
+**Status:** accepted, phase 6
+
+**Context.** The address rate limit needs a caller address. `X-Forwarded-For` is
+written by whoever is dialling, so an api that reads it lets any caller choose
+which bucket to spend.
+
+**Decision.** `CallerAddress` reads `RemoteAddr` and nothing else.
+
+**Consequences.** Behind a proxy this becomes the proxy's address, and the
+address bucket stops distinguishing callers. That is the honest consequence and
+it is acceptable, because the address bucket was always the weaker of the two:
+the subject bucket is keyed on a parent id this service issued, and it carries
+on unchanged.
+
+The day this service runs behind a proxy it controls, the fix is to read the
+header only from a known set of proxy addresses, which is a change to this one
+function.

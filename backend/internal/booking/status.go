@@ -8,63 +8,63 @@ package booking
 type Status string
 
 const (
-	// StatusPendingPayment means a hold is standing while the parent pays. It
-	// is the only status a booking can be created in.
-	StatusPendingPayment Status = "pending_payment"
+    // StatusPendingPayment means a hold is standing while the parent pays. It
+    // is the only status a booking can be created in.
+    StatusPendingPayment Status = "pending_payment"
 
-	// StatusConfirmed means the seat is owned. It is the only status that
-	// carries a seat number.
-	StatusConfirmed Status = "confirmed"
+    // StatusConfirmed means the seat is owned. It is the only status that
+    // carries a seat number.
+    StatusConfirmed Status = "confirmed"
 
-	// StatusPaymentFailed means the provider declined and no money moved.
-	StatusPaymentFailed Status = "payment_failed"
+    // StatusPaymentFailed means the provider declined and no money moved.
+    StatusPaymentFailed Status = "payment_failed"
 
-	// StatusRefundRequired means money moved and the seat went to someone
-	// else. It is deliberately separate from StatusPaymentFailed: one needs
-	// nothing from an operator, the other needs money sent back.
-	StatusRefundRequired Status = "refund_required"
+    // StatusRefundRequired means money moved and the seat went to someone
+    // else. It is deliberately separate from StatusPaymentFailed: one needs
+    // nothing from an operator, the other needs money sent back.
+    StatusRefundRequired Status = "refund_required"
 
-	// StatusExpired means the hold ran out before any payment settled.
-	StatusExpired Status = "expired"
+    // StatusExpired means the hold ran out before any payment settled.
+    StatusExpired Status = "expired"
 
-	// StatusCancelled means the booking was withdrawn, or a refund settled.
-	StatusCancelled Status = "cancelled"
+    // StatusCancelled means the booking was withdrawn, or a refund settled.
+    StatusCancelled Status = "cancelled"
 )
 
 // allowedTransitions is the whole state machine. A status with an empty set is
 // terminal, and saying so explicitly is what lets IsTerminal answer without a
 // second list that could disagree with this one.
 var allowedTransitions = map[Status]map[Status]struct{}{
-	StatusPendingPayment: {
-		StatusConfirmed:      {},
-		StatusPaymentFailed:  {},
-		StatusRefundRequired: {},
-		StatusExpired:        {},
-		StatusCancelled:      {},
-	},
-	StatusConfirmed: {
-		StatusCancelled: {},
-	},
-	StatusRefundRequired: {
-		StatusCancelled: {},
-	},
-	StatusPaymentFailed: {},
-	StatusExpired:       {},
-	StatusCancelled:     {},
+    StatusPendingPayment: {
+        StatusConfirmed:      {},
+        StatusPaymentFailed:  {},
+        StatusRefundRequired: {},
+        StatusExpired:        {},
+        StatusCancelled:      {},
+    },
+    StatusConfirmed: {
+        StatusCancelled: {},
+    },
+    StatusRefundRequired: {
+        StatusCancelled: {},
+    },
+    StatusPaymentFailed: {},
+    StatusExpired:       {},
+    StatusCancelled:     {},
 }
 
 // IsKnown reports whether this is one of the six statuses the enum defines.
 // Anything else came from outside the service and is not to be trusted.
 func (status Status) IsKnown() bool {
-	_, found := allowedTransitions[status]
+    _, found := allowedTransitions[status]
 
-	return found
+    return found
 }
 
 // IsTerminal reports whether a booking in this status can still change. A
 // terminal booking is finished, in one direction or another.
 func (status Status) IsTerminal() bool {
-	return status.IsKnown() && len(allowedTransitions[status]) == 0
+    return status.IsKnown() && len(allowedTransitions[status]) == 0
 }
 
 // IsLive reports whether this booking still stands between a child and a second
@@ -74,7 +74,7 @@ func (status Status) IsTerminal() bool {
 // this function and the database agree by construction. Changing one without
 // the other is the bug this pairing is meant to prevent.
 func (status Status) IsLive() bool {
-	return status == StatusPendingPayment || status == StatusConfirmed
+    return status == StatusPendingPayment || status == StatusConfirmed
 }
 
 // CanTransition reports whether a booking may move from one status to another.
@@ -89,29 +89,29 @@ func (status Status) IsLive() bool {
 //   - true when the move is in the table above
 //   - false for every other pair, including a status moving to itself
 func CanTransition(from Status, to Status) bool {
-	destinations, found := allowedTransitions[from]
-	if !found {
-		return false
-	}
+    destinations, found := allowedTransitions[from]
+    if !found {
+        return false
+    }
 
-	if !to.IsKnown() {
-		return false
-	}
+    if !to.IsKnown() {
+        return false
+    }
 
-	_, allowed := destinations[to]
+    _, allowed := destinations[to]
 
-	return allowed
+    return allowed
 }
 
 // AllStatuses lists the six statuses, so a test can walk every pair without
 // repeating the list and drifting from it.
 func AllStatuses() []Status {
-	return []Status{
-		StatusPendingPayment,
-		StatusConfirmed,
-		StatusPaymentFailed,
-		StatusRefundRequired,
-		StatusExpired,
-		StatusCancelled,
-	}
+    return []Status{
+        StatusPendingPayment,
+        StatusConfirmed,
+        StatusPaymentFailed,
+        StatusRefundRequired,
+        StatusExpired,
+        StatusCancelled,
+    }
 }

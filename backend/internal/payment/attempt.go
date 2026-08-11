@@ -23,42 +23,42 @@ import "time"
 type Status string
 
 const (
-	// StatusInitiated means the row exists and the provider has not answered
-	// yet. An attempt that stays here is one whose call died mid-flight, and it
-	// is the only status a replay cannot resolve on its own.
-	StatusInitiated Status = "initiated"
+    // StatusInitiated means the row exists and the provider has not answered
+    // yet. An attempt that stays here is one whose call died mid-flight, and it
+    // is the only status a replay cannot resolve on its own.
+    StatusInitiated Status = "initiated"
 
-	// StatusSucceeded means money moved.
-	StatusSucceeded Status = "succeeded"
+    // StatusSucceeded means money moved.
+    StatusSucceeded Status = "succeeded"
 
-	// StatusFailed means the provider declined and no money moved. It is not
-	// the same as the provider being unreachable, which leaves the attempt
-	// initiated because nobody knows what happened.
-	StatusFailed Status = "failed"
+    // StatusFailed means the provider declined and no money moved. It is not
+    // the same as the provider being unreachable, which leaves the attempt
+    // initiated because nobody knows what happened.
+    StatusFailed Status = "failed"
 )
 
 // IsKnown reports whether this is one of the three statuses the enum defines.
 // Anything else came from outside the service and is not to be trusted.
 func (status Status) IsKnown() bool {
-	switch status {
-	case StatusInitiated, StatusSucceeded, StatusFailed:
-		return true
-	}
+    switch status {
+    case StatusInitiated, StatusSucceeded, StatusFailed:
+        return true
+    }
 
-	return false
+    return false
 }
 
 // IsSettled reports whether the provider has answered. A settled attempt is
 // never written to again, which is what makes the table append only in practice
 // as well as on paper.
 func (status Status) IsSettled() bool {
-	return status == StatusSucceeded || status == StatusFailed
+    return status == StatusSucceeded || status == StatusFailed
 }
 
 // AllStatuses lists the three statuses, so a test can walk every one without
 // repeating the list and drifting from it.
 func AllStatuses() []Status {
-	return []Status{StatusInitiated, StatusSucceeded, StatusFailed}
+    return []Status{StatusInitiated, StatusSucceeded, StatusFailed}
 }
 
 // Attempt is one charge against one booking.
@@ -68,24 +68,24 @@ func AllStatuses() []Status {
 // provider reference is never the empty string, and an attempt that has not
 // settled has no instant to report. That keeps every caller free of a nil check.
 type Attempt struct {
-	ID        string
-	BookingID string
+    ID        string
+    BookingID string
 
-	// IdempotencyKey is what makes a replay recognisable. It is unique per
-	// booking, which is the uq_payment_idempotency index.
-	IdempotencyKey string
+    // IdempotencyKey is what makes a replay recognisable. It is unique per
+    // booking, which is the uq_payment_idempotency index.
+    IdempotencyKey string
 
-	Amount Amount
-	Status Status
+    Amount Amount
+    Status Status
 
-	// ProviderRef is what the provider calls this charge. It is the only thing
-	// kept from the provider, because card data never enters this system.
-	ProviderRef string
+    // ProviderRef is what the provider calls this charge. It is the only thing
+    // kept from the provider, because card data never enters this system.
+    ProviderRef string
 
-	// FailureReason is why a decline happened, for an operator. It never
-	// reaches a parent, so it still carries no identifier and no name.
-	FailureReason string
+    // FailureReason is why a decline happened, for an operator. It never
+    // reaches a parent, so it still carries no identifier and no name.
+    FailureReason string
 
-	CreatedAt time.Time
-	SettledAt time.Time
+    CreatedAt time.Time
+    SettledAt time.Time
 }

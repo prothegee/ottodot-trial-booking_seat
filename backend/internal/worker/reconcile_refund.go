@@ -1,11 +1,11 @@
 package worker
 
 import (
-	"context"
+    "context"
 
-	"ottodot-trial-booking/backend/internal/booking"
-	"ottodot-trial-booking/backend/internal/payment"
-	"ottodot-trial-booking/backend/internal/queue"
+    "ottodot-trial-booking/backend/internal/booking"
+    "ottodot-trial-booking/backend/internal/payment"
+    "ottodot-trial-booking/backend/internal/queue"
 )
 
 // refundReason is the line written into the audit trail when a refund settles.
@@ -18,13 +18,13 @@ const refundReason = "refund settled, booking closed by the worker"
 // BookingCloser is what this handler needs from the booking side: read the
 // current state, and close the booking once the money has gone back.
 type BookingCloser interface {
-	Booking(ctx context.Context, bookingID string) (booking.Booking, error)
-	Cancel(ctx context.Context, bookingID string, actor booking.Actor, reason string) (booking.Booking, error)
+    Booking(ctx context.Context, bookingID string) (booking.Booking, error)
+    Cancel(ctx context.Context, bookingID string, actor booking.Actor, reason string) (booking.Booking, error)
 }
 
 // RefundReconciler is what it needs from the payment side.
 type RefundReconciler interface {
-	Refund(ctx context.Context, command payment.RefundCommand) (payment.Refund, error)
+    Refund(ctx context.Context, command payment.RefundCommand) (payment.Refund, error)
 }
 
 // ReconcileRefundHandler sends money back to a parent who paid and lost the
@@ -35,9 +35,9 @@ type RefundReconciler interface {
 // a seat that is gone by the time their turn comes. `refund_required` is the
 // record of that, and this handler is what clears it.
 type ReconcileRefundHandler struct {
-	bookings BookingCloser
-	payments RefundReconciler
-	onRefund func(refund payment.Refund)
+    bookings BookingCloser
+    payments RefundReconciler
+    onRefund func(refund payment.Refund)
 }
 
 // NewReconcileRefundHandler wires the handler to both services.
@@ -52,11 +52,11 @@ type ReconcileRefundHandler struct {
 //   - the handler, ready to register
 //   - ErrHandlerMissing when either service is absent
 func NewReconcileRefundHandler(bookings BookingCloser, payments RefundReconciler, onRefund func(refund payment.Refund)) (*ReconcileRefundHandler, error) {
-	if bookings == nil || payments == nil {
-		return nil, ErrHandlerMissing
-	}
+    if bookings == nil || payments == nil {
+        return nil, ErrHandlerMissing
+    }
 
-	return &ReconcileRefundHandler{bookings: bookings, payments: payments, onRefund: onRefund}, nil
+    return &ReconcileRefundHandler{bookings: bookings, payments: payments, onRefund: onRefund}, nil
 }
 
 // Handle refunds one booking and closes it.
@@ -76,48 +76,48 @@ func NewReconcileRefundHandler(bookings BookingCloser, payments RefundReconciler
 //     provider that could not be reached lands here, which is the only safe
 //     answer when nobody knows whether the money moved
 func (handler *ReconcileRefundHandler) Handle(ctx context.Context, job queue.Job) error {
-	payload, err := queue.DecodeBookingPayload(job.Payload)
-	if err != nil {
-		return err
-	}
+    payload, err := queue.DecodeBookingPayload(job.Payload)
+    if err != nil {
+        return err
+    }
 
-	held, err := handler.bookings.Booking(ctx, payload.BookingID)
-	if err != nil {
-		return err
-	}
+    held, err := handler.bookings.Booking(ctx, payload.BookingID)
+    if err != nil {
+        return err
+    }
 
-	if held.Status != booking.StatusRefundRequired {
-		return nil
-	}
+    if held.Status != booking.StatusRefundRequired {
+        return nil
+    }
 
-	// ErrNothingToRefund lands here with everything else, and it is worth being
-	// clear about why. It means the booking says money moved and the attempts
-	// say it did not. Closing the booking would erase that disagreement, so the
-	// job is handed back instead and eventually parks, where somebody has to
-	// look at it.
-	sentBack, err := handler.payments.Refund(ctx, payment.RefundCommand{BookingID: payload.BookingID})
-	if err != nil {
-		return err
-	}
+    // ErrNothingToRefund lands here with everything else, and it is worth being
+    // clear about why. It means the booking says money moved and the attempts
+    // say it did not. Closing the booking would erase that disagreement, so the
+    // job is handed back instead and eventually parks, where somebody has to
+    // look at it.
+    sentBack, err := handler.payments.Refund(ctx, payment.RefundCommand{BookingID: payload.BookingID})
+    if err != nil {
+        return err
+    }
 
-	handler.record(sentBack)
+    handler.record(sentBack)
 
-	// The money is back and the booking still says it is owed. A retry comes
-	// straight back to the refund above, which is exactly the case the refund
-	// key exists for: the provider recognises it and moves nothing a second
-	// time.
-	if _, err := handler.bookings.Cancel(ctx, payload.BookingID, booking.ActorPayment, refundReason); err != nil {
-		return err
-	}
+    // The money is back and the booking still says it is owed. A retry comes
+    // straight back to the refund above, which is exactly the case the refund
+    // key exists for: the provider recognises it and moves nothing a second
+    // time.
+    if _, err := handler.bookings.Cancel(ctx, payload.BookingID, booking.ActorPayment, refundReason); err != nil {
+        return err
+    }
 
-	return nil
+    return nil
 }
 
 // record hands one settled refund to whoever is keeping the reference.
 func (handler *ReconcileRefundHandler) record(refund payment.Refund) {
-	if handler.onRefund == nil {
-		return
-	}
+    if handler.onRefund == nil {
+        return
+    }
 
-	handler.onRefund(refund)
+    handler.onRefund(refund)
 }

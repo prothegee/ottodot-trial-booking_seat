@@ -8,11 +8,9 @@
  *
  * A new attempt gets a new key. A decline is a finished attempt, so trying
  * again is a new one, and reusing the key there would replay the decline
- * forever. That rule lives with the payment screen in phase 5, which calls
- * this file rather than inventing a key of its own.
- *
- * Phase 6 moves the lifecycle into the api client, where a header can be
- * attached without every caller remembering. The minting stays here.
+ * forever. That rule is in `attempt.ts`, next to this file, so it can be read
+ * without a store or a screen around it. The minting stays here, and so does
+ * the header, so no caller writes the header name for itself.
  */
 
 /** The header the api reads the key from. */
@@ -45,4 +43,25 @@ export function newIdempotencyKey(): string {
     crypto.getRandomValues(bytes);
 
     return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Puts a key on a request's headers.
+ *
+ * It exists so no caller writes the header name for itself. A route that spelt
+ * it differently would send a key the api never reads, and the failure would be
+ * a second charge rather than an error anybody sees.
+ *
+ * Param:
+ * key - string (the key for the attempt in force)
+ * headers - Record<string, string> (anything the caller already wanted to send)
+ *
+ * Return:
+ * - the headers, with the key on them
+ */
+export function withIdempotencyKey(
+    key: string,
+    headers: Record<string, string> = {},
+): Record<string, string> {
+    return { ...headers, [idempotencyKeyHeader]: key };
 }

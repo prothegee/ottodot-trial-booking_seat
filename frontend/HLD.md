@@ -63,7 +63,7 @@ routing. So it reports, and something else acts. See ADR-F006.
 | `/sign-in` | mock sign in, seeded email, no password | built |
 | `/` | class list with subject, start time, and seats remaining | built |
 | `/book/[classId]` | pick a child, submit, receive a hold | built |
-| `/pay/[bookingId]` | mock payment and hold countdown, honeypot and captcha in phase 6 | built |
+| `/pay/[bookingId]` | mock payment, hold countdown, honeypot, fill timer, challenge | built |
 | `/booking/[bookingId]` | booking status in every terminal state | built |
 | `/roster/[classId]` | roster for an admin, hidden from a parent role | phase 7 |
 | `/status` | build identity and backend readiness | phase 7 |

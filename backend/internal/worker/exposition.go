@@ -1,10 +1,10 @@
 package worker
 
 import (
-	"fmt"
-	"io"
+    "fmt"
+    "io"
 
-	"ottodot-trial-booking/backend/internal/queue"
+    "ottodot-trial-booking/backend/internal/queue"
 )
 
 // The metric names this worker publishes.
@@ -15,10 +15,10 @@ import (
 // these names against the dashboard json, and it can only do that if they have
 // somewhere to be read from.
 const (
-	metricQueueDepth      = "queue_depth"
-	metricJobsClaimed     = "worker_jobs_claimed_total"
-	metricJobsCompleted   = "worker_jobs_completed_total"
-	metricJobsFailedTotal = "queue_job_failed_total"
+    metricQueueDepth      = "queue_depth"
+    metricJobsClaimed     = "worker_jobs_claimed_total"
+    metricJobsCompleted   = "worker_jobs_completed_total"
+    metricJobsFailedTotal = "queue_job_failed_total"
 )
 
 // WriteExposition writes the worker's numbers in the Prometheus text format.
@@ -39,65 +39,65 @@ const (
 //   - the writer's failure, unchanged, so a broken connection is not reported
 //     as a metrics problem
 func WriteExposition(writer io.Writer, counted Snapshot, depth queue.Depth) error {
-	lines := []struct {
-		name   string
-		metric string
-		help   string
-		kind   string
-		value  int64
-	}{
-		{
-			name:   metricQueueDepth,
-			metric: metricQueueDepth + `{state="ready"}`,
-			help:   "Jobs waiting to be claimed, by state.",
-			kind:   "gauge",
-			value:  int64(depth.Ready),
-		},
-		{
-			metric: metricQueueDepth + `{state="claimed"}`,
-			value:  int64(depth.Claimed),
-		},
-		{
-			metric: metricQueueDepth + `{state="parked"}`,
-			value:  int64(depth.Parked),
-		},
-		{
-			name:   metricJobsClaimed,
-			metric: metricJobsClaimed,
-			help:   "Jobs this worker has taken from the queue.",
-			kind:   "counter",
-			value:  counted.Claimed,
-		},
-		{
-			name:   metricJobsCompleted,
-			metric: metricJobsCompleted,
-			help:   "Jobs this worker finished and removed.",
-			kind:   "counter",
-			value:  counted.Completed,
-		},
-		{
-			name:   metricJobsFailedTotal,
-			metric: metricJobsFailedTotal,
-			help:   "Jobs this worker handed back for another attempt.",
-			kind:   "counter",
-			value:  counted.Failed,
-		},
-	}
+    lines := []struct {
+        name   string
+        metric string
+        help   string
+        kind   string
+        value  int64
+    }{
+        {
+            name:   metricQueueDepth,
+            metric: metricQueueDepth + `{state="ready"}`,
+            help:   "Jobs waiting to be claimed, by state.",
+            kind:   "gauge",
+            value:  int64(depth.Ready),
+        },
+        {
+            metric: metricQueueDepth + `{state="claimed"}`,
+            value:  int64(depth.Claimed),
+        },
+        {
+            metric: metricQueueDepth + `{state="parked"}`,
+            value:  int64(depth.Parked),
+        },
+        {
+            name:   metricJobsClaimed,
+            metric: metricJobsClaimed,
+            help:   "Jobs this worker has taken from the queue.",
+            kind:   "counter",
+            value:  counted.Claimed,
+        },
+        {
+            name:   metricJobsCompleted,
+            metric: metricJobsCompleted,
+            help:   "Jobs this worker finished and removed.",
+            kind:   "counter",
+            value:  counted.Completed,
+        },
+        {
+            name:   metricJobsFailedTotal,
+            metric: metricJobsFailedTotal,
+            help:   "Jobs this worker handed back for another attempt.",
+            kind:   "counter",
+            value:  counted.Failed,
+        },
+    }
 
-	for _, line := range lines {
-		// Only the first series of a metric carries the HELP and TYPE lines,
-		// which is what the format requires when one name has several label
-		// sets.
-		if line.name != "" {
-			if _, err := fmt.Fprintf(writer, "# HELP %s %s\n# TYPE %s %s\n", line.name, line.help, line.name, line.kind); err != nil {
-				return err
-			}
-		}
+    for _, line := range lines {
+        // Only the first series of a metric carries the HELP and TYPE lines,
+        // which is what the format requires when one name has several label
+        // sets.
+        if line.name != "" {
+            if _, err := fmt.Fprintf(writer, "# HELP %s %s\n# TYPE %s %s\n", line.name, line.help, line.name, line.kind); err != nil {
+                return err
+            }
+        }
 
-		if _, err := fmt.Fprintf(writer, "%s %d\n", line.metric, line.value); err != nil {
-			return err
-		}
-	}
+        if _, err := fmt.Fprintf(writer, "%s %d\n", line.metric, line.value); err != nil {
+            return err
+        }
+    }
 
-	return nil
+    return nil
 }

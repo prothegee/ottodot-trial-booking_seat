@@ -1,13 +1,13 @@
 package auth
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/json"
-	"errors"
-	"strings"
-	"time"
+    "crypto/hmac"
+    "crypto/sha256"
+    "encoding/base64"
+    "encoding/json"
+    "errors"
+    "strings"
+    "time"
 )
 
 // AlgorithmHS256 is the only algorithm this service signs or accepts.
@@ -32,8 +32,8 @@ const minimumSecretBytes = 32
 
 // header is the envelope. It is fixed, so it is written rather than configured.
 type header struct {
-	Algorithm string `json:"alg"`
-	Type      string `json:"typ"`
+    Algorithm string `json:"alg"`
+    Type      string `json:"typ"`
 }
 
 // Signer issues and verifies access tokens.
@@ -42,7 +42,7 @@ type header struct {
 // does are pure given the key, which is what lets a test pin every instant it
 // cares about.
 type Signer struct {
-	secret []byte
+    secret []byte
 }
 
 // NewSigner takes the signing key.
@@ -59,11 +59,11 @@ type Signer struct {
 //   - the signer
 //   - ErrInvalidRequest when the key is too short to be worth signing with
 func NewSigner(secret string) (*Signer, error) {
-	if len(secret) < minimumSecretBytes {
-		return nil, ErrInvalidRequest
-	}
+    if len(secret) < minimumSecretBytes {
+        return nil, ErrInvalidRequest
+    }
 
-	return &Signer{secret: []byte(secret)}, nil
+    return &Signer{secret: []byte(secret)}, nil
 }
 
 // Sign writes one access token.
@@ -80,23 +80,23 @@ func NewSigner(secret string) (*Signer, error) {
 //   - the token, three base64url segments joined by dots
 //   - ErrTokenInvalid when the claim set is not one this service issues
 func (signer *Signer) Sign(claims Claims) (string, error) {
-	if err := claims.Validate(); err != nil {
-		return "", err
-	}
+    if err := claims.Validate(); err != nil {
+        return "", err
+    }
 
-	encodedHeader, err := encodeSegment(header{Algorithm: AlgorithmHS256, Type: typeJWT})
-	if err != nil {
-		return "", err
-	}
+    encodedHeader, err := encodeSegment(header{Algorithm: AlgorithmHS256, Type: typeJWT})
+    if err != nil {
+        return "", err
+    }
 
-	encodedPayload, err := encodeSegment(claims)
-	if err != nil {
-		return "", err
-	}
+    encodedPayload, err := encodeSegment(claims)
+    if err != nil {
+        return "", err
+    }
 
-	signingInput := encodedHeader + "." + encodedPayload
+    signingInput := encodedHeader + "." + encodedPayload
 
-	return signingInput + "." + signer.signature(signingInput), nil
+    return signingInput + "." + signer.signature(signingInput), nil
 }
 
 // Verify checks one access token and returns what it says.
@@ -121,53 +121,53 @@ func (signer *Signer) Sign(claims Claims) (string, error) {
 //     or a claim set this service would not have issued
 //   - ErrTokenExpired when the token verified and its life is over
 func (signer *Signer) Verify(token string, now time.Time) (Claims, error) {
-	segments := strings.Split(token, ".")
-	if len(segments) != segmentCount {
-		return Claims{}, ErrTokenInvalid
-	}
+    segments := strings.Split(token, ".")
+    if len(segments) != segmentCount {
+        return Claims{}, ErrTokenInvalid
+    }
 
-	var envelope header
+    var envelope header
 
-	if err := decodeSegment(segments[0], &envelope); err != nil {
-		return Claims{}, ErrTokenInvalid
-	}
+    if err := decodeSegment(segments[0], &envelope); err != nil {
+        return Claims{}, ErrTokenInvalid
+    }
 
-	// The algorithm is read from the token and then refused unless it is the
-	// one this service signs with. This is the check that stops the two classic
-	// forgeries: alg "none", where the signature segment is empty and a
-	// trusting verifier believes the payload, and a token signed with a public
-	// key the service already publishes.
-	if envelope.Algorithm != AlgorithmHS256 || envelope.Type != typeJWT {
-		return Claims{}, ErrTokenInvalid
-	}
+    // The algorithm is read from the token and then refused unless it is the
+    // one this service signs with. This is the check that stops the two classic
+    // forgeries: alg "none", where the signature segment is empty and a
+    // trusting verifier believes the payload, and a token signed with a public
+    // key the service already publishes.
+    if envelope.Algorithm != AlgorithmHS256 || envelope.Type != typeJWT {
+        return Claims{}, ErrTokenInvalid
+    }
 
-	if !signer.matches(segments[0]+"."+segments[1], segments[2]) {
-		return Claims{}, ErrTokenInvalid
-	}
+    if !signer.matches(segments[0]+"."+segments[1], segments[2]) {
+        return Claims{}, ErrTokenInvalid
+    }
 
-	var claims Claims
+    var claims Claims
 
-	if err := decodeSegment(segments[1], &claims); err != nil {
-		return Claims{}, ErrTokenInvalid
-	}
+    if err := decodeSegment(segments[1], &claims); err != nil {
+        return Claims{}, ErrTokenInvalid
+    }
 
-	if err := claims.Validate(); err != nil {
-		return Claims{}, err
-	}
+    if err := claims.Validate(); err != nil {
+        return Claims{}, err
+    }
 
-	if claims.IsExpired(now) {
-		return claims, ErrTokenExpired
-	}
+    if claims.IsExpired(now) {
+        return claims, ErrTokenExpired
+    }
 
-	return claims, nil
+    return claims, nil
 }
 
 // signature is the base64url mac over the signing input.
 func (signer *Signer) signature(signingInput string) string {
-	mac := hmac.New(sha256.New, signer.secret)
-	mac.Write([]byte(signingInput))
+    mac := hmac.New(sha256.New, signer.secret)
+    mac.Write([]byte(signingInput))
 
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+    return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
 // matches compares the presented signature with the expected one.
@@ -176,15 +176,15 @@ func (signer *Signer) signature(signingInput string) string {
 // as soon as two bytes differ, and that timing is enough to recover a signature
 // one byte at a time given enough attempts.
 func (signer *Signer) matches(signingInput string, presented string) bool {
-	expected, err := base64.RawURLEncoding.DecodeString(presented)
-	if err != nil {
-		return false
-	}
+    expected, err := base64.RawURLEncoding.DecodeString(presented)
+    if err != nil {
+        return false
+    }
 
-	mac := hmac.New(sha256.New, signer.secret)
-	mac.Write([]byte(signingInput))
+    mac := hmac.New(sha256.New, signer.secret)
+    mac.Write([]byte(signingInput))
 
-	return hmac.Equal(mac.Sum(nil), expected)
+    return hmac.Equal(mac.Sum(nil), expected)
 }
 
 // encodeSegment writes one json value as a base64url segment.
@@ -192,24 +192,24 @@ func (signer *Signer) matches(signingInput string, presented string) bool {
 // Raw encoding, so there is no padding. A padded segment is not what any other
 // implementation produces, and the '=' would have to be escaped in a cookie.
 func encodeSegment(value any) (string, error) {
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return "", errors.Join(ErrTokenInvalid, err)
-	}
+    encoded, err := json.Marshal(value)
+    if err != nil {
+        return "", errors.Join(ErrTokenInvalid, err)
+    }
 
-	return base64.RawURLEncoding.EncodeToString(encoded), nil
+    return base64.RawURLEncoding.EncodeToString(encoded), nil
 }
 
 // decodeSegment reads one base64url segment into a value.
 func decodeSegment(segment string, into any) error {
-	decoded, err := base64.RawURLEncoding.DecodeString(segment)
-	if err != nil {
-		return ErrTokenInvalid
-	}
+    decoded, err := base64.RawURLEncoding.DecodeString(segment)
+    if err != nil {
+        return ErrTokenInvalid
+    }
 
-	if err := json.Unmarshal(decoded, into); err != nil {
-		return ErrTokenInvalid
-	}
+    if err := json.Unmarshal(decoded, into); err != nil {
+        return ErrTokenInvalid
+    }
 
-	return nil
+    return nil
 }

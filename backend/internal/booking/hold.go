@@ -13,7 +13,7 @@ import "time"
 // refunded. The column is per class, so the strict behaviour is a data change
 // rather than a code change.
 func MaxHolders(class Class) int {
-	return int(class.Capacity) + int(class.HoldAllowance)
+    return int(class.Capacity) + int(class.HoldAllowance)
 }
 
 // HoldIsLive reports whether a hold is still standing at the given instant.
@@ -33,14 +33,14 @@ func MaxHolders(class Class) int {
 //   - true while the hold still stands
 //   - false at the deadline and after it
 func HoldIsLive(deadline time.Time, now time.Time) bool {
-	if deadline.IsZero() {
-		return false
-	}
+    if deadline.IsZero() {
+        return false
+    }
 
-	return deadline.After(now)
+    return deadline.After(now)
 }
 
 // HoldDeadline stamps when a new hold runs out.
 func HoldDeadline(now time.Time, ttl time.Duration) time.Time {
-	return now.Add(ttl)
+    return now.Add(ttl)
 }

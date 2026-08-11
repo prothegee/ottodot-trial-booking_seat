@@ -1,11 +1,11 @@
 package auth
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
-	"fmt"
-	"io"
+    "crypto/rand"
+    "crypto/sha256"
+    "encoding/base64"
+    "fmt"
+    "io"
 )
 
 // refreshTokenBytes is how much randomness one refresh token carries. 256 bits
@@ -25,7 +25,7 @@ const refreshTokenBytes = 32
 //   - an error when randomness is unavailable, which is never ignored, because
 //     a token built from a failed read would not be unguessable
 func NewRefreshToken() (string, error) {
-	return newRefreshTokenFrom(rand.Reader)
+    return newRefreshTokenFrom(rand.Reader)
 }
 
 // newRefreshTokenFrom is the whole implementation with its source handed in,
@@ -38,13 +38,13 @@ func NewRefreshToken() (string, error) {
 //   - the token in base64url text
 //   - an error when the read fails or comes up short
 func newRefreshTokenFrom(entropy io.Reader) (string, error) {
-	raw := make([]byte, refreshTokenBytes)
+    raw := make([]byte, refreshTokenBytes)
 
-	if _, err := io.ReadFull(entropy, raw); err != nil {
-		return "", fmt.Errorf("cannot read randomness for a refresh token: %w", err)
-	}
+    if _, err := io.ReadFull(entropy, raw); err != nil {
+        return "", fmt.Errorf("cannot read randomness for a refresh token: %w", err)
+    }
 
-	return base64.RawURLEncoding.EncodeToString(raw), nil
+    return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
 // HashRefreshToken reduces a token to what is stored.
@@ -63,7 +63,7 @@ func newRefreshTokenFrom(entropy io.Reader) (string, error) {
 // Return:
 //   - the 32 byte digest, which is what the bytea column holds
 func HashRefreshToken(token string) []byte {
-	digest := sha256.Sum256([]byte(token))
+    digest := sha256.Sum256([]byte(token))
 
-	return digest[:]
+    return digest[:]
 }

@@ -1,16 +1,16 @@
 package auth
 
 import (
-	"net/http"
-	"time"
+    "net/http"
+    "time"
 )
 
 // The two cookie names. They are constants because the handler writes them and
 // the middleware reads them, and a typo across those two files would be a
 // service that signs everybody in and then cannot find them.
 const (
-	AccessCookieName  = "access_token"
-	RefreshCookieName = "refresh_token"
+    AccessCookieName  = "access_token"
+    RefreshCookieName = "refresh_token"
 )
 
 // AccessCookiePath is every route, because the access token is what every
@@ -34,13 +34,13 @@ const RefreshCookiePath = "/api/v1/auth"
 
 // CookieSettings is how the cookies are written for this environment.
 type CookieSettings struct {
-	// Domain is left empty for a host-only cookie, which is what a local run
-	// and a single-host deployment both want.
-	Domain string
+    // Domain is left empty for a host-only cookie, which is what a local run
+    // and a single-host deployment both want.
+    Domain string
 
-	// Secure keeps the cookie off plain http. It is false only in development,
-	// and configuration refuses to start with it false anywhere else.
-	Secure bool
+    // Secure keeps the cookie off plain http. It is false only in development,
+    // and configuration refuses to start with it false anywhere else.
+    Secure bool
 }
 
 // CookieWriter puts the session on the response, and takes it off again.
@@ -49,12 +49,12 @@ type CookieSettings struct {
 // value. That is the whole reason tokens live in cookies here rather than in
 // localStorage: an injected script can read storage, and it cannot read this.
 type CookieWriter struct {
-	settings CookieSettings
+    settings CookieSettings
 }
 
 // NewCookieWriter builds the writer.
 func NewCookieWriter(settings CookieSettings) CookieWriter {
-	return CookieWriter{settings: settings}
+    return CookieWriter{settings: settings}
 }
 
 // Write puts both cookies on the response.
@@ -72,11 +72,11 @@ func NewCookieWriter(settings CookieSettings) CookieWriter {
 // issued - Issued (both tokens and their expiries)
 // now - time.Time (the instant the remaining life is measured from)
 func (writer CookieWriter) Write(response http.ResponseWriter, issued Issued, now time.Time) {
-	http.SetCookie(response, writer.cookie(
-		AccessCookieName, issued.AccessToken, AccessCookiePath, secondsUntil(issued.AccessExpiresAt, now)))
+    http.SetCookie(response, writer.cookie(
+        AccessCookieName, issued.AccessToken, AccessCookiePath, secondsUntil(issued.AccessExpiresAt, now)))
 
-	http.SetCookie(response, writer.cookie(
-		RefreshCookieName, issued.RefreshToken, RefreshCookiePath, secondsUntil(issued.RefreshExpiresAt, now)))
+    http.SetCookie(response, writer.cookie(
+        RefreshCookieName, issued.RefreshToken, RefreshCookiePath, secondsUntil(issued.RefreshExpiresAt, now)))
 }
 
 // Clear takes both cookies off, which is what a sign out and a refused refresh
@@ -85,22 +85,22 @@ func (writer CookieWriter) Write(response http.ResponseWriter, issued Issued, no
 // The value is emptied as well as the age negated. A browser that ignores one
 // is left holding an empty string rather than a working token.
 func (writer CookieWriter) Clear(response http.ResponseWriter) {
-	http.SetCookie(response, writer.cookie(AccessCookieName, "", AccessCookiePath, -1))
-	http.SetCookie(response, writer.cookie(RefreshCookieName, "", RefreshCookiePath, -1))
+    http.SetCookie(response, writer.cookie(AccessCookieName, "", AccessCookiePath, -1))
+    http.SetCookie(response, writer.cookie(RefreshCookieName, "", RefreshCookiePath, -1))
 }
 
 // cookie builds one cookie with the flags every cookie here carries.
 func (writer CookieWriter) cookie(name string, value string, path string, maxAge int) *http.Cookie {
-	return &http.Cookie{
-		Name:     name,
-		Value:    value,
-		Path:     path,
-		Domain:   writer.settings.Domain,
-		MaxAge:   maxAge,
-		HttpOnly: true,
-		Secure:   writer.settings.Secure,
-		SameSite: http.SameSiteStrictMode,
-	}
+    return &http.Cookie{
+        Name:     name,
+        Value:    value,
+        Path:     path,
+        Domain:   writer.settings.Domain,
+        MaxAge:   maxAge,
+        HttpOnly: true,
+        Secure:   writer.settings.Secure,
+        SameSite: http.SameSiteStrictMode,
+    }
 }
 
 // secondsUntil is the cookie's remaining life in whole seconds.
@@ -109,12 +109,12 @@ func (writer CookieWriter) cookie(name string, value string, path string, maxAge
 // drop the cookie. Returning 0 would mean a session cookie that survives until
 // the tab closes, which is the opposite of what an expired token wants.
 func secondsUntil(deadline time.Time, now time.Time) int {
-	remaining := deadline.Sub(now)
-	if remaining <= 0 {
-		return -1
-	}
+    remaining := deadline.Sub(now)
+    if remaining <= 0 {
+        return -1
+    }
 
-	return int(remaining.Seconds())
+    return int(remaining.Seconds())
 }
 
 // CookieValue reads one cookie off a request, returning an empty string when it
@@ -124,10 +124,10 @@ func secondsUntil(deadline time.Time, now time.Time) int {
 // needs one says so itself rather than unpicking a not-found from a read
 // failure.
 func CookieValue(request *http.Request, name string) string {
-	found, err := request.Cookie(name)
-	if err != nil {
-		return ""
-	}
+    found, err := request.Cookie(name)
+    if err != nil {
+        return ""
+    }
 
-	return found.Value
+    return found.Value
 }

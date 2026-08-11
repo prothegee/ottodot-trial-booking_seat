@@ -11,6 +11,7 @@ import { createCacheStore } from "$lib/cache/store";
 import BookingStatus from "$lib/components/BookingStatus.svelte";
 import { bookingsPath, createBookingStore, paymentPathFor } from "$lib/stores/booking";
 import { classListPath, createClassesStore } from "$lib/stores/classes";
+import { trialPayment } from "$lib/booking/price";
 
 /**
  * Simulation F5: the seat was lost after paying, the brief's scenario from the
@@ -105,7 +106,7 @@ describe("simulation F5: the seat went to somebody else after the payment settle
 
         await stage.booking.create({ student_id: studentId, class_id: classId });
 
-        const refused = await stage.booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        const refused = await stage.booking.pay(bookingId, trialPayment());
 
         expect(refused).toBeNull();
         expect(get(stage.booking).failure?.kind).toBe("SeatLost");
@@ -119,7 +120,7 @@ describe("simulation F5: the seat went to somebody else after the payment settle
         const stage = newStage();
 
         await stage.booking.create({ student_id: studentId, class_id: classId });
-        await stage.booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await stage.booking.pay(bookingId, trialPayment());
 
         expect(stage.transport.callsTo("POST", paymentPathFor(bookingId))).toHaveLength(1);
     });
@@ -150,7 +151,7 @@ describe("simulation F5: the seat went to somebody else after the payment settle
 
         await stage.booking.create({ student_id: studentId, class_id: classId });
         await stage.classes.load();
-        await stage.booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await stage.booking.pay(bookingId, trialPayment());
         await stage.classes.load();
 
         expect(stage.transport.callsTo("GET", classListPath)).toHaveLength(2);
@@ -162,7 +163,7 @@ describe("simulation F5: the seat went to somebody else after the payment settle
         const stage = newStage();
 
         await stage.booking.create({ student_id: studentId, class_id: classId });
-        await stage.booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await stage.booking.pay(bookingId, trialPayment());
 
         render(BookingStatus, { props: { booking: owedBooking } });
 

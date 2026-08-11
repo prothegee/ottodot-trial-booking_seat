@@ -1,19 +1,19 @@
 package auth
 
 import (
-	"encoding/json"
-	"io"
-	"net/http"
+    "encoding/json"
+    "io"
+    "net/http"
 )
 
 // The four routes this package serves. They are constants because the frontend
 // names the same four, and a path that exists in one and not the other is a
 // sign in screen that does nothing.
 const (
-	LoginPath   = "POST /api/v1/auth/login"
-	RefreshPath = "POST /api/v1/auth/refresh"
-	LogoutPath  = "POST /api/v1/auth/logout"
-	MePath      = "GET /api/v1/auth/me"
+    LoginPath   = "POST /api/v1/auth/login"
+    RefreshPath = "POST /api/v1/auth/refresh"
+    LogoutPath  = "POST /api/v1/auth/logout"
+    MePath      = "GET /api/v1/auth/me"
 )
 
 // maximumBodyBytes caps what a request body may be. The only body any of these
@@ -23,7 +23,7 @@ const maximumBodyBytes = 4 * 1024
 
 // loginRequest is the sign in body. One field, because there is no password.
 type loginRequest struct {
-	Email string `json:"email"`
+    Email string `json:"email"`
 }
 
 // sessionResponse is the answer to the session read.
@@ -32,17 +32,17 @@ type loginRequest struct {
 // email here and no token: the client is told who it is signed in as and what
 // it may do, and nothing it could leak.
 type sessionResponse struct {
-	ParentID    string          `json:"parent_id"`
-	DisplayName string          `json:"display_name"`
-	Role        string          `json:"role"`
-	Children    []childResponse `json:"children"`
+    ParentID    string          `json:"parent_id"`
+    DisplayName string          `json:"display_name"`
+    Role        string          `json:"role"`
+    Children    []childResponse `json:"children"`
 }
 
 // childResponse is one student on the account.
 type childResponse struct {
-	ID         string `json:"id"`
-	FullName   string `json:"full_name"`
-	GradeLevel int16  `json:"grade_level"`
+    ID         string `json:"id"`
+    FullName   string `json:"full_name"`
+    GradeLevel int16  `json:"grade_level"`
 }
 
 // Handler serves the four auth routes.
@@ -50,9 +50,9 @@ type childResponse struct {
 // It owns the http shape and nothing else: reading a body, writing cookies, and
 // choosing a status. Every decision behind those belongs to the service.
 type Handler struct {
-	service *Service
-	cookies CookieWriter
-	guard   *Guard
+    service *Service
+    cookies CookieWriter
+    guard   *Guard
 }
 
 // NewHandler wires the routes.
@@ -66,11 +66,11 @@ type Handler struct {
 //   - the handler
 //   - ErrInvalidRequest when the service or the guard is missing
 func NewHandler(service *Service, cookies CookieWriter, guard *Guard) (*Handler, error) {
-	if service == nil || guard == nil {
-		return nil, ErrInvalidRequest
-	}
+    if service == nil || guard == nil {
+        return nil, ErrInvalidRequest
+    }
 
-	return &Handler{service: service, cookies: cookies, guard: guard}, nil
+    return &Handler{service: service, cookies: cookies, guard: guard}, nil
 }
 
 // Register puts the four routes on a mux.
@@ -86,33 +86,33 @@ func NewHandler(service *Service, cookies CookieWriter, guard *Guard) (*Handler,
 // Param:
 // mux - *http.ServeMux (where the routes are registered)
 func (handler *Handler) Register(mux *http.ServeMux) {
-	mux.Handle(LoginPath, handler.guard.CheckOrigin(http.HandlerFunc(handler.logIn)))
-	mux.Handle(RefreshPath, handler.guard.CheckOrigin(http.HandlerFunc(handler.refresh)))
-	mux.Handle(LogoutPath, handler.guard.CheckOrigin(
-		handler.guard.Authenticate(http.HandlerFunc(handler.logOut))))
-	mux.Handle(MePath, handler.guard.Authenticate(http.HandlerFunc(handler.me)))
+    mux.Handle(LoginPath, handler.guard.CheckOrigin(http.HandlerFunc(handler.logIn)))
+    mux.Handle(RefreshPath, handler.guard.CheckOrigin(http.HandlerFunc(handler.refresh)))
+    mux.Handle(LogoutPath, handler.guard.CheckOrigin(
+        handler.guard.Authenticate(http.HandlerFunc(handler.logOut))))
+    mux.Handle(MePath, handler.guard.Authenticate(http.HandlerFunc(handler.me)))
 }
 
 // logIn signs a parent in by seeded email and writes both cookies.
 func (handler *Handler) logIn(response http.ResponseWriter, request *http.Request) {
-	var body loginRequest
+    var body loginRequest
 
-	if err := decodeBody(request, &body); err != nil {
-		Deny(response, err)
+    if err := decodeBody(request, &body); err != nil {
+        Deny(response, err)
 
-		return
-	}
+        return
+    }
 
-	issued, err := handler.service.LogIn(request.Context(), body.Email)
-	if err != nil {
-		Deny(response, err)
+    issued, err := handler.service.LogIn(request.Context(), body.Email)
+    if err != nil {
+        Deny(response, err)
 
-		return
-	}
+        return
+    }
 
-	handler.cookies.Write(response, issued, handler.service.settings.Clock())
+    handler.cookies.Write(response, issued, handler.service.settings.Clock())
 
-	noContent(response)
+    noContent(response)
 }
 
 // refresh rotates the refresh token and re-issues the access token.
@@ -121,19 +121,19 @@ func (handler *Handler) logIn(response http.ResponseWriter, request *http.Reques
 // either way, and leaving a spent refresh token in the browser means every
 // later call tries it again and fails the same way.
 func (handler *Handler) refresh(response http.ResponseWriter, request *http.Request) {
-	presented := CookieValue(request, RefreshCookieName)
+    presented := CookieValue(request, RefreshCookieName)
 
-	issued, err := handler.service.Refresh(request.Context(), presented)
-	if err != nil {
-		handler.cookies.Clear(response)
-		Deny(response, err)
+    issued, err := handler.service.Refresh(request.Context(), presented)
+    if err != nil {
+        handler.cookies.Clear(response)
+        Deny(response, err)
 
-		return
-	}
+        return
+    }
 
-	handler.cookies.Write(response, issued, handler.service.settings.Clock())
+    handler.cookies.Write(response, issued, handler.service.settings.Clock())
 
-	noContent(response)
+    noContent(response)
 }
 
 // logOut withdraws the access token, ends the token family, and clears both
@@ -144,47 +144,47 @@ func (handler *Handler) refresh(response http.ResponseWriter, request *http.Requ
 // was unreachable, and the withdrawal is the part that is retried by the
 // service, not by the browser.
 func (handler *Handler) logOut(response http.ResponseWriter, request *http.Request) {
-	identity, carried := IdentityFrom(request.Context())
-	if !carried {
-		Deny(response, ErrNotAuthenticated)
+    identity, carried := IdentityFrom(request.Context())
+    if !carried {
+        Deny(response, ErrNotAuthenticated)
 
-		return
-	}
+        return
+    }
 
-	err := handler.service.LogOut(request.Context(), LogOutRequest{
-		TokenID:      identity.TokenID,
-		TokenExpiry:  identity.ExpiresAt,
-		RefreshToken: CookieValue(request, RefreshCookieName),
-	})
+    err := handler.service.LogOut(request.Context(), LogOutRequest{
+        TokenID:      identity.TokenID,
+        TokenExpiry:  identity.ExpiresAt,
+        RefreshToken: CookieValue(request, RefreshCookieName),
+    })
 
-	handler.cookies.Clear(response)
+    handler.cookies.Clear(response)
 
-	if err != nil {
-		Deny(response, err)
+    if err != nil {
+        Deny(response, err)
 
-		return
-	}
+        return
+    }
 
-	noContent(response)
+    noContent(response)
 }
 
 // me answers who the request is signed in as.
 func (handler *Handler) me(response http.ResponseWriter, request *http.Request) {
-	identity, carried := IdentityFrom(request.Context())
-	if !carried {
-		Deny(response, ErrNotAuthenticated)
+    identity, carried := IdentityFrom(request.Context())
+    if !carried {
+        Deny(response, ErrNotAuthenticated)
 
-		return
-	}
+        return
+    }
 
-	account, err := handler.service.Account(request.Context(), identity.ParentID)
-	if err != nil {
-		Deny(response, err)
+    account, err := handler.service.Account(request.Context(), identity.ParentID)
+    if err != nil {
+        Deny(response, err)
 
-		return
-	}
+        return
+    }
 
-	writeJSON(response, http.StatusOK, sessionFrom(account))
+    writeJSON(response, http.StatusOK, sessionFrom(account))
 }
 
 // sessionFrom shapes an account for the wire.
@@ -193,22 +193,22 @@ func (handler *Handler) me(response http.ResponseWriter, request *http.Request) 
 // children answers with [] and the client renders an empty list instead of
 // guarding against null.
 func sessionFrom(account Account) sessionResponse {
-	children := make([]childResponse, 0, len(account.Children))
+    children := make([]childResponse, 0, len(account.Children))
 
-	for _, child := range account.Children {
-		children = append(children, childResponse{
-			ID:         child.ID,
-			FullName:   child.FullName,
-			GradeLevel: child.GradeLevel,
-		})
-	}
+    for _, child := range account.Children {
+        children = append(children, childResponse{
+            ID:         child.ID,
+            FullName:   child.FullName,
+            GradeLevel: child.GradeLevel,
+        })
+    }
 
-	return sessionResponse{
-		ParentID:    account.Parent.ID,
-		DisplayName: account.Parent.DisplayName,
-		Role:        account.Parent.Role,
-		Children:    children,
-	}
+    return sessionResponse{
+        ParentID:    account.Parent.ID,
+        DisplayName: account.Parent.DisplayName,
+        Role:        account.Parent.Role,
+        Children:    children,
+    }
 }
 
 // decodeBody reads one json body, capped and strict.
@@ -217,14 +217,14 @@ func sessionFrom(account Account) sessionResponse {
 // to a service that has none should be told, not quietly signed in as if the
 // field had been checked.
 func decodeBody(request *http.Request, into any) error {
-	decoder := json.NewDecoder(io.LimitReader(request.Body, maximumBodyBytes))
-	decoder.DisallowUnknownFields()
+    decoder := json.NewDecoder(io.LimitReader(request.Body, maximumBodyBytes))
+    decoder.DisallowUnknownFields()
 
-	if err := decoder.Decode(into); err != nil {
-		return ErrInvalidRequest
-	}
+    if err := decoder.Decode(into); err != nil {
+        return ErrInvalidRequest
+    }
 
-	return nil
+    return nil
 }
 
 // noContent answers a write that succeeded and has nothing to say.
@@ -232,8 +232,8 @@ func decodeBody(request *http.Request, into any) error {
 // The cookies are the answer, so a body would be a second copy of something the
 // client is told never to read.
 func noContent(response http.ResponseWriter) {
-	response.Header().Set("Cache-Control", "no-store")
-	response.WriteHeader(http.StatusNoContent)
+    response.Header().Set("Cache-Control", "no-store")
+    response.WriteHeader(http.StatusNoContent)
 }
 
 // writeJSON answers with a body.
@@ -242,9 +242,9 @@ func noContent(response http.ResponseWriter) {
 // cached session read is one parent's account served to the next person on a
 // shared machine.
 func writeJSON(response http.ResponseWriter, status int, body any) {
-	response.Header().Set("Content-Type", "application/json")
-	response.Header().Set("Cache-Control", "no-store")
-	response.WriteHeader(status)
+    response.Header().Set("Content-Type", "application/json")
+    response.Header().Set("Cache-Control", "no-store")
+    response.WriteHeader(status)
 
-	_ = json.NewEncoder(response).Encode(body)
+    _ = json.NewEncoder(response).Encode(body)
 }

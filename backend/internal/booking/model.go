@@ -19,30 +19,30 @@ import "time"
 type Actor string
 
 const (
-	// ActorParent is the parent acting for their own child.
-	ActorParent Actor = "parent"
+    // ActorParent is the parent acting for their own child.
+    ActorParent Actor = "parent"
 
-	// ActorSystem is this service acting on its own, inside a transaction or
-	// from the worker.
-	ActorSystem Actor = "system"
+    // ActorSystem is this service acting on its own, inside a transaction or
+    // from the worker.
+    ActorSystem Actor = "system"
 
-	// ActorAdmin is an operator acting on someone else's booking.
-	ActorAdmin Actor = "admin"
+    // ActorAdmin is an operator acting on someone else's booking.
+    ActorAdmin Actor = "admin"
 
-	// ActorPayment is the payment path acting on the outcome of a charge.
-	ActorPayment Actor = "payment"
+    // ActorPayment is the payment path acting on the outcome of a charge.
+    ActorPayment Actor = "payment"
 )
 
 // Class is a trial class as this package needs it. Capacity and allowance are
 // the only two fields any rule reads, the rest is what a screen shows.
 type Class struct {
-	ID              string
-	Subject         string
-	Title           string
-	StartsAt        time.Time
-	DurationMinutes int16
-	Capacity        int16
-	HoldAllowance   int16
+    ID              string
+    Subject         string
+    Title           string
+    StartsAt        time.Time
+    DurationMinutes int16
+    Capacity        int16
+    HoldAllowance   int16
 }
 
 // Booking is one child's place in one class.
@@ -52,31 +52,31 @@ type Class struct {
 // value: seat numbers start at 1, and a booking that never confirmed has no
 // instant to report. That keeps every caller free of a nil check.
 type Booking struct {
-	ID            string
-	StudentID     string
-	ClassID       string
-	Status        Status
-	SeatNo        int16
-	HoldExpiresAt time.Time
-	ConfirmedAt   time.Time
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+    ID            string
+    StudentID     string
+    ClassID       string
+    Status        Status
+    SeatNo        int16
+    HoldExpiresAt time.Time
+    ConfirmedAt   time.Time
+    CreatedAt     time.Time
+    UpdatedAt     time.Time
 }
 
 // HasSeat reports whether this booking owns a seat number. A booking without
 // one is either still paying or already finished.
 func (booking Booking) HasSeat() bool {
-	return booking.SeatNo >= 1
+    return booking.SeatNo >= 1
 }
 
 // Event is one line of the audit trail. The trail is append only, so an event
 // is never updated once written.
 type Event struct {
-	ID         string
-	BookingID  string
-	FromStatus Status
-	ToStatus   Status
-	Actor      Actor
-	Reason     string
-	CreatedAt  time.Time
+    ID         string
+    BookingID  string
+    FromStatus Status
+    ToStatus   Status
+    Actor      Actor
+    Reason     string
+    CreatedAt  time.Time
 }

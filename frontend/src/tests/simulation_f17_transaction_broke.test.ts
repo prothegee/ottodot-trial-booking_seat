@@ -15,6 +15,7 @@ import { classMutator } from "$lib/session/cached_api";
 import { booking, bookingsPath, createBookingStore, paymentPathFor } from "$lib/stores/booking";
 import { classListPath, createClassesStore } from "$lib/stores/classes";
 import PayPage from "../routes/pay/[bookingId]/+page.svelte";
+import { trialPayment } from "$lib/booking/price";
 
 /**
  * Simulation F17: the backend transaction breaks mid-payment.
@@ -165,9 +166,9 @@ describe("simulation F17: the backend transaction broke mid-payment", () => {
         const stage = newStage();
 
         await stage.booking.create({ student_id: studentId, class_id: classId });
-        await stage.booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await stage.booking.pay(bookingId, trialPayment());
 
-        const settled = await stage.booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        const settled = await stage.booking.pay(bookingId, trialPayment());
 
         expect(settled?.status).toBe("confirmed");
 
@@ -181,7 +182,7 @@ describe("simulation F17: the backend transaction broke mid-payment", () => {
         const stage = newStage();
 
         await stage.booking.create({ student_id: studentId, class_id: classId });
-        await stage.booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await stage.booking.pay(bookingId, trialPayment());
 
         const held = get(stage.booking).booking;
 
@@ -195,7 +196,7 @@ describe("simulation F17: the backend transaction broke mid-payment", () => {
 
         await stage.booking.create({ student_id: studentId, class_id: classId });
         await stage.classes.load();
-        await stage.booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await stage.booking.pay(bookingId, trialPayment());
         await stage.classes.load();
 
         expect(get(stage.classes).lastResult).toBe("fresh");
@@ -206,7 +207,7 @@ describe("simulation F17: the backend transaction broke mid-payment", () => {
         const stage = newStage();
 
         await stage.booking.create({ student_id: studentId, class_id: classId });
-        await stage.booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await stage.booking.pay(bookingId, trialPayment());
 
         const failure = get(stage.booking).failure;
 
@@ -219,7 +220,7 @@ describe("simulation F17: the backend transaction broke mid-payment", () => {
         const stage = newStage();
 
         await stage.booking.create({ student_id: studentId, class_id: classId });
-        await stage.booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await stage.booking.pay(bookingId, trialPayment());
 
         expect(get(stage.booking).failure?.requestId).toBe(requestId);
     });

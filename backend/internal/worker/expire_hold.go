@@ -1,11 +1,11 @@
 package worker
 
 import (
-	"context"
-	"errors"
+    "context"
+    "errors"
 
-	"ottodot-trial-booking/backend/internal/booking"
-	"ottodot-trial-booking/backend/internal/queue"
+    "ottodot-trial-booking/backend/internal/booking"
+    "ottodot-trial-booking/backend/internal/queue"
 )
 
 // HoldExpirer is the one thing this handler needs from the booking side.
@@ -14,7 +14,7 @@ import (
 // against something four lines long. Depending on the whole booking service
 // would mean a test of the queue needed a class, a student, and a seat.
 type HoldExpirer interface {
-	Expire(ctx context.Context, bookingID string) (booking.Booking, error)
+    Expire(ctx context.Context, bookingID string) (booking.Booking, error)
 }
 
 // ExpireHoldHandler releases holds whose deadline has passed.
@@ -22,7 +22,7 @@ type HoldExpirer interface {
 // This is the job that makes an abandoned payment screen cost the class one
 // seat for ten minutes instead of forever.
 type ExpireHoldHandler struct {
-	bookings HoldExpirer
+    bookings HoldExpirer
 }
 
 // NewExpireHoldHandler wires the handler to the booking service.
@@ -31,11 +31,11 @@ type ExpireHoldHandler struct {
 //   - the handler, ready to register
 //   - ErrHandlerMissing when there is nothing for it to call
 func NewExpireHoldHandler(bookings HoldExpirer) (*ExpireHoldHandler, error) {
-	if bookings == nil {
-		return nil, ErrHandlerMissing
-	}
+    if bookings == nil {
+        return nil, ErrHandlerMissing
+    }
 
-	return &ExpireHoldHandler{bookings: bookings}, nil
+    return &ExpireHoldHandler{bookings: bookings}, nil
 }
 
 // Handle expires one hold.
@@ -58,16 +58,16 @@ func NewExpireHoldHandler(bookings HoldExpirer) (*ExpireHoldHandler, error) {
 //   - nil when there is nothing left to do for this booking
 //   - the failure otherwise, which hands the job back for another attempt
 func (handler *ExpireHoldHandler) Handle(ctx context.Context, job queue.Job) error {
-	payload, err := queue.DecodeBookingPayload(job.Payload)
-	if err != nil {
-		return err
-	}
+    payload, err := queue.DecodeBookingPayload(job.Payload)
+    if err != nil {
+        return err
+    }
 
-	_, err = handler.bookings.Expire(ctx, payload.BookingID)
+    _, err = handler.bookings.Expire(ctx, payload.BookingID)
 
-	if errors.Is(err, booking.ErrNotHolding) {
-		return nil
-	}
+    if errors.Is(err, booking.ErrNotHolding) {
+        return nil
+    }
 
-	return err
+    return err
 }

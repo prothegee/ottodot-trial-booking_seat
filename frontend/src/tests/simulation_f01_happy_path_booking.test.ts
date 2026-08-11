@@ -9,6 +9,7 @@ import { createCachedReader } from "$lib/cache/read_through";
 import { createCacheStore } from "$lib/cache/store";
 import { bookingsPath, createBookingStore, paymentPathFor } from "$lib/stores/booking";
 import { classListPath, createClassesStore } from "$lib/stores/classes";
+import { trialPayment } from "$lib/booking/price";
 
 /**
  * Simulation F1: the happy path.
@@ -109,7 +110,7 @@ describe("simulation F1: a booking from the class list to a confirmed seat", () 
         expect(held?.status).toBe("pending_payment");
         expect(held?.hold_expires_at).toBe(holdDeadline);
 
-        const paid = await stage.booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        const paid = await stage.booking.pay(bookingId, trialPayment());
 
         expect(paid?.status).toBe("confirmed");
         expect(paid?.seat_no).toBe(2);
@@ -123,7 +124,7 @@ describe("simulation F1: a booking from the class list to a confirmed seat", () 
         const stage = newStage();
 
         await stage.booking.create({ student_id: studentId, class_id: classId });
-        await stage.booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await stage.booking.pay(bookingId, trialPayment());
 
         const created = stage.transport.callsTo("POST", bookingsPath);
         const settled = stage.transport.callsTo("POST", paymentPathFor(bookingId));
