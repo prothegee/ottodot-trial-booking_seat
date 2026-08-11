@@ -11,6 +11,7 @@ import (
     "github.com/jackc/pgx/v5/pgconn"
     "github.com/jackc/pgx/v5/pgxpool"
 
+    "ottodot-trial-booking/backend/internal/faults"
     "ottodot-trial-booking/backend/internal/identifier"
 )
 
@@ -34,7 +35,8 @@ const classColumns = `id, subject, title, starts_at, duration_minutes, capacity,
 
 // PostgresRepository is the real one. It is the authority on who owns a seat.
 type PostgresRepository struct {
-    pool *pgxpool.Pool
+    pool  *pgxpool.Pool
+    fault Fault
 }
 
 // NewPostgresRepository wraps a pool.
@@ -45,6 +47,16 @@ type PostgresRepository struct {
 //     guess dressed up as an answer.
 func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
     return &PostgresRepository{pool: pool}
+}
+
+// InjectFaults points this repository at a fault source.
+//
+// It is a setter rather than a constructor argument on purpose. Every ordinary
+// caller builds a repository without one and never learns this method exists,
+// and the one place that does call it is the api's wiring, under a configuration
+// flag that cannot be true outside development.
+func (repository *PostgresRepository) InjectFaults(fault Fault) {
+    repository.fault = fault
 }
 
 // Class reads one class.
@@ -296,6 +308,12 @@ func (repository *PostgresRepository) Confirm(ctx context.Context, request Confi
         return Booking{}, translate(err, ErrBookingNotFound)
     }
 
+    // Injection point: the class lock. A real database under contention gives up
+    // on a lock rather than waiting forever, and this is where that happens.
+    if repository.fault.triggered(faults.PointConfirmLockWait) {
+        return Booking{}, ErrLockWaitTimeout
+    }
+
     class, err := scanClass(transaction.QueryRow(ctx,
         `select `+classColumns+` from trial_classes where id = $1 for update`, classID))
     if err != nil {
@@ -346,6 +364,14 @@ func (repository *PostgresRepository) Confirm(ctx context.Context, request Confi
 
     if err := recordEvent(ctx, transaction, won.ID, StatusPendingPayment, StatusConfirmed, ActorSystem, "seat assigned under the class lock", request.Now); err != nil {
         return Booking{}, err
+    }
+
+    // Injection point: the database dying with the seat written and the commit
+    // not yet sent. Returning here leaves the deferred rollback to undo the seat,
+    // the event row, and the status change together, which is the property the
+    // whole design rests on and the one worth being able to demonstrate.
+    if repository.fault.triggered(faults.PointConfirmBeforeCommit) {
+        return Booking{}, ErrTransactionBroken
     }
 
     if err := transaction.Commit(ctx); err != nil {
