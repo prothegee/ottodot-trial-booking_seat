@@ -277,7 +277,7 @@ second booking for the same child until the worker expires it. See ADR-008.
 
 `internal/payment`. The charge settles first and the seat is decided afterwards,
 which is why this package never imports `internal/booking`. The two are wired
-together by the http handler in phase 6.
+together by `internal/checkout`, which is the only package that imports both.
 
 ```
 booking id, amount, idempotency key present?   -> ErrInvalidRequest
@@ -377,9 +377,10 @@ still says it is owed, so the retry comes straight back to the refund, and the
 idempotency key is what stops the money moving twice. See ADR-025.
 
 **The metrics listener** serves `/healthz` and `/metrics` on 9002 and nothing
-else, because the worker accepts no request that changes anything. `/readyz` and
-`/version` arrive with `internal/operations` in phase 6 rather than being
-written twice.
+else, because the worker accepts no request that changes anything. The api
+serves `/readyz` and `/version` as well, from `internal/operations`, and the
+worker does not: readiness answers whether traffic should be sent somewhere, and
+nothing sends traffic here.
 
 | metric | kind | reads |
 | :- | :- | :- |
@@ -588,19 +589,19 @@ Every caller is therefore free of a nil check.
 The package reports sentinel errors. The http layer maps them to a status and a
 code, so nothing above this package matches on wording.
 
-| sentinel | means | maps to, phase 6 |
+| sentinel | means | maps to |
 | :- | :- | :- |
 | `ErrInvalidRequest` | refused before anything was read or written | 400 `invalid_request` |
-| `ErrClassNotFound` | no class with that id | 404 |
-| `ErrStudentNotFound` | no student with that id | 404 |
-| `ErrBookingNotFound` | no booking with that id | 404 |
+| `ErrClassNotFound` | no class with that id | 400 `invalid_request`, see ADR-038 |
+| `ErrStudentNotFound` | no student with that id | 400 `invalid_request`, see ADR-038 |
+| `ErrBookingNotFound` | no booking with that id | 400 `invalid_request`, see ADR-038 |
 | `ErrAlreadyBooked` | a live booking exists for this child and class | 409 `already_booked` |
 | `ErrTooManyHolds` | this parent is at the hold cap | 409 `too_many_holds` |
 | `ErrClassFull` | capacity plus allowance is taken | 409 `class_full` |
 | `ErrSeatLost` | paid, but every seat was gone. Booking left in refund_required | 409 `seat_lost` |
-| `ErrNotHolding` | the booking is not pending_payment, nothing to confirm | 409 |
-| `ErrHoldStillLive` | the deadline has not passed, so there is nothing to expire | 409 |
-| `ErrInvalidTransition` | the move is not in the state machine | 409 |
+| `ErrNotHolding` | the booking is not pending_payment, nothing to confirm | 409 `invalid_request` |
+| `ErrHoldStillLive` | the deadline has not passed, so there is nothing to expire | never, the worker owns it |
+| `ErrInvalidTransition` | the move is not in the state machine | 409 `invalid_request` |
 
 No message carries an identifier or a name, and a test asserts that, because
 these strings reach a log and a log gets pasted into a chat window.
@@ -619,18 +620,18 @@ package depends on Postgres error codes:
 `internal/payment` names its own failures for the same reason, including its own
 `ErrBookingNotFound`, so a charge never depends on the package that owns seats.
 
-| sentinel | means | maps to, phase 6 |
+| sentinel | means | maps to |
 | :- | :- | :- |
 | `ErrInvalidRequest` | refused before anything was read or written | 400 `invalid_request` |
 | `ErrInvalidAmount` | the charge was zero or below | 400 `invalid_request` |
 | `ErrInvalidCurrency` | the code is not three capital letters | 400 `invalid_request` |
 | `ErrInvalidIdempotencyKey` | empty, too long, or not a header token | 400 `invalid_request` |
-| `ErrBookingNotFound` | no booking with that id | 404 |
-| `ErrAttemptNotFound` | no attempt with that id | 404 |
+| `ErrBookingNotFound` | no booking with that id | 400 `invalid_request` |
+| `ErrAttemptNotFound` | no attempt with that id | 400 `invalid_request` |
 | `ErrDeclined` | the provider said no, no money moved | 402 `payment_declined` |
 | `ErrProviderUnavailable` | the provider never answered, nobody knows | 503 `dependency_unavailable` |
-| `ErrAttemptPending` | an earlier call with this key never settled | 409 |
-| `ErrIdempotencyConflict` | this key was used for a different charge | 409 |
+| `ErrAttemptPending` | an earlier call with this key never settled | 503 `dependency_unavailable` |
+| `ErrIdempotencyConflict` | this key was used for a different charge | 400 `invalid_request` |
 | `ErrNothingToRefund` | no settled charge stands against this booking | 409 |
 | `ErrAlreadySettled` | the row is append only from settlement | 409 |
 
@@ -641,9 +642,10 @@ package depends on Postgres error codes:
 | 23514 | payment_attempts_amount_positive | `ErrInvalidAmount` |
 | 22P02 | text that is not a uuid | `ErrInvalidRequest` |
 
-`internal/queue` and `internal/worker` name their own too. Neither reaches the
-http layer today, because the queue is not on a request path. They reach a log
-and the operator queue view in phase 6.
+`internal/queue` and `internal/worker` name their own too. Neither is raised on
+a request path, because the queue is scheduled from one and consumed from
+somewhere else entirely. They reach a log, and the depth reaches the operator
+queue view.
 
 | sentinel | package | means |
 | :- | :- | :- |
@@ -710,6 +712,100 @@ future no matter when the repository is cloned.
 
 <br>
 
+## The Http Surface
+
+`internal/httpx`. It owns no rule. Every decision it makes was made somewhere
+that can be tested without a socket, and its job is to ask the right thing in
+the right order and turn the answer into a status and a code.
+
+```
+backend
+|
+|___/internal
+    |___/httpx
+    |   |___paths.go                       (the route constants, shared with the frontend)
+    |   |___errors.go                      (every typed failure to a status and a code)
+    |   |___response.go                    (the envelope, and the three cache policies)
+    |   |___requestid.go                   (minted here, never read from the request)
+    |   |___recover.go                     (a panic costs one request, not the process)
+    |   |___botcheck.go                    (honeypot, fill timer, challenge)
+    |   |___ratelimit.go                   (which bucket, and what an outage means)
+    |   |___conditional.go                 (etag, 304, and invalidation)
+    |   |___ownership.go                   (is this child, this booking, yours)
+    |   |___counters.go                    (what phase 7 exports)
+    |   |___middleware.go                  (the chain, in the order it is written)
+    |   |___router.go                      (every route, and what guards it)
+    |   |___handler_classes.go
+    |   |___handler_students.go
+    |   |___handler_bookings.go
+    |   |___handler_payments.go
+    |   |___handler_roster.go
+    |   |___handler_admin.go
+    |
+    |___/operations
+    |   |___health.go                      (liveness, touches nothing)
+    |   |___readiness.go                   (the probes, and what each failure means)
+    |   |___version.go                     (stamped at link time, never read from the environment)
+    |   |___handler.go
+    |
+    |___/catalogue                         (the class list, from the replica)
+    |___/checkout                          (the order a hold and a payment happen in)
+    |___/roster                            (who owns a seat, from the replica, admin only)
+    |___/cache                             (etag, stored body, version counter)
+    |___/ratelimit                         (the token bucket, and two implementations)
+    |___/captcha                           (the provider's shape, and a mock)
+```
+
+**The middleware chain, in order.** Chained the other way round it would still
+compile and would still answer, which is exactly why the order is written down:
+
+| position | what | why there |
+| :- | :- | :- |
+| 1 | request id | everything below can fail, and a failure with no id cannot be found |
+| 2 | panic recovery | a handler falling over costs one request rather than the process |
+| 3 | origin check, writes only | a cookie session means the browser attaches the token itself |
+| 4 | authenticate | the rate limit needs to know whose bucket to spend |
+| 5 | role, admin routes only | wraps authenticate, so the role cannot be checked without the token |
+| 6 | rate limit | last, so the bucket it spends is the right one |
+
+**The failure envelope.** One shape, every route, so the client switches on a
+code and never parses prose.
+
+```json
+{
+    "error": {
+        "code": "class_full",
+        "message": "this class filled while you were choosing",
+        "retry_after_seconds": 0
+    }
+}
+```
+
+Three fields are optional and are omitted rather than sent as null:
+
+| field | on | why |
+| :- | :- | :- |
+| `retry_after_seconds` | `rate_limited` only | a client told to wait zero seconds retries into the same wall |
+| `request_id` | `internal_error` only | it is the whole of what that code tells anybody |
+| `booking_id` | `already_booked` only | it turns a duplicate notice into a link |
+
+**Checkout, step by step.** `internal/checkout` is the only package that imports
+booking, payment, and queue. Everything in this list is a decision that belongs
+to nobody else:
+
+```
+the amount is compared to the price this service owns   -> ErrInvalidAmount
+the provider settles                                    -> declined, unreachable, or settled
+a decline ends the booking                              -> payment_failed, hold released
+the confirm transaction runs                            -> the seat, or ErrSeatLost
+a lost seat queues the refund                           -> refund_required, job written
+```
+
+An unreachable provider changes nothing about the booking, because nobody knows
+whether money moved and any status written would be a guess.
+
+<br>
+
 ## Test Tiers
 
 | command | runs |
@@ -731,6 +827,10 @@ future no matter when the repository is cloned.
 | two workers, one queue | proof, real | 8 parallel workers over 24 jobs, every job claimed exactly once, skip locked holding |
 | 13, refresh rotation and reuse | behaviour, fake | one token works once, reuse revokes the family, the honest holder is signed out too, and the reuse is counted |
 | one refresh token under load | proof, real | 8 parallel rotations of one token, one successor, seven reported as reuse |
+| 10, bot prevention layers | behaviour, fake | one case per branch, each with its own typed code, and a flood that empties the bucket without writing a booking |
+| 11, conditional request | behaviour, fake | a matching tag answers 304 with no body and no reader call, and an invalidation changes the tag even when the body is identical |
+| 12, readiness reflects reality | behaviour, fake | a downed replica stays in rotation, a downed primary or Redis does not, liveness stays 200, and no body names a host |
+| read routing | proof, real | the primary is not in recovery, the replica is, and the replica refuses a write |
 
 Simulation 5 also proves that `uq_seat_taken` never fired: every loser ends in
 `refund_required`, and a unique violation would have rolled its transaction back
