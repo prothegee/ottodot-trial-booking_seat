@@ -11,6 +11,7 @@ import { api } from "$lib/session/client";
 import { classMutator } from "$lib/session/cached_api";
 import { booking, bookingsPath, createBookingStore, paymentPathFor } from "$lib/stores/booking";
 import PayPage from "../routes/pay/[bookingId]/+page.svelte";
+import { trialPayment } from "$lib/booking/price";
 
 /**
  * Simulation F8: the parent clicks submit twice.
@@ -176,8 +177,8 @@ describe("simulation F8: the submit control is clicked twice", () => {
         await inFlight.create({ student_id: studentId, class_id: classId });
 
         await Promise.all([
-            inFlight.pay(bookingId, { amount_cents: 4500, currency: "SGD" }),
-            inFlight.pay(bookingId, { amount_cents: 4500, currency: "SGD" }),
+            inFlight.pay(bookingId, trialPayment()),
+            inFlight.pay(bookingId, trialPayment()),
         ]);
 
         const payments = transport.callsTo("POST", paymentPathFor(bookingId));

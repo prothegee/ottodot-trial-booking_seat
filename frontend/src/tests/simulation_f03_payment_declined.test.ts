@@ -10,6 +10,7 @@ import { createCachedReader } from "$lib/cache/read_through";
 import { createCacheStore } from "$lib/cache/store";
 import { bookingsPath, createBookingStore, paymentPathFor } from "$lib/stores/booking";
 import { classListPath, createClassesStore } from "$lib/stores/classes";
+import { trialPayment } from "$lib/booking/price";
 
 /**
  * Simulation F3: the payment was declined.
@@ -95,7 +96,7 @@ describe("simulation F3: the payment was declined", () => {
 
         await stage.booking.create({ student_id: studentId, class_id: classId });
 
-        const refused = await stage.booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        const refused = await stage.booking.pay(bookingId, trialPayment());
 
         expect(refused).toBeNull();
         expect(get(stage.booking).failure?.kind).toBe("PaymentDeclined");
@@ -108,7 +109,7 @@ describe("simulation F3: the payment was declined", () => {
         const stage = newStage();
 
         await stage.booking.create({ student_id: studentId, class_id: classId });
-        await stage.booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await stage.booking.pay(bookingId, trialPayment());
 
         const held = get(stage.booking).booking;
 
@@ -120,7 +121,7 @@ describe("simulation F3: the payment was declined", () => {
         const stage = newStage();
 
         await stage.booking.create({ student_id: studentId, class_id: classId });
-        await stage.booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await stage.booking.pay(bookingId, trialPayment());
 
         const left = remainingFor(get(stage.booking).booking?.hold_expires_at ?? null, now + 60 * 1000);
 
@@ -132,9 +133,9 @@ describe("simulation F3: the payment was declined", () => {
         const stage = newStage();
 
         await stage.booking.create({ student_id: studentId, class_id: classId });
-        await stage.booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await stage.booking.pay(bookingId, trialPayment());
 
-        const settled = await stage.booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        const settled = await stage.booking.pay(bookingId, trialPayment());
 
         expect(settled?.status).toBe("confirmed");
         expect(settled?.seat_no).toBe(2);
@@ -161,7 +162,7 @@ describe("simulation F3: the payment was declined", () => {
         // about is the decline that follows, which moves nothing.
         await stage.booking.create({ student_id: studentId, class_id: classId });
         await stage.classes.load();
-        await stage.booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await stage.booking.pay(bookingId, trialPayment());
         await stage.classes.load();
 
         expect(get(stage.classes).lastResult).toBe("fresh");
