@@ -6,6 +6,7 @@ import { idempotencyKeyHeader } from "$lib/api/idempotency";
 import type { TransportRequest } from "$lib/api/transport";
 import type { Booking } from "$lib/api/types";
 import { bookingPathFor, bookingsPath, createBookingStore, paymentPathFor } from "$lib/stores/booking";
+import { trialPayment } from "$lib/booking/price";
 
 const classId = "0192a000-0000-7000-8000-000000000021";
 const studentId = "0192a000-0000-7000-8000-000000000011";
@@ -115,7 +116,7 @@ describe("the booking store", () => {
         const booking = createBookingStore({ mutator, newKey: countingKeys() });
 
         await booking.create({ student_id: studentId, class_id: classId });
-        await booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await booking.pay(bookingId, trialPayment());
 
         expect(mutator.sent).toHaveLength(2);
         expect(mutator.sent[1].path).toBe(paymentPathFor(bookingId));
@@ -127,7 +128,7 @@ describe("the booking store", () => {
         const booking = createBookingStore({ mutator, newKey: countingKeys() });
 
         await booking.create({ student_id: studentId, class_id: classId });
-        const paid = await booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        const paid = await booking.pay(bookingId, trialPayment());
 
         expect(paid?.status).toBe("confirmed");
         expect(get(booking).booking?.seat_no).toBe(2);
@@ -145,8 +146,8 @@ describe("the booking store", () => {
         const booking = createBookingStore({ mutator, newKey: countingKeys() });
 
         await booking.create({ student_id: studentId, class_id: classId });
-        await booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
-        await booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await booking.pay(bookingId, trialPayment());
+        await booking.pay(bookingId, trialPayment());
 
         expect(mutator.sent[1].headers?.[idempotencyKeyHeader]).toBe("key-1");
         expect(mutator.sent[2].headers?.[idempotencyKeyHeader]).toBe("key-2");
@@ -164,8 +165,8 @@ describe("the booking store", () => {
         const booking = createBookingStore({ mutator, newKey: countingKeys() });
 
         await booking.create({ student_id: studentId, class_id: classId });
-        await booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
-        await booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await booking.pay(bookingId, trialPayment());
+        await booking.pay(bookingId, trialPayment());
 
         expect(mutator.sent[1].headers?.[idempotencyKeyHeader]).toBe("key-1");
         expect(mutator.sent[2].headers?.[idempotencyKeyHeader]).toBe("key-1");
@@ -178,7 +179,7 @@ describe("the booking store", () => {
         const booking = createBookingStore({ mutator, newKey: countingKeys() });
 
         await booking.create({ student_id: studentId, class_id: classId });
-        const refused = await booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        const refused = await booking.pay(bookingId, trialPayment());
 
         expect(refused).toBeNull();
         expect(get(booking).booking?.id).toBe(bookingId);
@@ -213,7 +214,7 @@ describe("the booking store", () => {
         const mutator = stubMutator([confirmedBooking]);
         const booking = createBookingStore({ mutator, newKey: countingKeys() });
 
-        await booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await booking.pay(bookingId, trialPayment());
 
         expect(mutator.sent[0].headers?.[idempotencyKeyHeader]).toBe("key-1");
     });
@@ -229,7 +230,7 @@ describe("the booking store", () => {
 
         // The next attempt mints its own key rather than picking the old one
         // back up, which a reset that only cleared the state would allow.
-        await booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await booking.pay(bookingId, trialPayment());
 
         expect(mutator.sent[1].headers?.[idempotencyKeyHeader]).toBe("key-2");
     });
@@ -280,7 +281,7 @@ describe("the booking store", () => {
         const booking = createBookingStore({ mutator, newKey: countingKeys() });
 
         await booking.create({ student_id: studentId, class_id: classId });
-        await booking.pay(bookingId, { amount_cents: 4500, currency: "SGD" });
+        await booking.pay(bookingId, trialPayment());
 
         booking.dismissFailure();
 
