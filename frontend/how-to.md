@@ -190,7 +190,8 @@ Without it a test that awaits anything hangs.
 | a component renders nothing under vitest | the server build of Svelte was resolved | `vite.config.ts` sets browser conditions under vitest. Check it was not removed |
 | the dev server says it is running but 127.0.0.1 refuses | `FRONTEND_HOST` was overridden | unset it, or set `127.0.0.1` |
 | `clean.sh` exits 2 | the guard, working | `export APP_ENV=development` |
-| a call fails with a network error in the browser | the api is not running, or is on another port | it is phase 6 of the backend. Until then the screens run against fakes in tests |
+| a call fails with a network error in the browser | the api is not running | start the backend stack, `../scripts/stack_up.sh backend`, then `go run ./cmd/api` from `backend/` |
+| every write answers `invalid_request` | the api is refusing the origin | `FRONTEND_ORIGIN` on the api has to be exactly the address this stack serves on |
 
 <br>
 
