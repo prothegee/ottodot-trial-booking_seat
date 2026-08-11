@@ -55,6 +55,10 @@ type GuardSettings struct {
 
     // Clock is now. It defaults to time.Now.
     Clock func() time.Time
+
+    // Metrics is where a refusal is counted. Nil means nowhere, which is what
+    // every test runs with.
+    Metrics MetricSink
 }
 
 // Guard is the request side of authentication: read the cookie, believe it or
@@ -115,7 +119,7 @@ func (guard *Guard) Authenticate(next http.Handler) http.Handler {
     return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
         identity, err := guard.identify(request)
         if err != nil {
-            Deny(response, err)
+            guard.refuse(response, err)
 
             return
         }
@@ -145,7 +149,7 @@ func (guard *Guard) RequireRole(role string, next http.Handler) http.Handler {
             // The refusal names no role and no route. A caller learning which
             // role would have worked is a caller learning what to go looking
             // for.
-            Deny(response, ErrForbiddenRole)
+            guard.refuse(response, ErrForbiddenRole)
 
             return
         }
@@ -183,13 +187,28 @@ func (guard *Guard) CheckOrigin(next http.Handler) http.Handler {
         }
 
         if request.Header.Get("Origin") != guard.settings.FrontendOrigin {
-            Deny(response, ErrOriginRefused)
+            guard.refuse(response, ErrOriginRefused)
 
             return
         }
 
         next.ServeHTTP(response, request)
     })
+}
+
+// refuse counts the denial and answers it, so the number and the answer can
+// never disagree.
+//
+// Every refusal in this file goes through here. That is the point: an access
+// denial that is answered but not counted is a spike nobody sees, and the reason
+// label is what tells a broken client apart from somebody trying accounts one at
+// a time.
+func (guard *Guard) refuse(response http.ResponseWriter, reason error) {
+    if guard.settings.Metrics != nil {
+        guard.settings.Metrics.AccessDenied(denialReason(reason))
+    }
+
+    Deny(response, reason)
 }
 
 // identify reads the access cookie and decides whether to believe it.
