@@ -142,7 +142,7 @@ func TestSimulation13RefreshRotationAndReuseDetection(t *testing.T) {
         counted := stage.service.Counters().Snapshot()
 
         if counted.ReuseDetected != 1 {
-            t.Fatalf("expected %s to be 1, got %d", auth.MetricRefreshReuseDetected, counted.ReuseDetected)
+            t.Fatalf("expected one reuse to be detected, got %d", counted.ReuseDetected)
         }
 
         if counted.Rotated != 1 {
