@@ -144,6 +144,10 @@ error message ever echoes a connection url, because it carries a password.
 | 6379 | redis | running |
 | 9000 | api | running |
 | 9002 | worker metrics | running |
+| 9003 | prometheus | running |
+| 9004 | grafana | running |
+| 9005 | node_exporter | running |
+| 9006 | cadvisor | running, and allowed to fail |
 
 Nothing binds to a public address.
 
@@ -264,6 +268,131 @@ curl -s -b admin.txt 127.0.0.1:9000/api/v1/classes/<a class id>/roster | jq
 The roster is the only body in this api that puts a child's name next to a seat.
 A parent role reaching any of the three gets 403 `forbidden_role` before a name
 is read.
+
+<br>
+
+## Monitoring
+
+Prometheus is on 9003 and Grafana on 9004. Both start with the stack and both
+are provisioned from files, so there is nothing to click before the dashboards
+draw.
+
+```sh
+# what the api is publishing right now
+curl -s 127.0.0.1:9000/metrics | grep -E '^(confirm_transaction|access_denied|refund_pending)'
+
+# what the worker is publishing
+curl -s 127.0.0.1:9002/metrics | grep -E '^(queue_depth|worker_jobs)'
+
+# whether Prometheus is actually scraping all of them
+curl -s 127.0.0.1:9003/api/v1/targets | jq '.data.activeTargets[] | {job: .labels.job, health}'
+
+# one series, queried the way a panel queries it
+curl -s --get 127.0.0.1:9003/api/v1/query \
+    --data-urlencode 'query=confirm_transaction_total{outcome="error"}' | jq
+```
+
+Grafana opens on `http://127.0.0.1:9004` with anonymous viewer access, so the
+three dashboards are readable without signing in. Signing in as an
+administrator uses `GRAFANA_USER` and `GRAFANA_PASSWORD`, which default to
+`admin` and `ottodot_development`.
+
+The three dashboards are `backend.json`, `frontend.json`, and `resources.json`.
+The first opens with a fault injection banner, then resources, then the two
+failure groups the brief calls out. The last is the host wide fallback for a
+machine where cAdvisor will not run.
+
+**The cAdvisor note, stated rather than discovered.** cAdvisor reads a container
+runtime socket and is written against Docker. Under rootless Podman it needs the
+podman socket running and mounted where it expects one:
+
+```sh
+# start the socket, once per session
+systemctl --user start podman.socket
+
+# point compose at it, if it is not at the default path
+export CONTAINER_SOCKET="${XDG_RUNTIME_DIR}/podman/podman.sock"
+export CONTAINER_STORAGE_DIR="${HOME}/.local/share/containers"
+
+../scripts/stack_up.sh backend
+```
+
+If it still will not start, leave it. Layers one and two cover cpu, memory, and
+drive, the `Containers` row of the backend dashboard goes blank, and the
+`resources.json` dashboard answers the same questions host wide. A Go test
+asserts that the remaining panels still resolve, so this degradation is a
+designed state rather than a discovery.
+
+**Checking the alert rules without waiting for one to fire.**
+
+```sh
+# the rules replay against a synthetic series, in about a second
+podman run --rm -v "$PWD/containers/prometheus:/work:ro,z" -w /work \
+    --entrypoint promtool docker.io/prom/prometheus:v3.1.0 test rules rules_test.yml
+```
+
+That covers `TransactionErrorSpike` firing on a broken transaction, not firing on
+twenty lost races, and `RefundBacklog` and `RefreshReuse` firing when they
+should. The Go test in `internal/observability` covers the other half: that every
+metric name in every dashboard and every rule is one something actually
+publishes.
+
+<br>
+
+## Breaking It On Purpose
+
+The fault surface exists so the error metrics and the alerts on them can be
+watched moving. It is off unless two things are both true: `APP_ENV` is
+`development` and `FAULT_INJECTION_ENABLED` is `true`. With either missing the
+routes are never registered at all, so `/dev/faults` answers a plain 404 rather
+than a refusal that would confirm it exists.
+
+```sh
+export APP_ENV=development
+export FAULT_INJECTION_ENABLED=true
+
+go run ./cmd/api
+```
+
+It is behind the admin role and the write rate limit, exactly like every other
+mutation, so it needs the admin cookie from The Operator Routes above.
+
+```sh
+# what can be armed, and what is armed right now
+curl -s -b admin.txt 127.0.0.1:9000/dev/faults | jq
+
+# break the next confirm transaction, once, for sixty seconds
+curl -s -b admin.txt -H 'Origin: http://127.0.0.1:9001' \
+    -H 'Content-Type: application/json' \
+    -d '{"point":"confirm.before_commit","count":1,"ttl_seconds":60}' \
+    127.0.0.1:9000/dev/faults | jq
+
+# now pay for a held booking. It answers 500 internal_error with a request id,
+# the seat is not consumed, and the booking is still pending_payment
+
+# the counter moved
+curl -s 127.0.0.1:9000/metrics | grep 'confirm_transaction_total{outcome="error"}'
+
+# always safe, whatever state anything is in
+curl -s -b admin.txt -X DELETE -H 'Origin: http://127.0.0.1:9001' \
+    127.0.0.1:9000/dev/faults | jq
+```
+
+| point | what it simulates | what the parent sees |
+| :- | :- | :- |
+| `confirm.before_commit` | the database dying mid-transaction | 500 `internal_error`, seat not consumed, booking still holding |
+| `confirm.lock_wait` | a lock wait timeout under contention | 503 `dependency_unavailable`, worth retrying |
+| `payment.provider_error` | the provider unreachable, which is not a decline | 503 `dependency_unavailable`, nothing written about the booking |
+| `queue.job_error` | a job blowing up | nothing. The job retries and then parks |
+| `cache.redis_error` | Redis gone | nothing. The request is served from Postgres |
+
+An arming spends itself after its count and expires after its lifetime, so a
+forgotten fault cannot leave a stack broken. `count` is capped at ten and
+`ttl_seconds` at six hundred. Restarting the api clears everything, because the
+registry is per process and holds nothing durable.
+
+While the surface is live, `fault_injection_enabled` reads one and the backend
+dashboard opens with a banner saying so.
 
 <br>
 
@@ -394,10 +523,10 @@ except the newest has a `revoked_at`, because rotation spends the one it was
 given. A family where every row is revoked is either a sign out or a detected
 reuse, and the table alone cannot tell those apart.
 
-What tells them apart is `auth_refresh_reuse_detected_total`. The service counts
-it today and the simulation asserts it, and it reaches a `/metrics` endpoint in
-phase 7, which is where the exposition is built. The worker's listener on 9002
-carries the queue numbers only, because the worker holds no auth service.
+What tells them apart is `auth_refresh_reuse_detected_total`, which is on the
+api's `/metrics` and has an alert on any increase at all. The worker's listener
+on 9002 carries the queue numbers only, because the worker holds no auth
+service.
 
 <br>
 
@@ -425,8 +554,6 @@ carries the queue numbers only, because the worker holds no auth service.
 | command | phase |
 | :- | :- |
 | `scripts/test.sh` and `scripts/test_proof.sh` | 9 |
-| arming and disarming a fault | 7 |
-| the podman socket note for cadvisor | 7 |
-| `/metrics` on the api | 7 |
+| `scripts/smoke_failure.sh`, the recorded end to end failure | 9 |
 
 Progress is tracked in `phase-track.md`.
