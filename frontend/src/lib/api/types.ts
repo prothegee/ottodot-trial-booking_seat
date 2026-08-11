@@ -83,6 +83,30 @@ export interface Booking {
     hold_expires_at: string | null;
 }
 
+/**
+ * What a form reports about how it was filled in.
+ *
+ * All three are optional on the wire and the api treats an absent one as "not
+ * measured" rather than as evidence. That is deliberate: this layer catches
+ * naive scripts, and anything it could catch is something a determined caller
+ * can decline to send. The layers that actually hold, the token, the ownership
+ * check, the unique index, and the hold cap, work on properties nobody can
+ * decline.
+ *
+ * `website` is deliberately ordinary looking. A field named `honeypot` is a
+ * field a script skips.
+ */
+export interface BotSignals {
+    /** The hidden field. Empty for a person, every time. */
+    website: string;
+
+    /** How long the form was open before it was submitted, in milliseconds. */
+    filled_in_ms: number;
+
+    /** What the challenge widget produced, or an empty string. */
+    captcha_token: string;
+}
+
 /** The body of POST /api/v1/bookings. */
 export interface CreateBookingRequest {
     student_id: string;
@@ -90,7 +114,7 @@ export interface CreateBookingRequest {
 }
 
 /** The body of POST /api/v1/bookings/{bookingId}/payments. */
-export interface PayRequest {
+export interface PayRequest extends BotSignals {
     amount_cents: number;
     currency: string;
 }
