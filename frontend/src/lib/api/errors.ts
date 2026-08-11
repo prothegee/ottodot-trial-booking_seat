@@ -90,6 +90,19 @@ export class ApiError extends Error {
      */
     readonly bookingId: string;
 
+    /**
+     * The parsed response body, whatever arrived.
+     *
+     * It is kept because not every failing status carries the error envelope.
+     * `/readyz` answers 503 with a report naming which dependency is down, and
+     * that report is the only thing the status screen exists to show. Throwing
+     * it away because the status was a failure would lose the answer along with
+     * the failure.
+     *
+     * Nothing renders it. A screen reads a typed field off it or ignores it.
+     */
+    readonly body: unknown;
+
     constructor(
         kind: ApiErrorKind,
         code: string,
@@ -97,6 +110,7 @@ export class ApiError extends Error {
         retryAfterSeconds = 0,
         requestId = "",
         bookingId = "",
+        body: unknown = undefined,
     ) {
         super(messageForKind[kind]);
 
@@ -107,6 +121,7 @@ export class ApiError extends Error {
         this.retryAfterSeconds = retryAfterSeconds;
         this.requestId = requestId;
         this.bookingId = bookingId;
+        this.body = body;
     }
 }
 
@@ -129,7 +144,7 @@ export class ApiError extends Error {
  */
 export function toApiError(status: number, body: unknown): ApiError {
     if (!isErrorEnvelope(body)) {
-        return new ApiError("Unavailable", "missing_envelope", status);
+        return new ApiError("Unavailable", "missing_envelope", status, 0, "", "", body);
     }
 
     const envelope = body.error;
@@ -142,5 +157,6 @@ export function toApiError(status: number, body: unknown): ApiError {
         envelope.retry_after_seconds ?? 0,
         envelope.request_id ?? "",
         envelope.booking_id ?? "",
+        body,
     );
 }
