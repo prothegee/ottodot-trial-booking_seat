@@ -125,15 +125,39 @@ a slow person on a bad connection for no reason. ADR-F026.
 
 ## Phase 7: roster, status, telemetry
 
-- [ ] `/roster/[classId]`, hidden from a parent role
-- [ ] `/status` with `ReadinessDot.svelte` and `lib/stores/status.ts`
-- [ ] `lib/telemetry/emitter.ts` with batching and silent failure
-- [ ] `backend/containers/grafana/dashboards/frontend.json` panels agreed with the backend metric names
-- [ ] the fault code row on that dashboard: `internal_error` and `dependency_unavailable` split from the auth and booking groups
-- [ ] edge test: a failed telemetry post never surfaces to the parent
-- [ ] simulation F11: roster view
-- [ ] simulation F15: status route reflects backend readiness
-- [ ] simulation F16: nothing sensitive is held by the client
+- [x] `/roster/[classId]`, hidden from a parent role
+- [x] `/status` with `ReadinessDot.svelte` and `lib/stores/status.ts`
+- [x] `lib/telemetry/emitter.ts` with batching and silent failure
+- [x] `backend/containers/grafana/dashboards/frontend.json` panels agreed with the backend metric names
+- [x] the fault code row on that dashboard: `internal_error` and `dependency_unavailable` split from the auth and booking groups
+- [x] edge test: a failed telemetry post never surfaces to the parent
+- [x] simulation F11: roster view
+- [x] simulation F15: status route reflects backend readiness
+- [x] simulation F16: nothing sensitive is held by the client
+
+Landed alongside them, because none of the three works without them:
+`lib/telemetry/event.ts`, the closed vocabulary both sides check, ADR-F032.
+`lib/telemetry/report.ts`, the one place a store reports from, so nothing else
+touches the emitter. `lib/telemetry/page_load.ts`, the measurement as arithmetic
+rather than as state in a component, ADR-F033. `lib/stores/roster.ts`, which
+reads through the api client and never through the cache, ADR-F034. And the
+roster, readiness, and version shapes in `lib/api/types.ts`, because all three
+are wire contracts and belong with the rest of them.
+
+One change to what phase 2 built. `ApiError` now carries the parsed response
+body, because `/readyz` answers 503 with the report naming which dependency is
+down, and that report is the only thing the status screen exists to show.
+Throwing it away because the status was a failure would lose the answer along
+with the failure, ADR-F035.
+
+Where the telemetry is recorded from is worth reading as a decision rather than
+as wiring. The cache tier and the first funnel step are recorded in the class
+list store, because the screen does not know which tier answered. The api error
+is recorded where the parent is about to be told, not where the failure was
+caught: "the api refused something" and "somebody was told no" are different
+numbers. And only a confirmed seat closes the funnel, because a settled payment
+that lost the race is a parent owed a refund, and counting it as reaching the end
+would make the one failure the whole design is about invisible on the panel.
 
 ## Phase 8: frontend documentation
 
