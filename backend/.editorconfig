@@ -1,0 +1,42 @@
+##
+## Backend indentation.
+##
+## This stack is complete on its own, so it carries its own settings rather than
+## depending on the file at the top of the repository.
+##
+## Go is the reason this file is worth reading. gofmt writes tabs and has no
+## option to write anything else, so the source here is passed through once more
+## after gofmt to turn each leading tab into four spaces. That is a deliberate
+## choice: the width of an indent is then the same bytes for every reader,
+## instead of whatever a given editor decides a tab is.
+##
+## The cost is stated plainly in how-to.md: `gofmt -l` lists every file, so it is
+## not the formatting check here. `go build`, `go vet`, and `go test` are.
+##
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.go]
+indent_style = space
+indent_size = 4
+
+[*.sql]
+indent_style = space
+indent_size = 4
+
+[*.sh]
+indent_style = space
+indent_size = 4
+
+[*.{yml,yaml,json}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
