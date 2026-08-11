@@ -6,6 +6,8 @@ import (
     "time"
 
     "github.com/redis/go-redis/v9"
+
+    "ottodot-trial-booking/backend/internal/faults"
 )
 
 // The two suffixes one cached document uses.
@@ -33,6 +35,7 @@ const (
 // read rather than a request.
 type RedisStore struct {
     client redis.UniversalClient
+    fault  Fault
 }
 
 // NewRedisStore wraps a client.
@@ -52,6 +55,15 @@ func NewRedisStore(client redis.UniversalClient) (*RedisStore, error) {
     return &RedisStore{client: client}, nil
 }
 
+// InjectFaults points this store at a fault source.
+//
+// Only the read path carries an injection point. What the fault is meant to
+// prove is that a request still succeeds with Redis gone, and it is the read
+// that would otherwise serve the answer.
+func (store *RedisStore) InjectFaults(fault Fault) {
+    store.fault = fault
+}
+
 // Entry reads a stored body and its tag.
 //
 // A partially written hash is treated as a miss rather than as a failure. It
@@ -60,6 +72,13 @@ func NewRedisStore(client redis.UniversalClient) (*RedisStore, error) {
 func (store *RedisStore) Entry(ctx context.Context, key string) (Entry, bool, error) {
     if key == "" {
         return Entry{}, false, ErrInvalidRequest
+    }
+
+    // Injection point: Redis is down. The caller has to serve the request from
+    // Postgres anyway, because caching is an optimisation and was never allowed
+    // to become a dependency, and this is what proves that is still true.
+    if store.fault.triggered(faults.PointCacheRedisError) {
+        return Entry{}, false, ErrUnavailable
     }
 
     fields, err := store.client.HGetAll(ctx, key+bodySuffix).Result()
