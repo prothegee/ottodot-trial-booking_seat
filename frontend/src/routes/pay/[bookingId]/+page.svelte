@@ -2,6 +2,7 @@
     import { goto } from "$app/navigation";
     import { page } from "$app/state";
 
+    import type { BotSignals } from "$lib/api/types";
     import { trialCurrency, trialPayment, trialPriceCents } from "$lib/booking/price";
     import HoldCountdown from "$lib/components/HoldCountdown.svelte";
     import PaymentForm from "$lib/components/PaymentForm.svelte";
@@ -55,12 +56,14 @@
     /** The control is dead once the hold ends or the booking stops waiting. */
     const closed = $derived(holdEnded || !awaitingPayment || seatLost);
 
-    async function pay(): Promise<void> {
+    async function pay(signals: BotSignals): Promise<void> {
         if ($booking.submitting || closed) {
             return;
         }
 
-        const settled = await booking.pay(bookingId, trialPayment());
+        // The signals travel with the charge. Nothing here reads them: the form
+        // measured, this screen carries, and the api decides.
+        const settled = await booking.pay(bookingId, trialPayment(signals));
 
         if (settled === null) {
             // The reason is in the store and this screen is already showing it.
