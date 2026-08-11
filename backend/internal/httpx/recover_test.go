@@ -18,7 +18,7 @@ func TestRecoveringFromAPanic(t *testing.T) {
                 panic("the connection pool is nil")
             }),
             httpx.WithRequestID,
-            httpx.Recover(func(_ string, err error) { reported = err }),
+            httpx.Recover(func(_ string, err error) { reported = err }, nil),
         )
 
         recorder := httptest.NewRecorder()
@@ -43,7 +43,7 @@ func TestRecoveringFromAPanic(t *testing.T) {
                 panic("row: student_id aaaa-bbbb, email alice.tan@example.test")
             }),
             httpx.WithRequestID,
-            httpx.Recover(nil),
+            httpx.Recover(nil, nil),
         )
 
         recorder := httptest.NewRecorder()
@@ -71,7 +71,7 @@ func TestRecoveringFromAPanic(t *testing.T) {
                 panic("halfway through")
             }),
             httpx.WithRequestID,
-            httpx.Recover(nil),
+            httpx.Recover(nil, nil),
         )
 
         recorder := httptest.NewRecorder()
@@ -92,7 +92,7 @@ func TestRecoveringFromAPanic(t *testing.T) {
                 response.WriteHeader(http.StatusTeapot)
             }),
             httpx.WithRequestID,
-            httpx.Recover(nil),
+            httpx.Recover(nil, nil),
         )
 
         recorder := httptest.NewRecorder()

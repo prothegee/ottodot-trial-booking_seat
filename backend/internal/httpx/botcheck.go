@@ -7,6 +7,7 @@ import (
     "time"
 
     "ottodot-trial-booking/backend/internal/captcha"
+    "ottodot-trial-booking/backend/internal/observability"
 )
 
 // MinimumFillTime is how quickly a form may be submitted before this service
@@ -120,18 +121,18 @@ func NewBotCheck(settings BotCheckSettings, counters *Counters) (*BotCheck, erro
 //   - captcha.ErrRefused when the challenge was not accepted
 func (check *BotCheck) Inspect(ctx context.Context, signals Signals, callerAddress string) error {
     if strings.TrimSpace(signals.Honeypot) != "" {
-        return check.refuse(ErrBotCheckFailed)
+        return check.refuse(ErrBotCheckFailed, observability.CheckHoneypot)
     }
 
     if signals.FilledInMillis > 0 && time.Duration(signals.FilledInMillis)*time.Millisecond < check.minimumFill {
-        return check.refuse(ErrBotCheckFailed)
+        return check.refuse(ErrBotCheckFailed, observability.CheckFillTime)
     }
 
     token := strings.TrimSpace(signals.CaptchaToken)
 
     if token == "" {
         if check.requireCaptcha {
-            return check.refuse(ErrBotCheckFailed)
+            return check.refuse(ErrBotCheckFailed, observability.CheckCaptcha)
         }
 
         return nil
@@ -150,7 +151,7 @@ func (check *BotCheck) Inspect(ctx context.Context, signals Signals, callerAddre
     }
 
     if err != nil {
-        return check.refuse(err)
+        return check.refuse(err, observability.CheckCaptcha)
     }
 
     return nil
@@ -158,9 +159,13 @@ func (check *BotCheck) Inspect(ctx context.Context, signals Signals, callerAddre
 
 // refuse records the rejection and hands the reason back, so the count and the
 // answer can never disagree.
-func (check *BotCheck) refuse(reason error) error {
+//
+// The check that caught it goes to the metric and never to the caller. An
+// operator needs to know which layer is doing the work, and a script told which
+// layer caught it is a script that gets past that layer next time.
+func (check *BotCheck) refuse(reason error, caughtBy string) error {
     if check.counters != nil {
-        check.counters.BotRejected()
+        check.counters.BotRejected(caughtBy)
     }
 
     return reason

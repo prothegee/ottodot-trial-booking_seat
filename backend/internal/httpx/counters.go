@@ -1,30 +1,44 @@
 package httpx
 
-import "sync/atomic"
+import (
+    "sync/atomic"
 
-// The metric names this surface produces.
-//
-// They are constants because phase 7 exports them and a dashboard queries them
-// by exact name. A metric whose name only exists inside a Grafana panel is a
-// metric that gets renamed and silently orphaned.
-const (
-    MetricNotModified    = "http_not_modified_total"
-    MetricCacheHit       = "cache_lookup_total{result=\"hit\"}"
-    MetricCacheMiss      = "cache_lookup_total{result=\"miss\"}"
-    MetricCacheError     = "cache_lookup_total{result=\"error\"}"
-    MetricRateLimited    = "rate_limit_rejected_total"
-    MetricBotRejected    = "bot_check_rejected_total"
-    MetricAccessDenied   = "access_denied_total"
-    MetricPanicRecovered = "panic_recovered_total"
+    "ottodot-trial-booking/backend/internal/observability"
 )
 
-// Counters are what this surface has done, for the exposition and for the tests
-// that assert a request never reached the database.
+// MetricSink is where this surface's counts are published.
+//
+// It is an interface declared here rather than the metrics type itself, for the
+// ordinary reason: a test drives this package without a Prometheus registry
+// existing, and a fake sink is what lets a case assert that a refusal was
+// recorded with the right reason rather than only that it happened.
+//
+// Nil is the ordinary state in a test and never the state in a running service.
+type MetricSink interface {
+    AccessDenied(reason string)
+    RateLimitRejected(scope string)
+    BotCheckRejected(check string)
+    CacheLookup(endpoint string, result string)
+    NotModified(route string)
+    PanicRecovered()
+    RequestObserved(route string, method string, status int, seconds float64)
+}
+
+// Counters are what this surface has done, for the tests that assert a request
+// never reached the database and for the exposition.
+//
+// They are kept alongside the metric sink rather than replaced by it, and that
+// is deliberate. A Prometheus counter can only be read back by scraping and
+// parsing text, and a test that wants to know whether a class list was built
+// twice should not have to do that. These are the same numbers, in the form a
+// case can assert on.
 //
 // They are counts and nothing else. No identifier, no path with an id in it, and
 // no parent: a metric label carrying a uuid is a time series per parent, which
 // is both a leak and a way to run a monitoring system out of memory.
 type Counters struct {
+    sink MetricSink
+
     notModified    atomic.Int64
     cacheHit       atomic.Int64
     cacheMiss      atomic.Int64
@@ -48,50 +62,99 @@ type Snapshot struct {
 }
 
 // NewCounters builds a fresh set at zero.
-func NewCounters() *Counters {
-    return &Counters{}
+//
+// Param:
+// sink - MetricSink (where the labelled counts are published, nil for nowhere)
+//
+// Return:
+//   - the counters
+func NewCounters(sink MetricSink) *Counters {
+    return &Counters{sink: sink}
 }
 
 // NotModified records a conditional request answered without a body.
-func (counters *Counters) NotModified() {
+func (counters *Counters) NotModified(route string) {
     counters.notModified.Add(1)
+
+    if counters.sink != nil {
+        counters.sink.NotModified(route)
+    }
 }
 
 // CacheHit records a body served from the store.
-func (counters *Counters) CacheHit() {
+func (counters *Counters) CacheHit(endpoint string) {
     counters.cacheHit.Add(1)
+
+    if counters.sink != nil {
+        counters.sink.CacheLookup(endpoint, observability.ResultHit)
+    }
 }
 
 // CacheMiss records a body that had to be built.
-func (counters *Counters) CacheMiss() {
+func (counters *Counters) CacheMiss(endpoint string) {
     counters.cacheMiss.Add(1)
+
+    if counters.sink != nil {
+        counters.sink.CacheLookup(endpoint, observability.ResultMiss)
+    }
 }
 
 // CacheError records a store that could not be read, which is served as a miss.
-func (counters *Counters) CacheError() {
+func (counters *Counters) CacheError(endpoint string) {
     counters.cacheError.Add(1)
+
+    if counters.sink != nil {
+        counters.sink.CacheLookup(endpoint, observability.OutcomeError)
+    }
 }
 
 // RateLimited records a caller turned away by the bucket.
-func (counters *Counters) RateLimited() {
+func (counters *Counters) RateLimited(scope string) {
     counters.rateLimited.Add(1)
+
+    if counters.sink != nil {
+        counters.sink.RateLimitRejected(scope)
+    }
 }
 
 // BotRejected records a submission the honeypot, the fill timer, or the
 // challenge turned away.
-func (counters *Counters) BotRejected() {
+//
+// The check that caught it is recorded here and is never told to the caller. An
+// operator needs to know which layer is doing the work, and a script told which
+// layer caught it is a script that gets past that layer next time.
+func (counters *Counters) BotRejected(check string) {
     counters.botRejected.Add(1)
+
+    if counters.sink != nil {
+        counters.sink.BotCheckRejected(check)
+    }
 }
 
 // AccessDenied records a request refused for who it was rather than for what it
 // asked.
-func (counters *Counters) AccessDenied() {
+func (counters *Counters) AccessDenied(reason string) {
     counters.accessDenied.Add(1)
+
+    if counters.sink != nil {
+        counters.sink.AccessDenied(reason)
+    }
 }
 
 // PanicRecovered records a handler that fell over and was caught.
 func (counters *Counters) PanicRecovered() {
     counters.panicRecovered.Add(1)
+
+    if counters.sink != nil {
+        counters.sink.PanicRecovered()
+    }
+}
+
+// RequestObserved records one served request, by registered route.
+func (counters *Counters) RequestObserved(route string, method string, status int, seconds float64) {
+    if counters.sink != nil {
+        counters.sink.RequestObserved(route, method, status, seconds)
+    }
 }
 
 // Snapshot reads every count at once.

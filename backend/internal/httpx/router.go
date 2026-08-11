@@ -5,6 +5,7 @@ import (
     "net/http"
 
     "ottodot-trial-booking/backend/internal/auth"
+    "ottodot-trial-booking/backend/internal/faults"
     "ottodot-trial-booking/backend/internal/operations"
     "ottodot-trial-booking/backend/internal/ratelimit"
 )
@@ -25,12 +26,13 @@ type Routes struct {
     // cookies and the origin check are its own business.
     Auth *auth.Handler
 
-    Classes  *ClassHandler
-    Students *StudentHandler
-    Bookings *BookingHandler
-    Payments *PaymentHandler
-    Roster   *RosterHandler
-    Admin    *AdminHandler
+    Classes   *ClassHandler
+    Students  *StudentHandler
+    Bookings  *BookingHandler
+    Payments  *PaymentHandler
+    Roster    *RosterHandler
+    Admin     *AdminHandler
+    Telemetry *TelemetryHandler
 
     // Guard is what establishes the identity behind a request and what refuses
     // a write that did not come from this service's own page.
@@ -38,6 +40,20 @@ type Routes struct {
 
     // Limits applies the token buckets.
     Limits *Limits
+
+    // Counters is where this surface's numbers go. Nil means nowhere, which is
+    // acceptable in a test and not in a running service.
+    Counters *Counters
+
+    // Exposition is what Prometheus scrapes. Nil leaves /metrics unregistered,
+    // which is what a test wants and what a running service must never have.
+    Exposition http.Handler
+
+    // Faults is the development only injection surface. Nil is the ordinary
+    // state: when it is nil the routes are never registered at all, so the
+    // surface answers a plain not found rather than a refusal that would confirm
+    // it exists.
+    Faults *faults.Handler
 
     // Recovery is where a panic is written down. Nil means nowhere, which is
     // acceptable in a test and not in a running service.
@@ -83,6 +99,14 @@ func NewRouter(routes Routes) (http.Handler, error) {
     routes.Operations.Register(mux)
     routes.Auth.Register(mux)
 
+    if routes.Exposition != nil {
+        // The scrape route is deliberately unauthenticated, like the other
+        // operations routes. It is published on the loopback address only, and
+        // everything on it is a bounded enumeration by rule, so there is nothing
+        // here worth a token.
+        mux.Handle(MetricsPath, routes.Exposition)
+    }
+
     readChain := []Middleware{
         routes.Guard.Authenticate,
         routes.Limits.Guard(ratelimit.ReadRule),
@@ -100,28 +124,52 @@ func NewRouter(routes Routes) (http.Handler, error) {
     }
 
     // Parent facing reads.
-    mux.Handle(StudentsPath, Chain(http.HandlerFunc(routes.Students.list), readChain...))
-    mux.Handle(ClassListPath, Chain(http.HandlerFunc(routes.Classes.list), readChain...))
-    mux.Handle(ClassPath, Chain(http.HandlerFunc(routes.Classes.one), readChain...))
-    mux.Handle(BookingPath, Chain(http.HandlerFunc(routes.Bookings.read), readChain...))
-    mux.Handle(BookingEventsPath, Chain(http.HandlerFunc(routes.Bookings.events), readChain...))
+    routes.handle(mux, StudentsPath, routes.Students.list, readChain)
+    routes.handle(mux, ClassListPath, routes.Classes.list, readChain)
+    routes.handle(mux, ClassPath, routes.Classes.one, readChain)
+    routes.handle(mux, BookingPath, routes.Bookings.read, readChain)
+    routes.handle(mux, BookingEventsPath, routes.Bookings.events, readChain)
 
     // Parent facing writes.
-    mux.Handle(CreateBookingPath, Chain(http.HandlerFunc(routes.Bookings.create), writeChain...))
-    mux.Handle(CancelBookingPath, Chain(http.HandlerFunc(routes.Bookings.cancel), writeChain...))
-    mux.Handle(PayBookingPath, Chain(http.HandlerFunc(routes.Payments.pay), writeChain...))
+    routes.handle(mux, CreateBookingPath, routes.Bookings.create, writeChain)
+    routes.handle(mux, CancelBookingPath, routes.Bookings.cancel, writeChain)
+    routes.handle(mux, PayBookingPath, routes.Payments.pay, writeChain)
+
+    if routes.Telemetry != nil {
+        routes.handle(mux, TelemetryPath, routes.Telemetry.record, writeChain)
+    }
 
     // Operator reads. The roster is here rather than with the parent routes for
     // one reason: it is the only body in this api that carries a child's name
     // next to a seat.
-    mux.Handle(RosterPath, Chain(http.HandlerFunc(routes.Roster.read), adminChain...))
-    mux.Handle(AdminQueuePath, Chain(http.HandlerFunc(routes.Admin.queueDepth), adminChain...))
-    mux.Handle(AdminBookingsPath, Chain(http.HandlerFunc(routes.Admin.worklist), adminChain...))
+    routes.handle(mux, RosterPath, routes.Roster.read, adminChain)
+    routes.handle(mux, AdminQueuePath, routes.Admin.queueDepth, adminChain)
+    routes.handle(mux, AdminBookingsPath, routes.Admin.worklist, adminChain)
+
+    if routes.Faults != nil {
+        // Registered only when every guard has already passed, which is decided
+        // by the process that wires this and not here. It carries the admin role
+        // check and the write rate limit, exactly like every other mutation.
+        routes.Faults.Register(mux, func(next http.Handler) http.Handler {
+            return Chain(next, requireAdmin(routes.Guard), routes.Limits.Guard(ratelimit.WriteRule))
+        })
+    }
 
     // The two outermost wrappers go on once, around everything, including the
     // operations routes. A panic in a readiness probe should no more take the
     // process down than a panic in a booking.
-    return Chain(mux, WithRequestID, Recover(routes.Recovery)), nil
+    return Chain(mux, WithRequestID, Recover(routes.Recovery, routes.Counters)), nil
+}
+
+// handle registers one route with its guard chain and its timer.
+//
+// The timer goes on outermost, so the number covers everything a parent waits
+// for rather than only the handler, and the route label is the registered
+// pattern rather than the path that was asked for.
+func (routes Routes) handle(mux *http.ServeMux, pattern string, handler http.HandlerFunc, chain []Middleware) {
+    wrapped := append([]Middleware{Measure(pattern, routes.Counters)}, chain...)
+
+    mux.Handle(pattern, Chain(handler, wrapped...))
 }
 
 // requireAdmin is the admin role check as a Middleware.

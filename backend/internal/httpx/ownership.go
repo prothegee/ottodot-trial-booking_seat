@@ -6,6 +6,7 @@ import (
 
     "ottodot-trial-booking/backend/internal/auth"
     "ottodot-trial-booking/backend/internal/booking"
+    "ottodot-trial-booking/backend/internal/observability"
 )
 
 // Owner decides whether the identity behind a request may act on a student or a
@@ -102,7 +103,7 @@ func (owner *Owner) Booking(ctx context.Context, identity auth.Identity, booking
 // answer can never disagree.
 func (owner *Owner) refuse() error {
     if owner.counters != nil {
-        owner.counters.AccessDenied()
+        owner.counters.AccessDenied(observability.ReasonNotYourChild)
     }
 
     return ErrNotYourChild
