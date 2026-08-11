@@ -330,7 +330,7 @@ Every read reports which of those it was.
 | `revalidated` | the api answered 304 and the stored body still stands |
 | `miss` | the api answered with a body, which is now the stored one |
 
-Phase 7 turns that value into `frontend_cache_lookup_total{result}`. It is a
+The class list store turns that value into `frontend_cache_lookup_total{result}`. It is a
 plain return value for now, so nothing in the cache has to know a telemetry
 emitter exists.
 
@@ -502,6 +502,54 @@ A failure never clears the booking. A declined payment leaves the parent holding
 a booking they can pay for again, and throwing it away would send them back to
 the class list while their hold is still standing.
 
+### roster.ts
+
+```ts
+interface RosterState {
+    roster: Roster | null;
+    loading: boolean;
+    failure: string;
+    forbidden: boolean;
+}
+```
+
+The only store that reads through the api client rather than the cached reader,
+and the only one that clears itself when its screen is destroyed. A roster is the
+one shape in this client that carries a child's name next to a seat, so a stored
+copy would outlive the screen that showed it and `sessionStorage` survives a
+reload. ADR-F034.
+
+`forbidden` is separate from `failure` because the two want different screens. A
+parent who typed the route deserves a plain sentence about the route, and a
+teacher whose class does not exist deserves a sentence about the class.
+
+### status.ts
+
+```ts
+interface StatusState {
+    version: VersionIdentity | null;
+    readiness: Readiness | null;
+    loading: boolean;
+    failure: string;
+}
+```
+
+| method | does |
+| :- | :- |
+| `open()` | reads both operations routes once, then starts the timer |
+| `close()` | stops the timer, which the screen does when it is destroyed |
+| `reset()` | empties everything the screen was holding |
+
+The only thing in this client that polls. The timer starts after the first read
+rather than before it, so a slow first answer cannot be overlapped by the second,
+and simulation F15 asserts that the requests stop after the screen unmounts.
+ADR-F035.
+
+A 503 from `/readyz` is a successful read of a real answer rather than a failure.
+The api answers unready with the report naming which dependency is down, and that
+report is the only thing the screen exists to show, which is why `ApiError`
+carries the parsed body.
+
 <br>
 
 ## Components
@@ -650,11 +698,49 @@ otherwise, and a negative elapsed time is sent as zero, which the api reads as
 
 <br>
 
+## Telemetry
+
+```
+lib/telemetry/event.ts       the closed vocabulary, and one builder per event kind
+lib/telemetry/emitter.ts     the queue, the timer, and the swallowing
+lib/telemetry/page_load.ts   the one measurement the browser has to make itself
+lib/telemetry/report.ts      the four functions the rest of the client calls
+lib/session/telemetry.ts     the emitter, wired to the real api client
+```
+
+Every failure is swallowed, nothing awaits a post, and a failed batch is thrown
+away rather than retried. All three follow from one rule: monitoring must never
+break a booking. ADR-F031.
+
+| setting | value | why |
+| :- | :- | :- |
+| flush interval | 10s | a booking produces a handful of events in a few seconds, and eight requests to say so would cost more than the thing being measured |
+| queue cap | 50 | the backend's own batch cap. A queue that grows while the api is unreachable is a memory leak in a tab somebody left open |
+| retries | none | a retry turns an unreachable api into repeated requests at exactly the moment it is least able to answer them |
+
+The timer only runs while something is queued, so an idle tab costs nothing.
+
+**Where each event is recorded from, and why it is there rather than somewhere
+else.**
+
+| event | recorded in | why |
+| :- | :- | :- |
+| cache lookup | `stores/classes.ts` | the screen does not know which tier answered |
+| funnel `list` | `stores/classes.ts` | the screen should not have to remember to say it reached the list |
+| funnel `hold` | `stores/booking.ts` | only on a granted hold, not on an attempt |
+| funnel `pay` | `stores/booking.ts` | on the attempt, because a declined payment is still a parent who tried |
+| funnel `confirmed` | `stores/booking.ts` | only on a confirmed seat. A settled payment that lost the race is a parent owed a refund, and counting it as the end would hide the one failure the whole design is about |
+| api error | `stores/booking.ts` | where the parent is about to be told, not where the failure was caught |
+| page load | the screen | it is the only thing that knows when it became usable |
+
+<br>
+
 ## The Session Wiring
 
 ```
 lib/session/sign_out.ts     auth.signOut(reason), sessionStorage.clear(), goto("/sign-in")
 lib/session/client.ts       createApiClient({ transport: fetch transport, onSignOut: hardSignOut })
+lib/session/telemetry.ts    createEmitter({ post: api.request to /api/v1/telemetry })
 ```
 
 `reasonForCode` maps `token_reused` to its own reason and everything else to a
@@ -727,6 +813,14 @@ that says it is running.
 | `lib/components/CaptchaWidget.test.ts` | unit, behaviour, edge | one token, the unanswered state, and no callback after unmount |
 | `lib/components/PaymentForm.test.ts` | unit, behaviour, edge | one field only, the honeypot sent as it stands, the token carried |
 | `tests/simulation_f07_honeypot_and_fill_timer.test.ts` | behaviour | the field is hidden, unreachable, and empty, and the elapsed time is measured rather than fixed |
+| `lib/telemetry/emitter.test.ts` | unit, edge | batching, a swallowed failure, no retry, the cap, and an idle emitter scheduling nothing |
+| `lib/telemetry/page_load.test.ts` | unit, edge | the gap rather than the mount, one report per screen, and a pattern rather than a path |
+| `lib/stores/roster.test.ts` | unit, edge, behaviour | a refusal for the role told apart from any other failure, and a failed read clearing the names |
+| `lib/stores/status.test.ts` | unit, edge, behaviour | polling that stops, a 503 read as an answer, and degraded distinguished from unavailable |
+| `lib/components/ReadinessDot.test.ts` | unit, edge, behaviour | the three states, the fourth for no answer, and the state readable without the colour |
+| `tests/simulation_f11_roster_view.test.ts` | behaviour | confirmed only, seats in order, never cached, and the api refusing a parent |
+| `tests/simulation_f15_status_route.test.ts` | behaviour | green, amber, red, grey, and the polling stopping on the way out |
+| `tests/simulation_f16_nothing_held.test.ts` | behaviour | four surfaces scanned, and no code path reading a cookie |
 
 The error mapping table is written out by hand in its test rather than read from
 the implementation. A test that asks the mapping what it maps and then agrees

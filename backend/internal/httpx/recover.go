@@ -28,10 +28,11 @@ type ReportFunc func(requestID string, err error)
 //
 // Param:
 // report - ReportFunc (where the detail goes, nil for nowhere)
+// counters - *Counters (where the panic is counted, nil for nowhere)
 //
 // Return:
 //   - the middleware
-func Recover(report ReportFunc) func(http.Handler) http.Handler {
+func Recover(report ReportFunc, counters *Counters) func(http.Handler) http.Handler {
     return func(next http.Handler) http.Handler {
         return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
             tracked := &statusWriter{ResponseWriter: response}
@@ -40,6 +41,10 @@ func Recover(report ReportFunc) func(http.Handler) http.Handler {
                 recovered := recover()
                 if recovered == nil {
                     return
+                }
+
+                if counters != nil {
+                    counters.PanicRecovered()
                 }
 
                 if report != nil {

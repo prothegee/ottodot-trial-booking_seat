@@ -42,6 +42,9 @@ type HoldResult struct {
 //     maps one set of failures rather than two
 func (service *Service) Hold(ctx context.Context, command booking.HoldCommand) (HoldResult, error) {
     granted, err := service.bookings.Hold(ctx, command)
+
+    service.recordHold(err)
+
     if err != nil {
         return HoldResult{}, err
     }

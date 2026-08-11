@@ -968,3 +968,342 @@ on unchanged.
 The day this service runs behind a proxy it controls, the fix is to read the
 header only from a known set of proxy addresses, which is a change to this one
 function.
+
+<br>
+
+## ADR-041: Metrics are a library, and logs are the standard library
+
+**Status:** accepted, phase 7
+
+**Context.** Layer one of the monitoring plan is cpu, resident memory, file
+descriptors, goroutines, heap, and garbage collection pauses, per process. Every
+one of those is either a read of `/proc` or a read of the Go runtime, and the
+Prometheus exposition format has rules about escaping, ordering, and histogram
+buckets that are easy to get subtly wrong.
+
+The worker already shipped a hand written exposition in phase 4, and its own
+comment said this phase would replace it.
+
+**Decision.** `github.com/prometheus/client_golang` for metrics.
+`log/slog` from the standard library for logs.
+
+**Consequences.** The split is not inconsistency. The metric library is paying
+for something real: the process and runtime collectors, the histogram maths, and
+a format nobody has to hand check. The logging library would be paying for
+structured json and levels, which `log/slog` already gives, so it would be a
+dependency bought for nothing.
+
+The hand written exposition is gone, and the four metric names it published,
+`queue_depth`, `worker_jobs_claimed_total`, `worker_jobs_completed_total`, and
+`queue_job_failed_total`, carry over unchanged. That was the promise its comment
+made, and it is kept.
+
+One cost is stated rather than discovered: the registry is built per process
+rather than taken from the library's global default. A global cannot be built
+twice, so two test cases wanting independent counters would panic on the second.
+
+<br>
+
+## ADR-042: A metric label is a bounded enumeration, and the route label is a pattern
+
+**Status:** accepted, phase 7
+
+**Context.** The obvious way to label a request metric is by path, and the
+obvious way to label a booking metric is by booking. Both are wrong in the same
+way: an identifier in a label is one time series per booking. That is a leak of
+who booked what to anybody who can reach the monitoring system, and it is a way
+to run that system out of memory over a weekend.
+
+**Decision.** Every label value comes from a fixed list written into the code.
+The route label is the registered pattern, bound in when the middleware is
+built, never `request.URL.Path`. A recording method handed a value it does not
+recognise folds it into the nearest known one rather than opening a new series.
+
+**Consequences.** `GET /api/v1/bookings/{bookingId}` is one series. A dashboard
+cannot break a panel down by class or by parent, and that is the correct trade:
+those questions belong to a query against the database, where there is an access
+control decision in front of them.
+
+Simulation 14 asserts the property rather than trusting it. It drives a whole
+booking and then scans the exposition for anything shaped like a uuid.
+
+The one place values arrive from outside the process is the telemetry endpoint.
+There the rule is stricter: an unrecognised value is dropped rather than folded,
+because a browser is somebody else's computer and folding would let a modified
+page create series at will.
+
+<br>
+
+## ADR-043: two metric labels differ from the plan's table, on purpose
+
+**Status:** accepted, phase 7
+
+**Context.** The monitoring plan's metric table proposed `booking_confirmed_total`
+with a `subject` label. The class subject is a bounded enumeration, `science` or
+`math`, enforced by a check constraint, so the label would not break ADR-042.
+
+The problem is where the value would come from. The confirm path knows the
+booking and the class identifier and does not read the class row. Populating the
+label would mean adding a query inside the transaction that holds the lock every
+other parent for that class is waiting behind.
+
+**Decision.** No label. The counter is the count.
+
+**Consequences.** A dashboard cannot split confirmations by subject. That is a
+breakdown somebody might want and nobody needs, and the alternative was
+lengthening the one transaction the whole design exists to keep short.
+
+The plan's table is wrong on this row rather than the code being incomplete, and
+this record is where that is said out loud rather than left as a silent
+difference between a document and a service.
+
+**The second row is `queue_depth`.** The table proposed a `kind` label, meaning
+the job kind. The worker has published `queue_depth{state}` since phase 4, where
+state is ready, claimed, or parked, and that is the breakdown the `QueueStalled`
+alert needs: jobs waiting while nothing finishes. A kind breakdown would answer a
+different and less urgent question, and carrying both would be two gauges over
+the same rows.
+
+The name carries over from phase 4 unchanged, which is what ADR-041 promised
+when the hand written exposition was replaced.
+
+<br>
+
+## ADR-044: Redaction happens at the writer, and names have no field to live in
+
+**Status:** accepted, phase 7
+
+**Context.** The sensitive data rules say cookie and authorization values are
+redacted in logs, and that ids are acceptable while names and emails are not.
+Redaction at the call site is a convention, and a convention is what fails on
+the one line nobody reviewed.
+
+There is a second problem the first does not solve. A cookie value has no shape,
+so only the field name identifies it. An email has a shape and can be matched. A
+name has neither.
+
+**Decision.** Three layers. A `slog.Handler` wraps the json writer and scrubs
+every record, so no call site performs redaction and none can forget it. A field
+name list catches values identified only by their key. A pattern catches emails
+and headers written out inside free text, which is how a wrapped driver error
+carries a whole request.
+
+For names there is no fourth layer, and instead there is an absence: the log
+field vocabulary has no field for a parent's name or a child's, so there is
+nowhere to put one.
+
+**Consequences.** A value bound with `With` is scrubbed too, and so is one
+nested in a group, because both are ways a secret arrives without the top level
+field name giving it away.
+
+The header pattern is deliberately greedy to the end of the line or the next
+delimiter. `Bearer <token>` is two words, so stopping at the first space would
+replace the scheme and leave the token, which is the half that matters.
+
+Simulation 14 drives a failing request with a session cookie on it and asserts
+nothing from that cookie reached the output.
+
+<br>
+
+## ADR-045: The fault surface is a guarded runtime route, not a build tag
+
+**Status:** accepted, phase 7
+
+**Context.** `confirm_transaction_total{outcome="error"}` and the alert built on
+it are only trustworthy if the confirm transaction can be made to fail on a
+running stack and the failure watched arriving. A build tag would keep the call
+sites out of a production binary entirely, which is the safer answer.
+
+It also means a rebuild in the middle of a demonstration.
+
+**Decision.** A runtime surface behind four guards. `APP_ENV` must be
+development and unset counts as refusal. `FAULT_INJECTION_ENABLED` defaults to
+false and the api refuses to start with it true anywhere else. When it is off
+the routes are never registered, so the surface answers a plain not found rather
+than a refusal that would confirm it exists. When it is on the routes carry the
+admin role check and the write rate limit.
+
+Two more things make it self cleaning. An arming carries a count, default one
+and capped at ten, and a lifetime, default sixty seconds and capped at ten
+minutes, so a forgotten fault cannot leave a stack broken. And
+`fault_injection_enabled` is published as a gauge whether the surface is on or
+off, so the dashboard's first row says plainly that this stack can be broken on
+purpose.
+
+**Consequences.** A handful of guarded call sites live in production code:
+inside the confirm transaction, at the class lock, in the mock provider, in the
+worker's dispatch, and at the Redis read. Each is one nil comparison against a
+registry that is nil unless configuration turned it on.
+
+The registry is per process and holds nothing durable. Restarting the api is the
+last resort for undoing an arming, and it has to work.
+
+Every fault point simulates a failure that can genuinely happen. That is a rule
+rather than a preference: a fault with no real counterpart proves the metric
+moves and proves nothing about the system.
+
+<br>
+
+## ADR-046: A lock wait timeout is its own failure, answered as retryable
+
+**Status:** accepted, phase 7
+
+**Context.** The `confirm.lock_wait` fault point needed something to return.
+Reusing an existing sentinel would have made it a fault with no real
+counterpart, which is exactly what ADR-045 rules out.
+
+An overloaded Postgres genuinely does give up on a lock rather than waiting
+forever, and that failure is unlike every other one the confirm can produce:
+nothing was decided and nothing was written.
+
+**Decision.** `booking.ErrLockWaitTimeout`, mapped to 503
+`dependency_unavailable` rather than to a refusal.
+
+**Consequences.** The client already handles that code, and the honest answer to
+a parent is "ask again" rather than a refusal they would read as final.
+
+`booking.ErrTransactionBroken` is deliberately not mapped at all, so it falls
+through to internal_error with a request id. A parent cannot act on it, the
+detail belongs in the log line the id leads to, and what matters most is what it
+is not: it is not `ErrSeatLost`, so no money is marked for refund and the hold is
+left standing for a retry.
+
+<br>
+
+## ADR-047: The gauges are sampled on a timer, not inside the scrape
+
+**Status:** accepted, phase 7
+
+**Context.** Four numbers describe a state rather than a count: the two pool
+sizes, the replication lag, and how many parents are owed a refund. Nothing
+raises an event when any of them changes, so somebody has to go and look.
+
+The obvious place to look is inside the `/metrics` handler, which is where
+Prometheus already is.
+
+**Decision.** A goroutine on a five second timer, matching the scrape interval.
+`/metrics` has no database query on it at all.
+
+**Consequences.** A published number is at most one scrape stale, which for a
+gauge nobody alerts on to the second is not a difference anybody can act on.
+
+The gain is what matters: `/metrics` answers when the database is the thing that
+is broken. A scrape handler that queried Postgres would go silent at exactly the
+moment somebody needs the numbers, and a silent scrape target reads as a process
+that has died.
+
+A value that cannot be read keeps its last one rather than being set to zero.
+Zero replication lag reads as a replica that is perfectly caught up, which is the
+opposite of what an unreachable replica means. The readiness probe is what says
+a dependency is down.
+
+The replication lag is read on the replica rather than on the primary, and that
+is the load bearing half of this record. The primary's `pg_stat_replication` has
+no row at all while a replica is disconnected, so a replica that has fallen over
+reports no lag from that side, which reads as perfect health.
+
+<br>
+
+## ADR-048: The dashboards and the rules are compiled by a test
+
+**Status:** accepted, phase 7
+
+**Context.** A metric name lives in three places that cannot see each other: the
+code that increments it, the Grafana panel that draws it, and the alert rule that
+fires on it. A rename that updates only the first turns a panel blank and an
+alert silent, and neither failure announces itself. A blank panel on a quiet
+afternoon looks exactly like a healthy service.
+
+**Decision.** A Go test reads every dashboard json and the rule file, pulls every
+metric name out of every query, and checks it against what the registry actually
+publishes.
+
+Three specific things are checked by name as well. The transaction failure panel
+queries `confirm_transaction_total{outcome="error"}`, which is the exact series
+`TransactionErrorSpike` fires on. Cpu, memory, and drive still resolve from the
+queries that do not mention cAdvisor. And every one of the twelve alerts the plan
+names is present.
+
+**Consequences.** The names come from a registry that has been driven rather
+than merely built, so a name counts as published only when a code path exists to
+produce it. A list taken from the constants would pass even if half of them were
+never registered.
+
+`promtool test rules` covers the other half, replaying a synthetic series and
+asserting that `TransactionErrorSpike` fires on a broken transaction, does not
+fire on twenty lost races, and that `RefundBacklog` and `RefreshReuse` fire when
+they should. The middle case is worth the most: those two outcomes look identical
+in a rollback count, and telling them apart is the whole reason
+`confirm_transaction_total` carries an outcome label.
+
+<br>
+
+## ADR-049: The telemetry endpoint is authenticated, bounded, and drops what it does not know
+
+**Status:** accepted, phase 7
+
+**Context.** The browser cannot be scraped. Everything else Prometheus knows
+about is a process this project runs, and the client is the one part of the
+system that has to report on itself, which means an endpoint that turns a posted
+event into a metric.
+
+That endpoint is the only place in the service where a label value arrives from
+outside.
+
+**Decision.** It sits behind the parent role, the origin check, and the write
+rate limit, exactly like every other mutation. The body is read through a bounded
+reader. The batch is capped at fifty events and refused whole past it. Every
+label value is checked against a closed list, and anything unrecognised is
+dropped rather than folded into a known value.
+
+The lists are checked twice, once in the converter and once again in the metric
+methods themselves. That duplication is deliberate.
+
+**Consequences.** One unrecognised event does not throw away the nine good ones
+posted alongside it. A client that has not been reloaded can send one stale
+field, and refusing the whole batch for it would make every deployment blind for
+as long as an old tab stayed open.
+
+The answer is 204 with no body at all. The client swallows every failure from
+this route by design, so there is nothing for it to read, and sending a tally
+back would invite somebody to start acting on one.
+
+A reported page load over two minutes or below zero is dropped. The number
+arrives from a browser, so it is a claim rather than a measurement, and one
+absurd sample drags every quantile with it until the panel stops describing
+anybody.
+
+<br>
+
+## ADR-050: The composition root is split by what each file assembles
+
+**Status:** accepted, phase 7
+
+**Context.** `cmd/api/main.go` had grown to hold the configuration, both stores,
+the session, the checkout, the advisory readers, every guard, the readiness
+probes, the router, the listener, and the shutdown. Every one of those is a
+different question, and the file answered all of them in the order they happened
+to be needed.
+
+**Decision.** One file per thing assembled. `dependencies.go` opens the two
+stores, `session.go` builds authentication, `checkout.go` builds the seat and the
+money and the queue, `reads.go` builds the two advisory readers, `guards.go`
+builds what runs before a handler, `operations.go` builds the probes,
+`faults.go` builds the development only surface, `routes.go` assembles them,
+`listener.go` owns the socket, `sampler.go` owns the gauges, and `process.go` is
+the order it all happens in. `main.go` is the entry point and nothing else.
+
+The worker is split the same way.
+
+**Consequences.** A reviewer looking for how the session is put together does not
+read how the queue is. The read routing decision, which is the one thing in the
+wiring worth being careful about, is now visible as two files: everything in
+`reads.go` uses the replica and everything else uses the primary, and the names
+say so.
+
+What the two binaries genuinely share moved to `internal/bootstrap`: opening the
+pools, opening Redis, building the registry and the logger, and the two lifecycle
+contexts. Those were written twice before, which is how two processes end up
+disagreeing about a connect timeout.
+
+The cost is more files. That is the point of it.

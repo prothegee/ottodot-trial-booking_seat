@@ -414,6 +414,71 @@ becomes byte for byte what it was, and only the counter tells the two apart.
 
 <br>
 
+## Monitoring
+
+Three layers, because no single one answers every question: what each process
+knows about itself, what the machine knows, and what the container runtime
+knows.
+
+```mermaid
+flowchart LR
+    api[Go api 9000] -->|scrape /metrics| prom[Prometheus 9003]
+    worker[Go worker 9002] -->|scrape /metrics| prom
+    node[node_exporter 9005] -->|host cpu, memory, drive| prom
+    cadv[cAdvisor 9006] -->|per container| prom
+    client[Svelte client 9001] -->|POST /api/v1/telemetry| api
+    prom --> graf[Grafana 9004]
+    prom --> rules[twelve alert rules]
+```
+
+Layer one costs nothing: the Prometheus client library's process and Go
+collectors give cpu, resident memory, file descriptors, goroutines, the heap, and
+garbage collection pauses on both binaries. Layer two is node_exporter. Layer
+three is cAdvisor, and it is the one target allowed to be absent, because it
+reads a container runtime socket and is written against Docker. When it will not
+start, layers one and two still answer cpu, memory, and drive, and the dashboard
+degrades from per container to host wide. A Go test asserts that degradation
+rather than leaving it to be discovered.
+
+The client cannot be scraped. It posts what it saw to `/api/v1/telemetry` and
+the api turns those events into series on its own `/metrics`, which is why the
+frontend dashboard ships with this stack rather than the other one.
+
+Two rules hold the whole surface together. Every label value comes from a fixed
+list written into the code, so no series is ever per booking or per parent,
+ADR-042. And redaction happens at the log writer rather than at the call site, so
+no code path can forget it, ADR-044.
+
+<br>
+
+## Proving The Failure Path
+
+A metric nobody has ever seen move is a decoration, and an alert nobody has ever
+seen fire is worse, because it is mistaken for coverage.
+
+Five named points can be made to fail on demand, each at exactly one place in the
+real code path and each simulating a failure that can genuinely happen: the
+confirm transaction breaking before its commit, the class lock timing out, the
+payment provider becoming unreachable, a queue job blowing up, and Redis going
+away.
+
+```mermaid
+flowchart TD
+    guard{APP_ENV development, and the flag on}
+    guard -->|no| absent[the routes are never registered, so 404]
+    guard -->|yes| routes[POST, GET, DELETE /dev/faults, admin only]
+    routes --> arm[arm one point, count 1, ttl 60s]
+    arm --> fire[the next request through that point fails]
+    fire --> record[fault_injected_total rises, a warn line names the point]
+    fire --> disarm[the one shot spends itself]
+```
+
+The guards are in ADR-045 and the reason it is a runtime route rather than a
+build tag is there too. `fault_injection_enabled` is published either way, so the
+dashboard's first row says plainly whether this stack can be broken on purpose.
+
+<br>
+
 ## What Is Not Here Yet
 
 Everything above marked with a phase. The compose file gains a service in the

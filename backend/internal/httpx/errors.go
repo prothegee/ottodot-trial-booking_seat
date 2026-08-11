@@ -9,6 +9,7 @@ import (
     "ottodot-trial-booking/backend/internal/cache"
     "ottodot-trial-booking/backend/internal/captcha"
     "ottodot-trial-booking/backend/internal/catalogue"
+    "ottodot-trial-booking/backend/internal/observability"
     "ottodot-trial-booking/backend/internal/payment"
     "ottodot-trial-booking/backend/internal/queue"
     "ottodot-trial-booking/backend/internal/ratelimit"
@@ -178,6 +179,13 @@ func bookingFailureFor(err error) (Failure, bool) {
         return Failure{http.StatusBadRequest, CodeInvalidRequest,
             "that request was not accepted", 0, ""}, true
 
+    case errors.Is(err, booking.ErrLockWaitTimeout):
+        // The one seat failure worth retrying. Nothing was decided and nothing
+        // was written, so the honest answer is "ask again" rather than a refusal
+        // the parent would read as final.
+        return Failure{http.StatusServiceUnavailable, CodeDependencyUnavailable,
+            "the class is busy right now, please try again shortly", 0, ""}, true
+
     case errors.Is(err, booking.ErrNotHolding),
         errors.Is(err, booking.ErrInvalidTransition):
         return Failure{http.StatusConflict, CodeInvalidRequest,
@@ -236,7 +244,8 @@ func surfaceFailureFor(err error) (Failure, bool) {
         errors.Is(err, captcha.ErrRefused),
         errors.Is(err, captcha.ErrInvalidRequest),
         errors.Is(err, auth.ErrInvalidRequest),
-        errors.Is(err, auth.ErrOriginRefused):
+        errors.Is(err, auth.ErrOriginRefused),
+        errors.Is(err, observability.ErrTelemetryRefused):
         return Failure{http.StatusBadRequest, CodeInvalidRequest,
             "that request was not accepted", 0, ""}, true
 

@@ -22,6 +22,7 @@ import { api } from "$lib/session/client";
 import { classCache } from "$lib/session/cache";
 import { classMutator } from "$lib/session/cached_api";
 import { auth } from "$lib/stores/auth";
+import { reportApiError, reportFunnel } from "$lib/telemetry/report";
 
 /** Where bookings are created. */
 export const bookingsPath = "/api/v1/bookings";
@@ -187,6 +188,14 @@ export function createBookingStore(options: BookingStoreOptions = {}) {
         } catch (error) {
             const refusal = failureFrom(error);
 
+            // Recorded where the parent is about to be told, rather than where
+            // the failure was caught. "the api refused something" and "somebody
+            // was told no" are different numbers, and the second is the one
+            // worth a panel.
+            if (error instanceof ApiError) {
+                reportApiError(error.code);
+            }
+
             if (kindsThatMoveASeatCount.has(refusal.kind)) {
                 cache.invalidateAll();
             }
@@ -219,8 +228,8 @@ export function createBookingStore(options: BookingStoreOptions = {}) {
          * - the booking in pending_payment, carrying the deadline the parent has
          * - null when it was refused, with the reason in the store
          */
-        create(request: CreateBookingRequest): Promise<Booking | null> {
-            return submit(
+        async create(request: CreateBookingRequest): Promise<Booking | null> {
+            const granted = await submit(
                 (key) => ({
                     method: "POST",
                     path: bookingsPath,
@@ -229,6 +238,12 @@ export function createBookingStore(options: BookingStoreOptions = {}) {
                 }),
                 attempt.restart(),
             );
+
+            if (granted !== null) {
+                reportFunnel("hold");
+            }
+
+            return granted;
         },
 
         /**
@@ -279,12 +294,14 @@ export function createBookingStore(options: BookingStoreOptions = {}) {
          * - the booking, confirmed with its seat number when the seat was won
          * - null when it was refused, with the reason in the store
          */
-        pay(bookingId: string, amount: PayRequest): Promise<Booking | null> {
+        async pay(bookingId: string, amount: PayRequest): Promise<Booking | null> {
+            reportFunnel("pay");
+
             // The key in force, which the keeper mints if this is somehow the
             // first call of the attempt. Sending an empty header would be
             // refused by the api, and sending a fresh key here would turn a
             // retry into a second charge.
-            return submit(
+            const settled = await submit(
                 (key) => ({
                     method: "POST",
                     path: paymentPathFor(bookingId),
@@ -293,6 +310,16 @@ export function createBookingStore(options: BookingStoreOptions = {}) {
                 }),
                 attempt.current(),
             );
+
+            // Only a confirmed seat closes the funnel. A settled payment that
+            // lost the race is a parent owed a refund, and counting it as
+            // reaching the end would make the one failure the whole design is
+            // about invisible on the panel.
+            if (settled !== null && settled.status === "confirmed") {
+                reportFunnel("confirmed");
+            }
+
+            return settled;
         },
 
         /**

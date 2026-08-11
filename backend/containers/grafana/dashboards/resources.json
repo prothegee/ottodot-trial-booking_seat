@@ -1,0 +1,250 @@
+{
+    "uid": "ottodot-resources",
+    "title": "Ottodot host resources",
+    "description": "Host wide cpu, memory, drive, inodes, and disk saturation from node_exporter alone. The view that still works when cAdvisor cannot read a container runtime socket.",
+    "tags": [
+        "ottodot",
+        "resources"
+    ],
+    "timezone": "browser",
+    "editable": false,
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "10s",
+    "time": {
+        "from": "now-30m",
+        "to": "now"
+    },
+    "timepicker": {
+        "refresh_intervals": [
+            "5s",
+            "10s",
+            "30s",
+            "1m",
+            "5m"
+        ]
+    },
+    "panels": [
+        {
+            "id": 1,
+            "type": "row",
+            "title": "Host",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 0
+            },
+            "panels": [],
+            "description": "Everything here comes from node_exporter alone. It is the fallback view for a machine where cAdvisor will not start, and the per container rows on the other dashboards are what it replaces."
+        },
+        {
+            "id": 2,
+            "type": "timeseries",
+            "title": "Cpu by mode",
+            "description": "Idle included, so saturation is derivable rather than assumed. A high iowait and a high system look nothing alike and both look like busy on a single line.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 12,
+                "x": 0,
+                "y": 1
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (mode) (rate(node_cpu_seconds_total[5m]))",
+                    "legendFormat": "{{mode}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 3,
+            "type": "timeseries",
+            "title": "Load average",
+            "description": "Load alongside cpu, because the two disagree in the case worth noticing: a load that climbs while cpu does not is processes waiting on a disk.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 12,
+                "x": 12,
+                "y": 1
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "node_load1",
+                    "legendFormat": "1m",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 4,
+            "type": "timeseries",
+            "title": "Memory",
+            "description": "Available rather than free. Free excludes cache the kernel would hand back under pressure, so it reads far lower than what a process could actually get.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 12,
+                "x": 0,
+                "y": 8
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "node_memory_MemAvailable_bytes",
+                    "legendFormat": "available",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "B",
+                    "expr": "node_memory_MemTotal_bytes",
+                    "legendFormat": "total",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "bytes"
+                },
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 5,
+            "type": "timeseries",
+            "title": "Drive space",
+            "description": "Space left per mount. Postgres reaches a limit here before anything else in this project does.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 12,
+                "x": 12,
+                "y": 8
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay\"}",
+                    "legendFormat": "{{mountpoint}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "bytes"
+                },
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 6,
+            "type": "timeseries",
+            "title": "Inodes",
+            "description": "The failure nobody predicts. A volume with space left and no inodes left refuses writes exactly like a full one, and reads as healthy on a space panel.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 12,
+                "x": 0,
+                "y": 15
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "node_filesystem_files_free{fstype!~\"tmpfs|overlay\"}",
+                    "legendFormat": "{{mountpoint}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 7,
+            "type": "timeseries",
+            "title": "Disk saturation",
+            "description": "Time the device spent busy. It is what a slow database looks like before it looks like anything else.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 12,
+                "x": 12,
+                "y": 15
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "rate(node_disk_io_time_seconds_total[5m])",
+                    "legendFormat": "{{device}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percentunit"
+                },
+                "overrides": []
+            },
+            "options": {}
+        }
+    ]
+}

@@ -65,8 +65,8 @@ routing. So it reports, and something else acts. See ADR-F006.
 | `/book/[classId]` | pick a child, submit, receive a hold | built |
 | `/pay/[bookingId]` | mock payment, hold countdown, honeypot, fill timer, challenge | built |
 | `/booking/[bookingId]` | booking status in every terminal state | built |
-| `/roster/[classId]` | roster for an admin, hidden from a parent role | phase 7 |
-| `/status` | build identity and backend readiness | phase 7 |
+| `/roster/[classId]` | roster for an admin, hidden from a parent role | done |
+| `/status` | build identity and backend readiness | done |
 
 Every route is client rendered. Caddy hands the same document to any unknown
 path and the router takes it from there, which is why a reload on
@@ -102,7 +102,7 @@ previous screen showed. That is the shape of this application.
 | `auth.ts` | display name, parent id, children, role | memory only, cleared on a hard sign out | built |
 | `classes.ts` | the class list and its tags | reads through `classReader`, never trusted for a decision | built |
 | `booking.ts` | the booking in flight, its status, its deadline, and the key covering the attempt | writes through `classMutator`, reads straight through the api client. Drives the countdown | built |
-| `status.ts` | backend version and readiness | populated only while `/status` is open | phase 7 |
+| `status.ts` | backend version and readiness | populated only while `/status` is open | done |
 
 <br>
 

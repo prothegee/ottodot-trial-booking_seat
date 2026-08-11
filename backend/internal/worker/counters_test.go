@@ -9,7 +9,7 @@ import (
 
 func TestTheCountersOnlyEverGoUp(t *testing.T) {
     t.Run("unit: a fresh set is all zeroes", func(t *testing.T) {
-        counted := worker.NewCounters().Snapshot()
+        counted := worker.NewCounters(nil).Snapshot()
 
         if counted.Claimed != 0 || counted.Completed != 0 || counted.Failed != 0 {
             t.Fatalf("expected a fresh set to be empty, got %+v", counted)
@@ -17,12 +17,12 @@ func TestTheCountersOnlyEverGoUp(t *testing.T) {
     })
 
     t.Run("unit: each count moves on its own", func(t *testing.T) {
-        counters := worker.NewCounters()
+        counters := worker.NewCounters(nil)
 
         counters.Claimed(3)
         counters.Completed()
-        counters.Failed()
-        counters.Failed()
+        counters.Failed("expire_hold")
+        counters.Failed("expire_hold")
 
         counted := counters.Snapshot()
 
@@ -34,7 +34,7 @@ func TestTheCountersOnlyEverGoUp(t *testing.T) {
     t.Run("edge: a poll that claimed nothing changes nothing", func(t *testing.T) {
         // An empty poll is the ordinary case on a quiet queue, and counting it
         // would make the claimed number describe polls rather than jobs.
-        counters := worker.NewCounters()
+        counters := worker.NewCounters(nil)
 
         counters.Claimed(0)
         counters.Claimed(-1)
@@ -50,7 +50,7 @@ func TestTheCountersAreSafeToShare(t *testing.T) {
         // One worker runs a batch concurrently and a scrape reads at the same
         // time. A count that dropped writes would under-report the failures an
         // alert fires on.
-        counters := worker.NewCounters()
+        counters := worker.NewCounters(nil)
 
         const writers = 16
 

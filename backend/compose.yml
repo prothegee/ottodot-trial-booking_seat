@@ -183,6 +183,104 @@ services:
     networks:
       - ottodot-backend
 
+  prometheus:
+    image: docker.io/prom/prometheus:v3.1.0
+    container_name: ottodot-prometheus
+    restart: unless-stopped
+    depends_on:
+      - api
+      - worker
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Short, because this stack is demonstrated for an afternoon rather than
+      # run for a quarter. A longer window would only fill a bind mount.
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    ports:
+      - "127.0.0.1:9003:9090"
+    volumes:
+      - ./.data/prometheus:/prometheus
+      - ./containers/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./containers/prometheus/rules.yml:/etc/prometheus/rules.yml:ro
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - ottodot-backend
+
+  grafana:
+    image: docker.io/grafana/grafana:11.5.1
+    container_name: ottodot-grafana
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    environment:
+      # A local password on a loopback published port. Anonymous access is on so
+      # a reviewer sees the dashboards without a sign in, and it is read only.
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-ottodot_development}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    ports:
+      - "127.0.0.1:9004:3000"
+    volumes:
+      - ./.data/grafana:/var/lib/grafana
+      # The dashboards are files rather than rows in Grafana's own database, so
+      # a panel change is a diff a reviewer can read.
+      - ./containers/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./containers/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - ottodot-backend
+
+  node-exporter:
+    image: docker.io/prom/node-exporter:v1.8.2
+    container_name: ottodot-node-exporter
+    restart: unless-stopped
+    command:
+      - --path.rootfs=/host
+      # Everything this project cares about is on a real filesystem. Without
+      # this the drive panels fill with dozens of container overlay mounts and
+      # the one that matters is impossible to find.
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/containers|var/lib/docker)($$|/)
+    pid: host
+    ports:
+      - "127.0.0.1:9005:9100"
+    volumes:
+      # Read only, and the host root at a path of its own. This container reads
+      # the machine and writes nothing anywhere.
+      - /:/host:ro,rslave
+    networks:
+      - ottodot-backend
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    container_name: ottodot-cadvisor
+    restart: unless-stopped
+    # The one service allowed to fail. It reads a container runtime socket and
+    # is written against Docker, so under rootless Podman it needs
+    # `podman system service` running with its socket where this expects one.
+    # how-to.md carries the exact command. When it will not start, layers one
+    # and two still cover cpu, memory, and drive, and the dashboard degrades
+    # from per container to host wide.
+    privileged: true
+    ports:
+      - "127.0.0.1:9006:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - ${CONTAINER_STORAGE_DIR:-/var/lib/containers}:/var/lib/docker:ro
+      - ${CONTAINER_SOCKET:-/run/podman/podman.sock}:/var/run/docker.sock:ro
+    networks:
+      - ottodot-backend
+
 networks:
   ottodot-backend:
     name: ottodot-backend

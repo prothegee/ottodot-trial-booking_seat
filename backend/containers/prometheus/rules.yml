@@ -1,0 +1,159 @@
+# ---------------------------------------------------------------------------- #
+# The alerts this stack fires.
+#
+# Twelve rules in three groups: what the service is doing to somebody's money or
+# seat, what the machine is doing, and what monitoring itself can still see.
+#
+# Two of them are proven rather than asserted. rules_test.yml replays a synthetic
+# series through promtool and checks that TransactionErrorSpike and RefundBacklog
+# actually fire, so a rule broken by an edit fails a pull request instead of
+# failing a night.
+#
+# Every threshold is written for a stack that is being demonstrated rather than
+# one that has months of history behind it. The `for` windows are minutes rather
+# than tens of minutes for the same reason: an alert nobody can watch fire during
+# a recording is an alert nobody trusts.
+# ---------------------------------------------------------------------------- #
+
+groups:
+    - name: money-and-seats
+      rules:
+          # The one alert where the cost of ignoring it is somebody's money. A
+          # parent has been charged and the seat went to somebody else, and the
+          # refund has not gone back yet.
+          - alert: RefundBacklog
+            expr: refund_pending_bookings > 0
+            for: 5m
+            labels:
+                severity: critical
+            annotations:
+                summary: "A parent has been charged and not yet refunded"
+                description: "refund_pending_bookings has been above zero for five minutes. Every one of these is money somebody is owed."
+
+          # Something broke, as distinct from a race being lost by design. A
+          # confirm that rolls back because another parent took the last seat is
+          # correct behaviour and is counted as seat_lost, which this rule
+          # deliberately does not look at.
+          - alert: TransactionErrorSpike
+            expr: increase(confirm_transaction_total{outcome="error"}[5m]) > 0
+            for: 1m
+            labels:
+                severity: critical
+            annotations:
+                summary: "The confirm transaction is failing"
+                description: "confirm_transaction_total with outcome=error is rising. This is not a lost race, it is a transaction that broke."
+
+          # A refresh token was presented twice. It is either stolen or a client
+          # bug, and both want a person to look, which is why any increase at all
+          # is enough.
+          - alert: RefreshReuse
+            expr: increase(auth_refresh_reuse_detected_total[5m]) > 0
+            for: 0m
+            labels:
+                severity: critical
+            annotations:
+                summary: "A spent refresh token was presented again"
+                description: "The whole token family was revoked, which signs the real parent out too. That is the correct trade for a stolen token and it is worth knowing about."
+
+          # Either an attack or a broken client shipped. The threshold is a rate
+          # rather than a count, so a busy afternoon does not trip it.
+          - alert: AccessDeniedSpike
+            expr: sum(rate(access_denied_total[5m])) > 1
+            for: 5m
+            labels:
+                severity: warning
+            annotations:
+                summary: "Requests are being refused far more often than usual"
+                description: "access_denied_total is rising across every reason. Check whether one reason dominates before assuming an attack."
+
+          # The hold allowance is set too high, so parents are reaching the
+          # payment screen for seats that are already gone.
+          - alert: RaceLostSpike
+            expr: rate(booking_race_lost_total[5m]) > rate(booking_confirmed_total[5m])
+            for: 10m
+            labels:
+                severity: warning
+            annotations:
+                summary: "More parents are losing the race than winning it"
+                description: "hold_allowance is letting more holders onto the payment screen than there are seats. It is a configuration value on trial_classes."
+
+          # The worker is alive and not consuming. The depth alone would fire on
+          # a busy afternoon, so it is paired with the job duration count being
+          # flat, which is what says nothing is being worked on.
+          - alert: QueueStalled
+            expr: queue_depth{state="ready"} > 0 and rate(queue_job_duration_seconds_count[5m]) == 0
+            for: 5m
+            labels:
+                severity: critical
+            annotations:
+                summary: "The queue is filling and no job is finishing"
+                description: "Jobs are waiting and the worker is not completing any. Hold expiry and refund reconciliation both stop when this is true."
+
+    - name: machine
+      rules:
+          # Postgres fills a volume long before anything else does, and a full
+          # volume stops writes, which stops bookings.
+          - alert: DriveFilling
+            expr: min(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) < 0.15
+            for: 5m
+            labels:
+                severity: warning
+            annotations:
+                summary: "A filesystem is under fifteen percent free"
+                description: "Postgres reaches this before anything else in this stack. A full volume stops writes, which stops bookings."
+
+          # The step before a container is killed.
+          - alert: MemoryPressure
+            expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.10
+            for: 5m
+            labels:
+                severity: warning
+            annotations:
+                summary: "The host is under ten percent memory available"
+                description: "Available rather than free, because free excludes cache the kernel would give back. This is the number that precedes an out of memory kill."
+
+          # Latency is about to follow.
+          - alert: CpuSaturated
+            expr: 1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) > 0.90
+            for: 10m
+            labels:
+                severity: warning
+            annotations:
+                summary: "The host has been above ninety percent cpu for ten minutes"
+                description: "Derived from idle rather than from a busy metric, so it stays correct however many cores the host has."
+
+          # A crash loop, which is invisible in application metrics because the
+          # process keeps disappearing before it can report anything.
+          - alert: ContainerRestarting
+            expr: changes(container_start_time_seconds{name=~"ottodot-.+"}[10m]) > 1
+            for: 0m
+            labels:
+                severity: critical
+            annotations:
+                summary: "A container has restarted more than once in ten minutes"
+                description: "Application metrics cannot show this, because the process keeps disappearing before it can report anything."
+
+    - name: dependencies
+      rules:
+          # A dependency is down. Readiness is what takes an instance out of
+          # rotation, so this is the alert that says why.
+          - alert: NotReady
+            expr: up{job=~"api|worker"} == 0
+            for: 2m
+            labels:
+                severity: critical
+            annotations:
+                summary: "A backend process has stopped answering"
+                description: "Either the process is down or its dependencies are. /readyz names which dependency on the instance itself."
+
+          # The replica is drifting, so advisory reads are getting stale. It is a
+          # warning rather than a critical: every deciding read already goes to
+          # the primary, so this costs accuracy on a seat count and nothing else.
+          - alert: ReplicationLag
+            expr: replication_lag_bytes > 16777216
+            for: 5m
+            labels:
+                severity: warning
+            annotations:
+                summary: "The replica is more than sixteen megabytes behind"
+                description: "Advisory reads are getting stale. No seat is decided from the replica, so this costs accuracy on a class list rather than correctness."

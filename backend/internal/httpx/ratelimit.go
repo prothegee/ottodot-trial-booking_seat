@@ -6,6 +6,7 @@ import (
     "time"
 
     "ottodot-trial-booking/backend/internal/auth"
+    "ottodot-trial-booking/backend/internal/observability"
     "ottodot-trial-booking/backend/internal/ratelimit"
 )
 
@@ -67,8 +68,8 @@ func (limits *Limits) Guard(rule ratelimit.Bucket) func(http.Handler) http.Handl
             now := limits.clock()
             failOpen := isSafeMethod(request.Method)
 
-            for _, key := range limits.keysFor(request) {
-                decision, err := limits.limiter.Allow(request.Context(), key, rule, now)
+            for _, bucket := range limits.bucketsFor(request) {
+                decision, err := limits.limiter.Allow(request.Context(), bucket.key, rule, now)
 
                 if err != nil {
                     if failOpen {
@@ -81,7 +82,7 @@ func (limits *Limits) Guard(rule ratelimit.Bucket) func(http.Handler) http.Handl
                 }
 
                 if !decision.Allowed {
-                    limits.refuse(response, request, decision)
+                    limits.refuse(response, request, decision, bucket.scope)
 
                     return
                 }
@@ -92,32 +93,43 @@ func (limits *Limits) Guard(rule ratelimit.Bucket) func(http.Handler) http.Handl
     }
 }
 
-// keysFor is which buckets this request is counted against.
+// bucket is one token bucket this request is counted against, and which of the
+// two layers it belongs to.
+//
+// The scope travels with the key rather than being worked out again at the
+// refusal, so the metric can never name a different bucket from the one that
+// actually ran dry.
+type bucket struct {
+    key   string
+    scope string
+}
+
+// bucketsFor is which buckets this request is counted against.
 //
 // A signed in request is counted against both its account and its address. An
 // anonymous one has only the address, which is the whole reason the address
 // bucket exists.
-func (limits *Limits) keysFor(request *http.Request) []string {
-    keys := make([]string, 0, 2)
+func (limits *Limits) bucketsFor(request *http.Request) []bucket {
+    buckets := make([]bucket, 0, 2)
 
     if identity, carried := auth.IdentityFrom(request.Context()); carried {
         if key := ratelimit.SubjectKey(identity.ParentID); key != "" {
-            keys = append(keys, key)
+            buckets = append(buckets, bucket{key: key, scope: observability.ScopeSubject})
         }
     }
 
     if key := ratelimit.AddressKey(CallerAddress(request)); key != "" {
-        keys = append(keys, key)
+        buckets = append(buckets, bucket{key: key, scope: observability.ScopeAddress})
     }
 
-    return keys
+    return buckets
 }
 
 // refuse answers a caller that is over the limit, with the wait it should
 // honour.
-func (limits *Limits) refuse(response http.ResponseWriter, request *http.Request, decision ratelimit.Decision) {
+func (limits *Limits) refuse(response http.ResponseWriter, request *http.Request, decision ratelimit.Decision, scope string) {
     if limits.counters != nil {
-        limits.counters.RateLimited()
+        limits.counters.RateLimited(scope)
     }
 
     failure := FailureFor(ErrRateLimited)

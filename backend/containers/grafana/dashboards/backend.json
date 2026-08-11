@@ -1,0 +1,1257 @@
+{
+    "uid": "ottodot-backend",
+    "title": "Ottodot backend",
+    "description": "The Go api and worker: resources first, then the two failure groups the brief calls out, then traffic, bookings, and the infrastructure underneath.",
+    "tags": [
+        "ottodot",
+        "backend"
+    ],
+    "timezone": "browser",
+    "editable": false,
+    "schemaVersion": 39,
+    "version": 1,
+    "refresh": "10s",
+    "time": {
+        "from": "now-30m",
+        "to": "now"
+    },
+    "timepicker": {
+        "refresh_intervals": [
+            "5s",
+            "10s",
+            "30s",
+            "1m",
+            "5m"
+        ]
+    },
+    "panels": [
+        {
+            "id": 1,
+            "type": "row",
+            "title": "Fault injection",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 0
+            },
+            "panels": [],
+            "description": "Reads one while this stack can be broken on purpose. It is the first row so nobody mistakes a deliberately broken demonstration for a healthy service."
+        },
+        {
+            "id": 2,
+            "type": "stat",
+            "title": "Fault injection enabled",
+            "description": "One while the development only injection surface is live. It is published even when the surface is off, so the panel says zero rather than nothing at all.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 4,
+                "w": 8,
+                "x": 0,
+                "y": 1
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "fault_injection_enabled",
+                    "legendFormat": "armed",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 3,
+            "type": "timeseries",
+            "title": "Faults triggered",
+            "description": "Faults that actually fired, by point. Anything here was arranged on purpose, which is what tells an arranged failure apart from a real one.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 4,
+                "w": 16,
+                "x": 8,
+                "y": 1
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "increase(fault_injected_total[5m])",
+                    "legendFormat": "{{point}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 4,
+            "type": "row",
+            "title": "Resources",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 5
+            },
+            "panels": [],
+            "description": "Layer one is what each process knows about itself and layer two is what the host knows. Neither needs cAdvisor, so this row still draws when the container runtime socket is not available."
+        },
+        {
+            "id": 5,
+            "type": "timeseries",
+            "title": "Process cpu",
+            "description": "Cpu burned by each Go process, from the process collector. Layer one, so it needs nothing beyond the binaries themselves.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 0,
+                "y": 6
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "rate(process_cpu_seconds_total{job=\"api\"}[5m])",
+                    "legendFormat": "api",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "B",
+                    "expr": "rate(process_cpu_seconds_total{job=\"worker\"}[5m])",
+                    "legendFormat": "worker",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percentunit"
+                },
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 6,
+            "type": "timeseries",
+            "title": "Process memory",
+            "description": "Resident memory per process, with the heap alongside it. A resident number that grows while the heap is flat is something outside Go holding memory.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 8,
+                "y": 6
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "process_resident_memory_bytes{job=\"api\"}",
+                    "legendFormat": "api",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "B",
+                    "expr": "process_resident_memory_bytes{job=\"worker\"}",
+                    "legendFormat": "worker",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "C",
+                    "expr": "go_memstats_heap_inuse_bytes{job=\"api\"}",
+                    "legendFormat": "api heap",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "bytes"
+                },
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 7,
+            "type": "timeseries",
+            "title": "Host drive free",
+            "description": "Drive space and inodes left per mount, from node_exporter. Postgres fills a volume long before anything else in this stack does, and inodes are the failure nobody predicts.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 16,
+                "y": 6
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay\"}",
+                    "legendFormat": "{{mountpoint}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "B",
+                    "expr": "node_filesystem_files_free{fstype!~\"tmpfs|overlay\"}",
+                    "legendFormat": "{{mountpoint}} inodes",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "bytes"
+                },
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 8,
+            "type": "timeseries",
+            "title": "Host cpu",
+            "description": "Derived from idle rather than from a busy metric, so it stays correct however many cores the host has.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 0,
+                "y": 13
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m]))",
+                    "legendFormat": "used",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percentunit"
+                },
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 9,
+            "type": "timeseries",
+            "title": "Host memory available",
+            "description": "Available rather than free, because free excludes cache the kernel would give back. The load average is here for context on the same time range.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 8,
+                "y": 13
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "node_memory_MemAvailable_bytes",
+                    "legendFormat": "available",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "B",
+                    "expr": "node_load1",
+                    "legendFormat": "load 1m",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "bytes"
+                },
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 10,
+            "type": "timeseries",
+            "title": "Goroutines and pauses",
+            "description": "A goroutine floor that rises and never comes back down is a leak. Garbage collection time is here because it is the first thing to move when the heap is under pressure.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 16,
+                "y": 13
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "go_goroutines{job=\"api\"}",
+                    "legendFormat": "api goroutines",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "B",
+                    "expr": "go_goroutines{job=\"worker\"}",
+                    "legendFormat": "worker goroutines",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "C",
+                    "expr": "rate(go_gc_duration_seconds_sum[5m])",
+                    "legendFormat": "gc time",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 11,
+            "type": "row",
+            "title": "Containers",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 20
+            },
+            "panels": [],
+            "description": "Layer three, from cAdvisor. This is the row that goes blank when the container runtime socket is not available, and the two rows above are what still answer cpu, memory, and drive when it does."
+        },
+        {
+            "id": 12,
+            "type": "timeseries",
+            "title": "Container cpu",
+            "description": "Cpu per container: api, worker, both databases, and Redis.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 0,
+                "y": 21
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "rate(container_cpu_usage_seconds_total{name=~\"ottodot-.+\"}[5m])",
+                    "legendFormat": "{{name}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percentunit"
+                },
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 13,
+            "type": "timeseries",
+            "title": "Container memory",
+            "description": "Working set per container, which is the number that gets a container killed.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 8,
+                "y": 21
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "container_memory_working_set_bytes{name=~\"ottodot-.+\"}",
+                    "legendFormat": "{{name}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "bytes"
+                },
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 14,
+            "type": "timeseries",
+            "title": "Container drive and restarts",
+            "description": "Drive used per container is how a filling Postgres volume becomes visible. Restarts are here because a crash loop is invisible in application metrics.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 16,
+                "y": 21
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "container_fs_usage_bytes{name=~\"ottodot-.+\"}",
+                    "legendFormat": "{{name}} used",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "B",
+                    "expr": "changes(container_start_time_seconds{name=~\"ottodot-.+\"}[10m])",
+                    "legendFormat": "{{name}} restarts",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "bytes"
+                },
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 15,
+            "type": "row",
+            "title": "Access failures",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 28
+            },
+            "panels": [],
+            "description": "Called out in the brief as important, so they get a row rather than being buried in a status code chart."
+        },
+        {
+            "id": 16,
+            "type": "timeseries",
+            "title": "Denials by reason",
+            "description": "The reason label is what tells a broken client apart from a batch of sessions timing out and from somebody trying accounts one at a time.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 0,
+                "y": 29
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (reason) (rate(access_denied_total[5m]))",
+                    "legendFormat": "{{reason}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 17,
+            "type": "timeseries",
+            "title": "Rate limit and bot checks",
+            "description": "Which bucket ran dry, and which cooperative check caught a submission. The caller is never told either of these.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 8,
+                "y": 29
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (scope) (rate(rate_limit_rejected_total[5m]))",
+                    "legendFormat": "limit {{scope}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "B",
+                    "expr": "sum by (check) (rate(bot_check_rejected_total[5m]))",
+                    "legendFormat": "bot {{check}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 18,
+            "type": "timeseries",
+            "title": "Sessions",
+            "description": "Refresh reuse is the one number here that always deserves a person. It is either a stolen token or a client bug, and both want a look.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 16,
+                "y": 29
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "increase(auth_refresh_reuse_detected_total[5m])",
+                    "legendFormat": "refresh reuse",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "B",
+                    "expr": "sum by (kind) (rate(auth_token_issued_total[5m]))",
+                    "legendFormat": "issued {{kind}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "C",
+                    "expr": "rate(auth_login_refused_total[5m])",
+                    "legendFormat": "sign in refused",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 19,
+            "type": "row",
+            "title": "Transaction failures",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 36
+            },
+            "panels": [],
+            "description": "A rollback is not automatically a fault. A confirm that loses the race rolls back by design, which is why confirm outcomes are split three ways and only error means something broke."
+        },
+        {
+            "id": 20,
+            "type": "timeseries",
+            "title": "Confirm outcomes",
+            "description": "confirmed, seat_lost, and error. The middle one is correct behaviour and the last one is not, and no alert could tell them apart if they shared a series.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 0,
+                "y": 37
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (outcome) (rate(confirm_transaction_total[5m]))",
+                    "legendFormat": "{{outcome}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 21,
+            "type": "timeseries",
+            "title": "Confirm errors",
+            "description": "The exact series TransactionErrorSpike fires on, queried by name, so the alert and the panel cannot drift apart.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 8,
+                "y": 37
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "increase(confirm_transaction_total{outcome=\"error\"}[5m])",
+                    "legendFormat": "broken",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 22,
+            "type": "stat",
+            "title": "Refunds owed",
+            "description": "Parents who have been charged and not yet refunded. The only number on this dashboard where the cost of ignoring it is somebody's money.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 16,
+                "y": 37
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "refund_pending_bookings",
+                    "legendFormat": "pending",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 23,
+            "type": "timeseries",
+            "title": "Payment outcomes",
+            "description": "settled, declined, and error. A decline is an answer and worked as designed. An error is no answer at all, which is the case where nobody knows whether money moved.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 0,
+                "y": 44
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (outcome) (rate(payment_attempt_total[5m]))",
+                    "legendFormat": "{{outcome}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 24,
+            "type": "timeseries",
+            "title": "Database transactions",
+            "description": "Commits against rollbacks and conflicts, by transaction name.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 8,
+                "y": 44
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (name, outcome) (rate(db_transaction_total[5m]))",
+                    "legendFormat": "{{name}} {{outcome}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 25,
+            "type": "timeseries",
+            "title": "Failed jobs",
+            "description": "Job attempts that did not finish, by kind. A job retries and then parks, so a rising line here precedes work stopping.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 16,
+                "y": 44
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (kind) (rate(queue_job_failed_total[5m]))",
+                    "legendFormat": "{{kind}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 26,
+            "type": "row",
+            "title": "Traffic",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 51
+            },
+            "panels": []
+        },
+        {
+            "id": 27,
+            "type": "timeseries",
+            "title": "Request rate by route",
+            "description": "The route label is the registered pattern rather than the path, so a booking identifier never becomes a series of its own.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 0,
+                "y": 52
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (route) (rate(http_request_duration_seconds_count[5m]))",
+                    "legendFormat": "{{route}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 28,
+            "type": "timeseries",
+            "title": "Latency",
+            "description": "Timed from outside the whole middleware chain, so the number covers everything a parent waits for rather than only the handler.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 8,
+                "y": 52
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m])))",
+                    "legendFormat": "p95 {{route}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "B",
+                    "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))",
+                    "legendFormat": "p50",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 29,
+            "type": "timeseries",
+            "title": "Not modified",
+            "description": "Conditional reads answered with no body, next to what the response cache did. A 304 is a request that cost a store read and no database query at all.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 16,
+                "y": 52
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (route) (rate(http_not_modified_total[5m]))",
+                    "legendFormat": "304 {{route}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "B",
+                    "expr": "sum by (result) (rate(cache_lookup_total[5m]))",
+                    "legendFormat": "cache {{result}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 30,
+            "type": "row",
+            "title": "Booking",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 59
+            },
+            "panels": []
+        },
+        {
+            "id": 31,
+            "type": "timeseries",
+            "title": "Seats and races",
+            "description": "Races lost consistently above seats confirmed means hold_allowance is letting more parents onto the payment screen than there are seats.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 0,
+                "y": 60
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "rate(booking_confirmed_total[5m])",
+                    "legendFormat": "confirmed",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "B",
+                    "expr": "rate(booking_race_lost_total[5m])",
+                    "legendFormat": "race lost",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 32,
+            "type": "timeseries",
+            "title": "Holds",
+            "description": "Holds asked for and granted, with the ones the worker released afterwards.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 8,
+                "y": 60
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (outcome) (rate(booking_hold_granted_total[5m]))",
+                    "legendFormat": "{{outcome}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "B",
+                    "expr": "rate(booking_hold_expired_total[5m])",
+                    "legendFormat": "expired",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 33,
+            "type": "timeseries",
+            "title": "Duplicates",
+            "description": "Bookings refused because the child already has a live one for that class. The unique index is what refuses them, and this is what makes it visible.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 16,
+                "y": 60
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "rate(booking_duplicate_rejected_total[5m])",
+                    "legendFormat": "duplicate",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 34,
+            "type": "row",
+            "title": "Infrastructure",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 67
+            },
+            "panels": []
+        },
+        {
+            "id": 35,
+            "type": "timeseries",
+            "title": "Queue depth",
+            "description": "Ready, claimed, and parked. Depth rising while job durations are flat is the worker being alive and not consuming, which is what QueueStalled fires on.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 0,
+                "y": 68
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "queue_depth",
+                    "legendFormat": "{{state}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 36,
+            "type": "timeseries",
+            "title": "Job duration",
+            "description": "How long each job kind takes, with the claim and completion rates alongside so a stalled worker is visible here as well as in the alert.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 8,
+                "y": 68
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "histogram_quantile(0.95, sum by (le, kind) (rate(queue_job_duration_seconds_bucket[5m])))",
+                    "legendFormat": "p95 {{kind}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "B",
+                    "expr": "sum(rate(queue_job_duration_seconds_count[5m]))",
+                    "legendFormat": "finishing",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "C",
+                    "expr": "rate(worker_jobs_claimed_total[5m])",
+                    "legendFormat": "claimed",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "D",
+                    "expr": "rate(worker_jobs_completed_total[5m])",
+                    "legendFormat": "completed",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s"
+                },
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 37,
+            "type": "timeseries",
+            "title": "Pools and replication",
+            "description": "Connections held per pool, and how far the replica is behind. Advisory reads get stale as the lag grows, and no seat is ever decided from the replica.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 16,
+                "y": 68
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "db_pool_connections",
+                    "legendFormat": "{{pool}} {{state}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "B",
+                    "expr": "replication_lag_bytes",
+                    "legendFormat": "replication lag",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        }
+    ]
+}

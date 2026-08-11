@@ -147,16 +147,60 @@ path where a failure could mean a seat was sold twice.
 An alert nobody has watched fire is not coverage. It is a query somebody wrote
 once.
 
-The plan for this build includes a fault surface: named injection points that
-can be armed at runtime, so the confirm transaction can be made to fail on
-purpose while the dashboard is on screen. It is guarded four ways, and any one
-of them being wrong means the surface does not exist at all: the environment
-must be development, an off-by-default flag must be on, the caller must hold an
-admin role, and the routes are not registered otherwise. The api refuses to
-start if the flag is on outside development.
+This build has a fault surface: five named injection points that can be armed at
+runtime, so the confirm transaction can be made to fail on purpose while the
+dashboard is on screen. It is guarded four ways, and any one of them being wrong
+means the surface does not exist at all: the environment must be development, an
+off-by-default flag must be on, the caller must hold an admin role, and the
+routes are not registered otherwise. The api refuses to start if the flag is on
+outside development.
 
-That guard is already enforced and tested in the configuration loader. The
-injection points themselves arrive with the monitoring phase.
+Two more things keep it from becoming a problem. An arming spends itself after
+one firing by default and expires after a minute, so a fault nobody remembers
+arming cannot leave a stack broken. And while the surface is live, the dashboard
+opens with a banner saying so, so nobody reads a deliberately broken stack as a
+healthy one.
+
+Each of the five simulates something that can genuinely happen: a database dying
+mid-transaction, a lock timing out, a payment provider going unreachable, a
+background job blowing up, and the cache going away. That is a rule rather than a
+preference. A fault with no real counterpart proves the metric moves and proves
+nothing about the system.
+
+The alerts are proven a second way as well, and this one takes a second rather
+than a demonstration. A rule test replays a synthetic series through the real
+rule file and asserts what fires: that a broken transaction raises the alert,
+that twenty parents losing the race raises nothing, and that a parent owed money
+raises the one alert that matters most. The middle case is the valuable one. Both
+of those outcomes look identical in a rollback count, and telling them apart is
+the entire reason the confirm metric carries an outcome label.
+
+<br>
+
+## What Is Watched, And What Is Never Written Down
+
+Two rules shape everything the service records about itself, and both are
+enforced rather than agreed.
+
+Nothing in a metric label is ever an identifier. Every label value comes from a
+short fixed list written into the code, so `/api/v1/bookings/{id}` is one line on
+a chart rather than one line per booking. That is not tidiness: a monitoring
+system has no access control in front of it, so a booking identifier in a label
+is a record of who booked what, readable by anybody who can open a dashboard.
+
+Nothing in a log is ever a name or an email. Redaction happens where the line is
+written rather than where it is composed, so no piece of code can forget to do
+it. Emails and session headers have a shape and are caught by a pattern. A name
+has no shape at all, so the defence for those is an absence: the log has no field
+to put one in.
+
+Both are checked by a test that drives a whole booking and then reads every
+output the service produced, the metrics, the logs, the error bodies, and the
+contents of the token itself, looking for the seeded names and addresses. The
+client half is the same idea from the other side: a test drives a booking in a
+browser and then inspects every store, every stored entry, every route visited,
+and every queued measurement, and separately proves that no code path so much as
+reads a cookie.
 
 <br>
 

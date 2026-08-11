@@ -78,25 +78,27 @@ func (conditional *Conditional) Serve(response http.ResponseWriter, request *htt
 
     switch {
     case err != nil:
-        conditional.count((*Counters).CacheError)
+        conditional.count(func(counters *Counters) { counters.CacheError(key) })
 
     case stored && cache.ETagMatches(presented, entry.ETag):
-        conditional.count((*Counters).CacheHit)
-        conditional.count((*Counters).NotModified)
+        conditional.count(func(counters *Counters) {
+            counters.CacheHit(key)
+            counters.NotModified(key)
+        })
 
         conditional.notModified(response, policy, entry.ETag)
 
         return
 
     case stored:
-        conditional.count((*Counters).CacheHit)
+        conditional.count(func(counters *Counters) { counters.CacheHit(key) })
 
         writeBytes(response, http.StatusOK, policy, entry.ETag, entry.Payload)
 
         return
 
     default:
-        conditional.count((*Counters).CacheMiss)
+        conditional.count(func(counters *Counters) { counters.CacheMiss(key) })
     }
 
     conditional.rebuild(response, request, key, policy, presented, build)
@@ -133,7 +135,7 @@ func (conditional *Conditional) rebuild(response http.ResponseWriter, request *h
     if cache.ETagMatches(presented, tag) {
         // The body was rebuilt and turned out to be exactly what the client
         // already holds. Sending it again would be work nobody needs.
-        conditional.count((*Counters).NotModified)
+        conditional.count(func(counters *Counters) { counters.NotModified(key) })
 
         conditional.notModified(response, policy, tag)
 

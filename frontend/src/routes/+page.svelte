@@ -1,5 +1,6 @@
 <script lang="ts">
     import ClassCard from "$lib/components/ClassCard.svelte";
+    import { auth } from "$lib/stores/auth";
     import { classes } from "$lib/stores/classes";
 
     // The read goes through the cache, so coming back to this screen a moment
@@ -11,6 +12,14 @@
     });
 
     const nothingToShow = $derived(!$classes.loading && $classes.failure === "" && $classes.classes.length === 0);
+
+    // The roster link is shown to an operator and hidden from a parent.
+    //
+    // Hiding it is a courtesy and not the rule. Anybody can type the route, and
+    // what actually refuses them is the api answering forbidden_role. A client
+    // that treated a hidden link as protection would be one developer tools
+    // window away from handing over every other family's name.
+    const isAdmin = $derived($auth.session?.role === "admin");
 </script>
 
 <section class="class-list">
@@ -40,7 +49,7 @@
 
     <div class="cards">
         {#each $classes.classes as trialClass (trialClass.id)}
-            <ClassCard {trialClass} />
+            <ClassCard {trialClass} showRoster={isAdmin} />
         {/each}
     </div>
 </section>

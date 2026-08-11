@@ -18,20 +18,20 @@ last phase of this build.
 ## Current State
 
 This repository is built in phases and this document is kept honest about which
-of them exist. Six of nine phases are finished on each stack.
+of them exist. Seven of nine phases are finished on each stack.
 
 | stack | done | next |
 | :- | :- | :- |
-| backend | phase 1 foundation, phase 2 booking core, phase 3 payment, phase 4 queue and worker, phase 5 authentication, phase 6 http surface | phase 7 monitoring and data hygiene |
-| frontend | phase 1 scaffold, phase 2 api client and auth, phase 3 internal cache, phase 4 booking flow, phase 5 payment and status, phase 6 bot prevention cooperation | phase 7 roster, status, telemetry |
+| backend | phase 1 foundation, phase 2 booking core, phase 3 payment, phase 4 queue and worker, phase 5 authentication, phase 6 http surface, phase 7 monitoring and data hygiene | phase 9 repository wide |
+| frontend | phase 1 scaffold, phase 2 api client and auth, phase 3 internal cache, phase 4 booking flow, phase 5 payment and status, phase 6 bot prevention cooperation, phase 7 roster, status, telemetry | phase 9 visual polish |
 
 What that means in practice today:
 
 | works now | not built yet |
 | :- | :- |
-| the schema, its four unique indexes, and seed data | monitoring and fault injection, and the video walkthrough |
-| the booking core: hold, confirm, cancel, fail, expire, and the last-seat transaction | the roster and status screens on the client |
-| the payment path: a deterministic provider, and one charge per idempotency key | the continuous integration workflows |
+| the schema, its four unique indexes, and seed data | the continuous integration workflows |
+| the booking core: hold, confirm, cancel, fail, expire, and the last-seat transaction | the end to end smoke script, and the video walkthrough |
+| the payment path: a deterministic provider, and one charge per idempotency key | |
 | the job queue and the worker that drains it, on port 9002 | |
 | the http api on port 9000, end to end from sign in to a seat number | |
 | ETag caching, a Redis token bucket, and the honeypot, fill timer, and challenge | |
@@ -42,6 +42,10 @@ What that means in practice today:
 | the client cache: three tiers, with conditional revalidation | |
 | the class list and the booking screen, with one idempotency key per attempt | |
 | the payment screen, the hold countdown, and the booking status screen | |
+| the roster screen for an operator, and the status screen with backend readiness | |
+| every metric in the plan, on Prometheus, drawn by three provisioned dashboards | |
+| twelve alert rules, four of them replayed and proven by `promtool` | |
+| fault injection, so the error metrics can be watched moving on a live stack | |
 
 Progress is tracked per stack in `backend/phase-track.md` and
 `frontend/phase-track.md`.
@@ -285,9 +289,9 @@ the one path where a failure means a seat may have been sold twice.
 
 | next | why it matters |
 | :- | :- |
-| finish phases 6 to 9 | the http surface that mounts what is already built, bot prevention, monitoring, and the documentation that goes with them |
+| finish phase 9 | the continuous integration workflows, the end to end smoke script, and the recorded walkthrough |
 | a roster export an operator can hand to a teacher | the brief asks for a roster, and a screen is not the form a teacher wants it in |
-| replication lag as a first class signal | the client already treats advisory reads as advisory, but nothing yet shows how far behind the replica is |
+| alert thresholds from real history | every threshold here is written for a stack demonstrated for an afternoon, and a quarter of data would move most of them |
 | load behaviour beyond four seats | the lock is per class, which is fine here, and worth measuring before a class type with a larger capacity exists |
 
 <br>

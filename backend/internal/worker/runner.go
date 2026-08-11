@@ -6,6 +6,7 @@ import (
     "fmt"
     "time"
 
+    "ottodot-trial-booking/backend/internal/faults"
     "ottodot-trial-booking/backend/internal/queue"
 )
 
@@ -39,8 +40,16 @@ type Settings struct {
 
     // OnError is told about anything that went wrong, one call per failure. Nil
     // means silence, which is what a test wants and what production must never
-    // have. The api and the worker both hand in a logger here in phase 7.
+    // have. The worker hands in its logger here.
     OnError func(err error)
+
+    // Fault is where a deliberately injected job failure comes from. Nil is the
+    // ordinary state and means no job is ever broken on purpose.
+    Fault Fault
+
+    // Metrics is where this runner's counts are published. Nil means nowhere,
+    // which is what every test runs with.
+    Metrics MetricSink
 }
 
 // DefaultSettings are the values the worker runs with when nothing overrides
@@ -115,7 +124,7 @@ func NewRunner(jobs queue.Queue, handlers Registry, settings Settings) (*Runner,
         queue:    jobs,
         handlers: handlers,
         settings: settings,
-        counters: NewCounters(),
+        counters: NewCounters(settings.Metrics),
     }, nil
 }
 
@@ -200,6 +209,16 @@ func (runner *Runner) dispatch(ctx context.Context, job queue.Job) {
         return
     }
 
+    // Injection point: a job blowing up. It is checked before the handler rather
+    // than inside one, so the same fault reaches every kind and the retry and
+    // then the parking can be watched happening without a real failure being
+    // arranged.
+    if runner.settings.Fault.triggered(faults.PointQueueJobError) {
+        runner.handBack(ctx, job, fmt.Errorf("job %s (%s) failed on attempt %d: %w", job.ID, job.Kind, job.Attempts, ErrFaultInjected))
+
+        return
+    }
+
     if err := handler.Handle(ctx, job); err != nil {
         runner.handBack(ctx, job, fmt.Errorf("job %s (%s) failed on attempt %d: %w", job.ID, job.Kind, job.Attempts, err))
 
@@ -220,7 +239,7 @@ func (runner *Runner) dispatch(ctx context.Context, job queue.Job) {
 
 // handBack releases a job for another try and reports why.
 func (runner *Runner) handBack(ctx context.Context, job queue.Job, cause error) {
-    runner.counters.Failed()
+    runner.counters.Failed(string(job.Kind))
     runner.report(cause)
 
     if job.IsParked(runner.settings.MaxAttempts) {

@@ -71,10 +71,10 @@ must send its own origin to the api, because the api checks it on mutations.
 | 9000 | backend api | 127.0.0.1 |
 | 9001 | frontend | 127.0.0.1 |
 | 9002 | worker metrics | running |
-| 9003 | prometheus | not built yet, phase 7 |
-| 9004 | grafana | not built yet, phase 7 |
-| 9005 | node_exporter | not built yet, phase 7 |
-| 9006 | cadvisor | not built yet, phase 7 |
+| 9003 | prometheus | running |
+| 9004 | grafana | running |
+| 9005 | node_exporter | running |
+| 9006 | cadvisor | running, and the one service allowed to fail |
 
 Containers keep their own default ports, and a second instance takes the next
 number up. That is why the replica is on 5433.
@@ -155,13 +155,32 @@ Exit codes: 0 done, 1 declined, 2 refused by a guard.
 
 <br>
 
+## Monitoring
+
+`scripts/stack_up.sh backend` starts the monitoring alongside the service, because
+every scrape target is a backend surface.
+
+| open | what |
+| :- | :- |
+| `http://127.0.0.1:9004` | Grafana, anonymous viewer access, three provisioned dashboards |
+| `http://127.0.0.1:9003` | Prometheus, its targets and its rules |
+
+Nothing has to be configured first. The data source and the dashboards are files
+in `backend/containers/grafana/`, so they load on every start and a panel change
+is a diff rather than a click somebody made once.
+
+One service is allowed to fail. cAdvisor reads a container runtime socket and is
+written against Docker, so under rootless Podman it needs `podman system service`
+running with its socket mounted where cAdvisor expects one.
+`backend/how-to.md` carries the exact command. If it will not start, the per
+container rows go blank and the host wide dashboard answers the same questions.
+
+<br>
+
 ## What Is Not Here Yet
 
-The monitoring stack is added in a later phase, and its compose services join the
-file in the phase that builds them. That is deliberate:
-`backend/compose.yml` never references a service that cannot start.
-
-Everything else is there now. The api serves on 9000 and the worker has no public
+The continuous integration workflows and the end to end smoke script are the last
+phase. Everything else is there now. The api serves on 9000 and the worker has no public
 surface at all: its listener on 9002 carries liveness and its metrics, and the
 api is what fills the queue, so a worker on a stack nobody has booked on finds an
 empty queue and says so.

@@ -55,4 +55,22 @@ var (
 
     // ErrInvalidTransition means the move is not in the state machine.
     ErrInvalidTransition = errors.New("booking: that status change is not allowed")
+
+    // ErrLockWaitTimeout means the class row could not be locked in time.
+    //
+    // It is a real Postgres condition rather than a test-only one: an overloaded
+    // database gives up on a lock instead of waiting forever. It is separate
+    // from every other failure here because it is the one worth retrying, which
+    // is why the http layer answers it with a 503 rather than a refusal.
+    ErrLockWaitTimeout = errors.New("booking: the class could not be locked in time")
+
+    // ErrTransactionBroken means the confirm transaction failed partway and was
+    // rolled back whole.
+    //
+    // It is deliberately not mapped to a code of its own. A parent cannot act on
+    // it, so it becomes internal_error with a request id, and the detail lives
+    // in the log line that id leads to. What matters is what it is not: it is
+    // not ErrSeatLost, so no money is marked for refund and the hold is left
+    // standing for a retry.
+    ErrTransactionBroken = errors.New("booking: the confirm transaction did not complete")
 )

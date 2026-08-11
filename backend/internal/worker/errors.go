@@ -25,4 +25,11 @@ var (
     // ErrInvalidSettings means the runner was built with a value it cannot work
     // with. It is refused at construction rather than at the first poll.
     ErrInvalidSettings = errors.New("worker: the runner cannot work with those settings")
+
+    // ErrFaultInjected means this job was broken on purpose.
+    //
+    // It says so in as many words rather than imitating a real failure. Anybody
+    // reading a log during a demonstration should be able to tell at a glance
+    // which failures were arranged and which were not.
+    ErrFaultInjected = errors.New("worker: this job was failed on purpose by the fault surface")
 )

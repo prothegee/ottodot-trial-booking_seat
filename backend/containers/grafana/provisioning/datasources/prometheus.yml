@@ -1,0 +1,28 @@
+# ---------------------------------------------------------------------------- #
+# The one data source every dashboard reads.
+#
+# It is provisioned as a file rather than clicked in, so a reviewer who brings
+# the stack up gets working dashboards without configuring anything. That is the
+# whole point: a dashboard that needs setup before it draws is a dashboard nobody
+# looks at.
+#
+# The uid is fixed rather than generated, because every panel in every dashboard
+# names it. A generated one would change on each start and leave every panel
+# pointed at nothing.
+# ---------------------------------------------------------------------------- #
+
+apiVersion: 1
+
+datasources:
+    - name: Prometheus
+      uid: ottodot-prometheus
+      type: prometheus
+      access: proxy
+      url: http://prometheus:9090
+      isDefault: true
+      editable: false
+      jsonData:
+          # Matches the scrape interval in prometheus.yml. Grafana uses it to
+          # pick a sensible step, and a mismatch makes short lived counters look
+          # like gaps.
+          timeInterval: 5s

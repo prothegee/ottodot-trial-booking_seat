@@ -1,13 +1,17 @@
 package httpx_test
 
 import (
+    "bytes"
     "context"
     "encoding/json"
+    "log/slog"
     "net/http"
     "net/http/httptest"
     "strings"
     "testing"
     "time"
+
+    "github.com/prometheus/client_golang/prometheus"
 
     "ottodot-trial-booking/backend/internal/auth"
     "ottodot-trial-booking/backend/internal/booking"
@@ -15,7 +19,9 @@ import (
     "ottodot-trial-booking/backend/internal/captcha"
     "ottodot-trial-booking/backend/internal/catalogue"
     "ottodot-trial-booking/backend/internal/checkout"
+    "ottodot-trial-booking/backend/internal/faults"
     "ottodot-trial-booking/backend/internal/httpx"
+    "ottodot-trial-booking/backend/internal/observability"
     "ottodot-trial-booking/backend/internal/operations"
     "ottodot-trial-booking/backend/internal/payment"
     "ottodot-trial-booking/backend/internal/queue"
@@ -55,6 +61,15 @@ var stageMoment = time.Date(2026, time.August, 11, 9, 0, 0, 0, time.UTC)
 type stage struct {
     router http.Handler
 
+    // registry and metrics are the same pair a running api holds, so a case can
+    // scrape what the request it just made published.
+    registry *prometheus.Registry
+    metrics  *observability.Metrics
+
+    // logged is where every log line this stage wrote goes, so the leak
+    // simulation can read them rather than trusting that nothing was written.
+    logged *bytes.Buffer
+
     bookings  *booking.MemoryRepository
     payments  *payment.MemoryRepository
     provider  *payment.MockProvider
@@ -86,6 +101,24 @@ type stageOptions struct {
     // Development accepts the two amounts the mock provider reads as a decline
     // and as an unreachable provider.
     Development bool
+
+    // Faults registers the development only injection routes. Nil is the
+    // ordinary state and leaves them off the mux entirely.
+    Faults *faults.Handler
+}
+
+// exposition scrapes this stage the way Prometheus does.
+func (fixture *stage) exposition(t *testing.T) string {
+    t.Helper()
+
+    recorder := httptest.NewRecorder()
+    fixture.router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+    if recorder.Code != http.StatusOK {
+        t.Fatalf("the scrape answered %d", recorder.Code)
+    }
+
+    return recorder.Body.String()
 }
 
 // newStage wires every layer against a fake and returns the router.
@@ -139,6 +172,12 @@ func newStage(t *testing.T, options stageOptions) *stage {
 
     clock := func() time.Time { return fixture.now }
 
+    fixture.registry = prometheus.NewRegistry()
+    fixture.metrics = observability.NewMetrics(fixture.registry)
+    fixture.logged = &bytes.Buffer{}
+
+    logger := observability.NewLogger(fixture.logged, slog.LevelInfo)
+
     bookingSettings := booking.DefaultSettings()
     bookingSettings.Clock = clock
 
@@ -159,6 +198,7 @@ func newStage(t *testing.T, options stageOptions) *stage {
 
     checkoutSettings := checkout.DefaultSettings()
     checkoutSettings.Clock = clock
+    checkoutSettings.Metrics = fixture.metrics
 
     checkoutService, err := checkout.NewService(bookingService, paymentService, fixture.jobs, checkoutSettings)
     if err != nil {
@@ -184,6 +224,7 @@ func newStage(t *testing.T, options stageOptions) *stage {
 
     authSettings := auth.DefaultSettings()
     authSettings.Clock = clock
+    authSettings.Metrics = fixture.metrics
 
     authService, err := auth.NewService(fixture.signer, auth.NewMemoryRefreshStore(), fixture.directory, denylist, authSettings)
     if err != nil {
@@ -193,6 +234,7 @@ func newStage(t *testing.T, options stageOptions) *stage {
     guard, err := auth.NewGuard(fixture.signer, denylist, auth.GuardSettings{
         FrontendOrigin: frontendOrigin,
         Clock:          clock,
+        Metrics:        fixture.metrics,
     })
     if err != nil {
         t.Fatalf("cannot build the guard: %v", err)
@@ -203,7 +245,7 @@ func newStage(t *testing.T, options stageOptions) *stage {
         t.Fatalf("cannot build the auth handler: %v", err)
     }
 
-    counters := httpx.NewCounters()
+    counters := httpx.NewCounters(fixture.metrics)
 
     fixture.cache = cache.NewMemoryStore()
     fixture.cache.SetClock(clock)
@@ -279,6 +321,11 @@ func newStage(t *testing.T, options stageOptions) *stage {
         t.Fatalf("cannot build the admin routes: %v", err)
     }
 
+    telemetryHandler, err := httpx.NewTelemetryHandler(observability.NewTelemetry(fixture.metrics.Frontend))
+    if err != nil {
+        t.Fatalf("cannot build the telemetry route: %v", err)
+    }
+
     router, err := httpx.NewRouter(httpx.Routes{
         Operations: operationsHandler,
         Auth:       authHandler,
@@ -288,8 +335,17 @@ func newStage(t *testing.T, options stageOptions) *stage {
         Payments:   paymentHandler,
         Roster:     rosterHandler,
         Admin:      adminHandler,
+        Telemetry:  telemetryHandler,
         Guard:      guard,
         Limits:     limits,
+        Counters:   counters,
+        Exposition: observability.Handler(fixture.registry),
+        Faults:     options.Faults,
+        Recovery: func(requestID string, err error) {
+            logger.Error("a handler panicked",
+                observability.FieldRequestID, requestID,
+                observability.FieldReason, err.Error())
+        },
     })
     if err != nil {
         t.Fatalf("cannot build the router: %v", err)

@@ -195,12 +195,59 @@ Without it a test that awaits anything hangs.
 
 <br>
 
+## Looking At What The Client Reports
+
+The client cannot be scraped, so it posts what it saw to the api and the api
+turns those events into series. Nothing about that is visible in the browser on
+purpose: every failure of it is swallowed, so a telemetry problem can never be
+something a parent sees.
+
+To watch it working, look at the other end.
+
+```sh
+# what the client has reported, on the api's own exposition
+curl -s 127.0.0.1:9000/metrics | grep '^frontend_'
+```
+
+Four events, and nothing else can be sent:
+
+| what happened | series | label |
+| :- | :- | :- |
+| a screen became usable | `frontend_page_load_seconds` | the route pattern, never a path |
+| a typed failure was shown | `frontend_api_error_total` | the api's own code |
+| a step was reached | `frontend_booking_funnel_total` | list, hold, pay, confirmed |
+| this client's cache answered | `frontend_cache_lookup_total` | fresh, stale, revalidated, miss |
+
+The route is a pattern, so `/booking/[bookingId]` is one series and not one per
+booking. The api drops anything it does not recognise, so a page that has not
+been reloaded cannot create a series of its own. Both halves are ADR-F032.
+
+The `Ottodot frontend` dashboard in Grafana on 9004 draws all four.
+
+<br>
+
+## The Status Screen
+
+`/status` is the only screen in this client that polls, and it stops when it is
+left. It reads the backend's `/version` and `/readyz` every fifteen seconds while
+it is open.
+
+| dot | means |
+| :- | :- |
+| green | every dependency answered |
+| amber | the required ones answered and the replica did not. No seat is decided from the replica, so this is correct and a class list may be a moment stale |
+| red | a required dependency is down |
+| grey | the backend answered nothing at all, which is a different fact from being unready |
+
+The build identity of both halves is on the same screen, because the interesting
+case is when they disagree: a deployment that moved one and not the other.
+
+<br>
+
 ## What Is Not Here Yet
 
 | screen or feature | phase |
 | :- | :- |
-| honeypot, fill timer, captcha | 6 |
-| roster, status route, telemetry | 7 |
 | layout and responsiveness | 9 |
 
 Progress is tracked in `phase-track.md`.

@@ -15,9 +15,9 @@ import (
 // anything, and these two exist so a container orchestrator can tell whether
 // the process is alive and Prometheus can tell whether it is working.
 //
-// The other two routes the api serves, `/readyz` and `/version`, arrive with
-// `internal/operations` in phase 6. They are left out rather than written twice
-// and thrown away.
+// The other two routes the api serves, `/readyz` and `/version`, belong to
+// `internal/operations` and are the api's to answer. A readiness probe on a
+// process nothing routes traffic to would have nothing to take out of rotation.
 const (
     healthPath  = "/healthz"
     metricsPath = "/metrics"
@@ -51,14 +51,15 @@ type DepthReader func(ctx context.Context) (queue.Depth, error)
 // Param:
 // counters - *Counters (what this worker has done, never nil)
 // readDepth - DepthReader (what the queue holds right now, never nil)
+// exposition - http.Handler (the shared registry's handler, never nil)
 //
 // Return:
 //   - the handler, serving the two routes above and 404 for everything else
-//   - ErrInvalidSettings when either argument is missing, refused here rather
-//     than as a panic on the first scrape
-func NewListenerHandler(counters *Counters, readDepth DepthReader) (http.Handler, error) {
-    if counters == nil || readDepth == nil {
-        return nil, fmt.Errorf("%w: the listener needs counters and a way to read the queue", ErrInvalidSettings)
+//   - ErrInvalidSettings when an argument is missing, refused here rather than
+//     as a panic on the first scrape
+func NewListenerHandler(counters *Counters, readDepth DepthReader, exposition http.Handler) (http.Handler, error) {
+    if counters == nil || readDepth == nil || exposition == nil {
+        return nil, fmt.Errorf("%w: the listener needs counters, a way to read the queue, and an exposition", ErrInvalidSettings)
     }
 
     routes := http.NewServeMux()
@@ -73,7 +74,7 @@ func NewListenerHandler(counters *Counters, readDepth DepthReader) (http.Handler
         fmt.Fprintln(writer, "ok")
     })
 
-    routes.HandleFunc(metricsPath, func(writer http.ResponseWriter, request *http.Request) {
+    routes.Handle(metricsPath, http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
         ctx, cancel := context.WithTimeout(request.Context(), depthTimeout)
         defer cancel()
 
@@ -87,11 +88,14 @@ func NewListenerHandler(counters *Counters, readDepth DepthReader) (http.Handler
             return
         }
 
-        writer.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-        writer.WriteHeader(http.StatusOK)
+        // The depth is a gauge read at scrape time rather than a count tracked
+        // as jobs move, because the queue is the only thing that knows it. It is
+        // published into the registry just before the registry is rendered, so
+        // the number in the answer is the number that was just read.
+        counters.Depth(depth.Ready, depth.Claimed, depth.Parked)
 
-        WriteExposition(writer, counters.Snapshot(), depth)
-    })
+        exposition.ServeHTTP(writer, request)
+    }))
 
     return routes, nil
 }

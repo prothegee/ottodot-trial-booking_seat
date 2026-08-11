@@ -732,7 +732,8 @@ backend
     |   |___ratelimit.go                   (which bucket, and what an outage means)
     |   |___conditional.go                 (etag, 304, and invalidation)
     |   |___ownership.go                   (is this child, this booking, yours)
-    |   |___counters.go                    (what phase 7 exports)
+    |   |___counters.go                    (the local counts, and the metric sink)
+    |   |___measure.go                     (the per route timer, by pattern never by path)
     |   |___middleware.go                  (the chain, in the order it is written)
     |   |___router.go                      (every route, and what guards it)
     |   |___handler_classes.go
@@ -741,6 +742,7 @@ backend
     |   |___handler_payments.go
     |   |___handler_roster.go
     |   |___handler_admin.go
+    |   |___handler_telemetry.go
     |
     |___/operations
     |   |___health.go                      (liveness, touches nothing)
@@ -754,6 +756,31 @@ backend
     |___/cache                             (etag, stored body, version counter)
     |___/ratelimit                         (the token bucket, and two implementations)
     |___/captcha                           (the provider's shape, and a mock)
+    |
+    |___/observability
+    |   |___registry.go                    (the registry, and the two runtime collectors)
+    |   |___names.go                       (every metric and label name, in one place)
+    |   |___metrics.go                     (the four groups, assembled)
+    |   |___metrics_access.go              (who was refused, and why)
+    |   |___metrics_transaction.go         (what moved money or a seat, and how it ended)
+    |   |___metrics_application.go         (everything that is neither)
+    |   |___metrics_frontend.go            (what the browser reports, and its closed lists)
+    |   |___sink.go                        (so *Metrics fits the narrow interfaces)
+    |   |___logger.go                      (the structured log, and its field vocabulary)
+    |   |___log_redaction.go               (the slog handler that scrubs every record)
+    |   |___redact.go                      (the rules the handler applies)
+    |   |___telemetry.go                   (a posted event to a metric, or dropped)
+    |
+    |___/faults
+    |   |___points.go                      (the five named places, and nothing else)
+    |   |___registry.go                    (what is armed, with a count and a deadline)
+    |   |___handler.go                     (the three routes, when the guards pass)
+    |
+    |___/bootstrap
+        |___observability.go               (the registry, the metrics, and the logger)
+        |___database.go                    (both pools, from the configuration)
+        |___redis.go                       (the client, from the configuration)
+        |___lifecycle.go                   (the startup deadline and the stop signal)
 ```
 
 **The middleware chain, in order.** Chained the other way round it would still

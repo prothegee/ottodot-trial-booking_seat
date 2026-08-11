@@ -120,6 +120,65 @@ export interface PayRequest extends BotSignals {
 }
 
 /**
+ * One confirmed seat on a roster.
+ *
+ * This is the only shape in the whole client that carries a child's name next to
+ * a seat, and it is the reason the roster route is admin only. A parent never
+ * sees another parent's child, and the api refuses the route rather than
+ * trusting this client to hide it.
+ */
+export interface RosterEntry {
+    seat_no: number;
+    student_id: string;
+    student_name: string;
+
+    /** RFC 3339, as the api sends it. */
+    confirmed_at: string;
+}
+
+/**
+ * The answer to GET /api/v1/classes/{classId}/roster.
+ *
+ * Only confirmed bookings appear. A hold and a booking waiting on a refund are
+ * both absent, which is the whole point of the roster: it is who is coming, and
+ * nobody who has not paid is coming yet.
+ */
+export interface Roster {
+    class_id: string;
+    capacity: number;
+    entries: RosterEntry[];
+}
+
+/** The answer to GET /version. Build identity and nothing else. */
+export interface VersionIdentity {
+    service: string;
+    version: string;
+    commit: string;
+    built_at: string;
+    runtime: string;
+}
+
+/**
+ * The answer to GET /readyz.
+ *
+ * Three states rather than two. `degraded` is a required dependency answering
+ * and an optional one not, which for this service means the replica is down: no
+ * seat is decided from it, so the service is still correct and a class list may
+ * be a moment stale. Reporting that as unready would take a working service out
+ * of rotation for no reason.
+ *
+ * The checks are an object keyed by dependency name, exactly as the api sends
+ * one. The names are a closed set the backend chose, and the value is how that
+ * dependency answered.
+ */
+export type ReadinessStatus = "ready" | "degraded" | "unavailable";
+
+export interface Readiness {
+    status: ReadinessStatus;
+    checks: Record<string, string>;
+}
+
+/**
  * The one failure shape the api uses.
  *
  * The client switches on `code` and never on `message`. The prose is the

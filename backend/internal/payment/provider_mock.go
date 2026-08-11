@@ -3,6 +3,8 @@ package payment
 import (
     "context"
     "sync"
+
+    "ottodot-trial-booking/backend/internal/faults"
 )
 
 // How the mock decides, when nothing has been forced for a reference.
@@ -44,6 +46,7 @@ const declineReason = "the provider declined this charge"
 type MockProvider struct {
     mutex  sync.Mutex
     forced map[string]Outcome
+    fault  Fault
 
     charges int
     refunds int
@@ -60,6 +63,20 @@ func NewMockProvider() *MockProvider {
         forced:         make(map[string]Outcome),
         settledRefunds: make(map[string]RefundResult),
     }
+}
+
+// InjectFaults points this provider at a fault source.
+//
+// It is separate from ForceOutcome, which pins an answer for one reference. This
+// one is armed from outside the process, over the guarded fault route, and it
+// applies to whichever charge happens to arrive next. That difference is the
+// whole reason both exist: a test knows which booking it is about to charge, and
+// somebody recording a demonstration does not.
+func (provider *MockProvider) InjectFaults(fault Fault) {
+    provider.mutex.Lock()
+    defer provider.mutex.Unlock()
+
+    provider.fault = fault
 }
 
 // ForceOutcome pins the answer for one reference, whatever its amount.
@@ -130,12 +147,20 @@ func (provider *MockProvider) Charge(_ context.Context, request ChargeRequest) (
 
     provider.mutex.Lock()
     forced, pinned := provider.forced[request.Reference]
+    fault := provider.fault
     provider.charges++
     provider.mutex.Unlock()
 
     outcome := DecideOutcome(request.Amount)
     if pinned {
         outcome = forced
+    }
+
+    // Injection point: the provider cannot be reached. The call is counted
+    // before this, on purpose, because a charge that left this service and got
+    // no answer is exactly the case where nobody knows whether money moved.
+    if fault.triggered(faults.PointPaymentProviderError) {
+        outcome = OutcomeProviderError
     }
 
     switch outcome {

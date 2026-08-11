@@ -2,9 +2,18 @@ package catalogue
 
 import (
     "context"
+    "errors"
     "sort"
     "sync"
 )
+
+// errStorageUnusable is what a reader told to fail reports.
+//
+// It is deliberately not one of this package's sentinels. The http layer maps
+// every sentinel it knows to a code a parent can act on, and this one has to
+// fall through to internal_error, which is exactly the path the case that uses
+// it is about.
+var errStorageUnusable = errors.New("catalogue: the reader was told to fail")
 
 // MemoryReader is the fake every fast test runs against.
 //
@@ -15,6 +24,7 @@ type MemoryReader struct {
     mutex   sync.Mutex
     classes map[string]Class
     reads   int
+    failing bool
 }
 
 // NewMemoryReader builds an empty catalogue. Classes are put in with AddClass,
@@ -41,10 +51,39 @@ func (reader *MemoryReader) Reads() int {
     return reader.reads
 }
 
+// FailNext makes the next read report the storage as unusable.
+//
+// It exists for one case: the internal_error path. That is the only refusal in
+// the api that carries a request id and no detail at all, and it cannot be
+// reached at all without something breaking underneath. The failure is spent
+// after one read, so a case cannot accidentally leave a reader broken for the
+// assertions that follow.
+func (reader *MemoryReader) FailNext() {
+    reader.mutex.Lock()
+    defer reader.mutex.Unlock()
+
+    reader.failing = true
+}
+
+// spendFailure reports whether this read is the one that was told to break.
+func (reader *MemoryReader) spendFailure() bool {
+    if !reader.failing {
+        return false
+    }
+
+    reader.failing = false
+
+    return true
+}
+
 // Classes lists every class, soonest first.
 func (reader *MemoryReader) Classes(_ context.Context) ([]Class, error) {
     reader.mutex.Lock()
     defer reader.mutex.Unlock()
+
+    if reader.spendFailure() {
+        return nil, errStorageUnusable
+    }
 
     reader.reads++
 
@@ -72,6 +111,10 @@ func (reader *MemoryReader) Classes(_ context.Context) ([]Class, error) {
 func (reader *MemoryReader) Class(_ context.Context, classID string) (Class, error) {
     reader.mutex.Lock()
     defer reader.mutex.Unlock()
+
+    if reader.spendFailure() {
+        return Class{}, errStorageUnusable
+    }
 
     reader.reads++
 
