@@ -2,11 +2,16 @@
     import VersionFooter from "$lib/components/VersionFooter.svelte";
 
     let { children } = $props();
+
 </script>
 
 <div class="shell">
     <header class="shell-header">
         <a class="shell-title" href="/">Trial Class Booking</a>
+
+        <nav class="shell-nav" aria-label="Sections">
+            <a href="/status" data-testid="nav-status">Status</a>
+        </nav>
     </header>
 
     <main class="shell-main">
@@ -35,6 +40,10 @@
     }
 
     .shell-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 1rem;
         padding: 1rem 1.5rem;
         background: #ffffff;
         border-bottom: 1px solid #e5e7eb;
@@ -45,6 +54,12 @@
         font-weight: 600;
         color: #111827;
         text-decoration: none;
+    }
+
+    .shell-nav {
+        display: flex;
+        gap: 1rem;
+        font-size: 0.9rem;
     }
 
     .shell-main {
