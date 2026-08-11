@@ -105,6 +105,52 @@ services:
     networks:
       - ottodot-backend
 
+  api:
+    build:
+      context: .
+      dockerfile: containers/Containerfile.api
+      args:
+        BUILD_VERSION: ${BUILD_VERSION:-dev}
+        BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-}
+    image: ottodot-api:${BUILD_VERSION:-dev}
+    container_name: ottodot-api
+    restart: unless-stopped
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      postgres-replica:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      API_PORT: "9000"
+      # Two addresses, not one with a flag. Deciding reads go to the primary and
+      # advisory ones to the replica, and a single value would make that choice
+      # impossible to express.
+      DATABASE_PRIMARY_URL: postgres://${POSTGRES_USER:-ottodot}:${POSTGRES_PASSWORD:-ottodot_development}@postgres-primary:5432/${POSTGRES_DB:-ottodot}?sslmode=disable
+      DATABASE_REPLICA_URL: postgres://${POSTGRES_USER:-ottodot}:${POSTGRES_PASSWORD:-ottodot_development}@postgres-replica:5432/${POSTGRES_DB:-ottodot}?sslmode=disable
+      REDIS_ADDRESS: redis:6379
+      # The frontend stack serves on 9001. It is named here because the origin
+      # check on every write compares against exactly this value.
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://127.0.0.1:9001}
+      # A throwaway in development. Configuration refuses to start outside
+      # development without a real one of at least 32 characters.
+      JWT_SECRET: ${JWT_SECRET:-development-only-signing-key-not-for-any-real-environment}
+      # False only here. Configuration refuses to start with it false anywhere
+      # else, because the token cookies would travel in clear text.
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      BUILD_VERSION: ${BUILD_VERSION:-dev}
+      BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
+    # The process binds every interface inside its own container, and this line
+    # is where the loopback rule is enforced: the port is reachable from this
+    # machine and from nowhere else.
+    ports:
+      - "127.0.0.1:9000:9000"
+    networks:
+      - ottodot-backend
+
   worker:
     build:
       context: .
