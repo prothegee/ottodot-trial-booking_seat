@@ -35,6 +35,10 @@ type Settings struct {
     // NewToken mints one opaque refresh token. It defaults to
     // NewRefreshToken.
     NewToken func() (string, error)
+
+    // Metrics is where this service's counts are published. Nil means nowhere,
+    // which is what every test runs with.
+    Metrics MetricSink
 }
 
 // DefaultSettings is the lifetime pair this service runs with.
@@ -164,7 +168,7 @@ func NewService(
         store:     store,
         directory: directory,
         denylist:  denylist,
-        counters:  NewCounters(),
+        counters:  NewCounters(settings.Metrics),
         settings:  settings.withDefaults(),
     }, nil
 }
@@ -340,6 +344,11 @@ func (service *Service) completeSession(parent Parent, refresh issuedRefresh, no
     if err != nil {
         return Issued{}, err
     }
+
+    // Both tokens are counted at the one point they always go out together, so
+    // the two numbers can never drift apart because one path forgot.
+    service.counters.TokenIssued(tokenKindAccess)
+    service.counters.TokenIssued(tokenKindRefresh)
 
     return Issued{
         AccessToken:      token,
