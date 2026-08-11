@@ -32,13 +32,13 @@ construction.
 ## State
 
 Phases run in order and land as each one finishes, one commit per file, so the
-history reads as small reviewable steps rather than one bulk drop. Phases 1 to 6
+history reads as small reviewable steps rather than one bulk drop. Phases 1 to 7
 are done. Progress is tracked in `phase-track.md`.
 
 | exists | not yet |
 | :- | :- |
-| the shell, the version footer, `ssr = false` | roster, status, telemetry, phase 7 |
-| the api client, its transport, and the typed error mapping | visual polish, phase 9 and only if time remains |
+| the shell, the version footer, `ssr = false` | visual polish, phase 9 and only if time remains |
+| the api client, its transport, and the typed error mapping | |
 | single-flight refresh with exactly one retry | |
 | the auth store, memory only | |
 | the hard sign out and the `/sign-in` screen | |
@@ -48,6 +48,9 @@ are done. Progress is tracked in `phase-track.md`.
 | one idempotency key per attempt, across both of its calls | |
 | a retry that knows whether it is a new attempt or the same one | |
 | the honeypot, the fill timer, and a mock challenge widget | |
+| the roster screen, admin only, never cached | |
+| the status screen, polling readiness while it is open and stopping when it is not | |
+| batched telemetry that swallows every failure of its own | | |
 
 Every route the client calls is served by the backend today. The tests still run
 against a fake transport, on purpose: a test that needed a database running is a
@@ -80,8 +83,9 @@ frontend
 |   |   |___/config                        (the compile time values, read once)
 |   |   |___/booking                       (the countdown maths, the price, the bot signals)
 |   |   |___/components                    (the cards, the pickers, the countdown, the form)
-|   |   |___/session                       (the wired client, cache, and sign out)
-|   |   |___/stores                        (auth, classes, and the booking in flight)
+|   |   |___/session                       (the wired client, cache, sign out, telemetry)
+|   |   |___/stores                        (auth, classes, the booking in flight, roster, status)
+|   |   |___/telemetry                     (the closed vocabulary, the batching, the timing)
 |   |
 |   |___/routes
 |   |___/tests                             (setup, and the behaviour simulations)
