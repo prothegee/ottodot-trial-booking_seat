@@ -261,7 +261,7 @@ still handles a rejection that contradicts it.
 
 ## ADR-F014: An unknown outcome reuses the idempotency key
 
-**Status:** planned, phase 5
+**Status:** accepted, phase 5
 
 **Context.** A decline and an `internal_error` look similar on screen and are
 opposite underneath. A decline means no money moved. An `internal_error` means
