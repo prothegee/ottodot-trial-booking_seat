@@ -550,3 +550,124 @@ one thing a shared component would have made easy to lose.
 
 This is the parent's side of the case the whole exercise is about, and this
 client's only job in it is to not make it worse.
+
+<br>
+
+## ADR-F026: The client measures and sends, and refuses nothing
+
+**Status:** accepted, phase 6
+
+**Context.** The payment form carries three bot prevention signals: a honeypot
+field, how long the form was open, and a challenge token. Checking any of them
+here is tempting, because a refusal that never leaves the browser is instant and
+costs the backend nothing.
+
+**Decision.** Nothing is checked in the client. `botSignals` measures, the form
+sends what it measured, and the api decides. A honeypot with something in it is
+sent with something in it, and the submission goes out.
+
+**Consequences.** Two failure modes are avoided at once. A client that refused
+its own submission would tell a script exactly which value to change, because
+the refusal arrives before any request and can be seen in a debugger. And a
+fill-time check running on a slow device would refuse a real parent for being
+slow, with no way for anybody to see that it had happened.
+
+The cost is one wasted round trip for a submission that was never going to be
+accepted, which is a request the backend was going to have to refuse anyway.
+
+<br>
+
+## ADR-F027: The honeypot is a real field moved off screen
+
+**Status:** accepted, phase 6
+
+**Context.** A hidden field has to be invisible to a person, invisible to a
+screen reader, and out of the keyboard order, while still looking fillable to
+whatever is filling it in. `type="hidden"` satisfies the first three and fails
+the fourth: it is the first thing a script skips.
+
+**Decision.** A text input with an ordinary name, `website`, positioned off
+screen with `tabindex="-1"`, `autocomplete="off"`, and inside an `aria-hidden`
+wrapper. `display: none` was rejected for the same reason as `type="hidden"`.
+
+**Consequences.** It is a real, laid out field that nobody can see, reach with
+the keyboard, or hear read out, and `autocomplete="off"` is what stops a browser
+or a password manager filling it in on the parent's behalf, which would refuse a
+real person. Simulation F7 asserts all four properties, because each one is a
+line somebody could delete without anything else breaking.
+
+The field name is deliberately plausible. A field named `honeypot` is a field a
+script skips, which would make the whole thing decorative.
+
+<br>
+
+## ADR-F028: The fill timer runs from mount, and a backwards clock reports nothing
+
+**Status:** accepted, phase 6
+
+**Context.** The elapsed time has to be a real measurement. A constant would
+pass the backend's check while proving nothing about who filled the form in,
+which is the same as not sending it.
+
+There is nothing to type on this form: a parent reads an amount and presses a
+button. So there is no first keystroke to measure from.
+
+**Decision.** The measurement runs from the component mounting to the submit,
+using `performance.now` where it exists and `Date.now` otherwise. An elapsed
+time of zero or below is sent as zero, which the api reads as "not measured"
+rather than as evidence.
+
+**Consequences.** `performance.now` is monotonic, so a system clock correction
+mid-form cannot produce a negative. The fallback can, which is why the
+arithmetic guards it anyway rather than trusting the clock it was handed.
+
+Simulation F7 mounts the screen twice, holds each open for a different stretch,
+and asserts the two numbers differ. A constant would pass every other test in
+this repository.
+
+<br>
+
+## ADR-F029: The key lifecycle lives in the api layer, not in the store
+
+**Status:** accepted, phase 6
+
+**Context.** ADR-F021 put the rule for when an idempotency key is spent inside
+the booking store, so no screen could forget it. That was right, and it left the
+rule reachable only through a store: reading it meant reading `submit`, and
+testing it meant driving a booking.
+
+**Decision.** `lib/api/attempt.ts` owns the key and the rule. The store calls
+`restart` when an attempt begins, `current` when it continues, and `settle` with
+the failure kind, and holds no key of its own.
+
+**Consequences.** ADR-F021 still holds: the store applies the rule and no screen
+can forget it. What changed is where the rule can be read from, which is a file
+with ten cases against it, including the one that matters most, that a failure
+kind this build has never heard of keeps the key rather than minting one.
+
+That default is the safe direction. A backend that grows a code this client does
+not know must not be able to turn a retry into a second charge.
+
+<br>
+
+## ADR-F030: The challenge widget is a mock, and it takes a moment on purpose
+
+**Status:** accepted, phase 6
+
+**Context.** A real challenge widget mounts, takes a moment, and hands back one
+opaque token. A mock that solved instantly would hide the one state worth
+designing for: the parent submitting before the challenge has answered.
+
+**Decision.** `CaptchaWidget.svelte` waits a short delay, then reports the token
+the backend's mock verifier accepts. The token is passed through untouched: the
+client never reads it, shortens it, or decides anything from it.
+
+**Consequences.** The unanswered state is reachable and is tested. A submission
+that goes out before the widget solves carries an empty token, which the api
+accepts today and would refuse with the challenge required, and neither case is
+a surprise.
+
+Swapping in Turnstile or hCaptcha replaces this one file, because nothing
+outside it knows what a token looks like. The shared token string is what makes
+both halves testable end to end without an account anywhere, and it is the one
+thing a real provider replaces on both sides at once.
