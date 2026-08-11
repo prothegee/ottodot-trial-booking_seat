@@ -12,13 +12,13 @@ import "context"
 // and change for different reasons: one is the token lifecycle, the other is
 // who the account belongs to.
 type Directory interface {
-	// ParentByEmail is the sign in lookup. It reports ErrNoSuchParent when the
-	// address is not one of the seeded accounts.
-	ParentByEmail(ctx context.Context, email string) (Parent, error)
+    // ParentByEmail is the sign in lookup. It reports ErrNoSuchParent when the
+    // address is not one of the seeded accounts.
+    ParentByEmail(ctx context.Context, email string) (Parent, error)
 
-	// Account is the session read: the parent, and the children on their
-	// account. It reports ErrNoSuchParent when the id matches nothing.
-	Account(ctx context.Context, parentID string) (Account, error)
+    // Account is the session read: the parent, and the children on their
+    // account. It reports ErrNoSuchParent when the id matches nothing.
+    Account(ctx context.Context, parentID string) (Account, error)
 }
 
 // Parent is who a token speaks for.
@@ -28,26 +28,26 @@ type Directory interface {
 // display name, and an email that is never loaded is an email that can never be
 // logged, put in a claim, or returned by accident.
 type Parent struct {
-	ID string
+    ID string
 
-	// DisplayName is what the client greets the parent with. It is the one
-	// piece of naming that leaves this service, and it never reaches a token,
-	// a metric label, or a log line.
-	DisplayName string
+    // DisplayName is what the client greets the parent with. It is the one
+    // piece of naming that leaves this service, and it never reaches a token,
+    // a metric label, or a log line.
+    DisplayName string
 
-	// Role is parent or admin, and it is what the admin routes are gated on.
-	Role string
+    // Role is parent or admin, and it is what the admin routes are gated on.
+    Role string
 }
 
 // Child is one student on a parent's account.
 type Child struct {
-	ID         string
-	FullName   string
-	GradeLevel int16
+    ID         string
+    FullName   string
+    GradeLevel int16
 }
 
 // Account is the whole answer to "who am I signed in as".
 type Account struct {
-	Parent   Parent
-	Children []Child
+    Parent   Parent
+    Children []Child
 }

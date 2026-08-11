@@ -1,9 +1,9 @@
 package auth
 
 import (
-	"context"
-	"errors"
-	"fmt"
+    "context"
+    "errors"
+    "fmt"
 )
 
 // Refresh spends the presented refresh token and issues its successor.
@@ -35,54 +35,54 @@ import (
 //   - ErrTokenExpired when the presented token is past its life
 //   - ErrTokenReused when it had already been spent, the family now revoked
 func (service *Service) Refresh(ctx context.Context, presented string) (Issued, error) {
-	if presented == "" {
-		return Issued{}, ErrInvalidRequest
-	}
+    if presented == "" {
+        return Issued{}, ErrInvalidRequest
+    }
 
-	now := service.settings.Clock()
+    now := service.settings.Clock()
 
-	nextID, err := service.settings.NewID()
-	if err != nil {
-		return Issued{}, fmt.Errorf("a refresh token could not be identified: %w", err)
-	}
+    nextID, err := service.settings.NewID()
+    if err != nil {
+        return Issued{}, fmt.Errorf("a refresh token could not be identified: %w", err)
+    }
 
-	nextToken, err := service.settings.NewToken()
-	if err != nil {
-		return Issued{}, fmt.Errorf("a refresh token could not be minted: %w", err)
-	}
+    nextToken, err := service.settings.NewToken()
+    if err != nil {
+        return Issued{}, fmt.Errorf("a refresh token could not be minted: %w", err)
+    }
 
-	successor, err := service.store.Rotate(ctx, RotateRequest{
-		PresentedHash: HashRefreshToken(presented),
-		NextTokenID:   nextID,
-		NextTokenHash: HashRefreshToken(nextToken),
-		NextExpiresAt: now.Add(service.settings.RefreshTTL),
-		Now:           now,
-	})
-	if err != nil {
-		// The store has already revoked the family by the time it reports
-		// reuse. Counting it here is what puts the event on a dashboard, and it
-		// is the one auth number worth alerting on.
-		if errors.Is(err, ErrTokenReused) {
-			service.counters.ReuseDetected()
-		}
+    successor, err := service.store.Rotate(ctx, RotateRequest{
+        PresentedHash: HashRefreshToken(presented),
+        NextTokenID:   nextID,
+        NextTokenHash: HashRefreshToken(nextToken),
+        NextExpiresAt: now.Add(service.settings.RefreshTTL),
+        Now:           now,
+    })
+    if err != nil {
+        // The store has already revoked the family by the time it reports
+        // reuse. Counting it here is what puts the event on a dashboard, and it
+        // is the one auth number worth alerting on.
+        if errors.Is(err, ErrTokenReused) {
+            service.counters.ReuseDetected()
+        }
 
-		return Issued{}, err
-	}
+        return Issued{}, err
+    }
 
-	account, err := service.directory.Account(ctx, successor.ParentID)
-	if err != nil {
-		return Issued{}, err
-	}
+    account, err := service.directory.Account(ctx, successor.ParentID)
+    if err != nil {
+        return Issued{}, err
+    }
 
-	issued, err := service.completeSession(
-		account.Parent,
-		issuedRefresh{Token: nextToken, Record: successor},
-		now)
-	if err != nil {
-		return Issued{}, err
-	}
+    issued, err := service.completeSession(
+        account.Parent,
+        issuedRefresh{Token: nextToken, Record: successor},
+        now)
+    if err != nil {
+        return Issued{}, err
+    }
 
-	service.counters.Rotated()
+    service.counters.Rotated()
 
-	return issued, nil
+    return issued, nil
 }

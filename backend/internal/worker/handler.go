@@ -12,9 +12,9 @@
 package worker
 
 import (
-	"context"
+    "context"
 
-	"ottodot-trial-booking/backend/internal/queue"
+    "ottodot-trial-booking/backend/internal/queue"
 )
 
 // Handler runs one job.
@@ -32,7 +32,7 @@ import (
 // forever, which is why every handler in this package decides it explicitly
 // rather than passing an error along.
 type Handler interface {
-	Handle(ctx context.Context, job queue.Job) error
+    Handle(ctx context.Context, job queue.Job) error
 }
 
 // HandlerFunc lets a plain function be a handler, which is what a test uses to
@@ -41,7 +41,7 @@ type HandlerFunc func(ctx context.Context, job queue.Job) error
 
 // Handle runs the function.
 func (handle HandlerFunc) Handle(ctx context.Context, job queue.Job) error {
-	return handle(ctx, job)
+    return handle(ctx, job)
 }
 
 // Registry maps each kind to the one thing that runs it.
@@ -64,21 +64,21 @@ type Registry map[queue.Kind]Handler
 //   - ErrHandlerAlreadyRegistered when the kind already has one, because a
 //     second registration would silently replace the first
 func (registry Registry) Register(kind queue.Kind, handler Handler) error {
-	if !kind.IsKnown() {
-		return ErrUnknownKind
-	}
+    if !kind.IsKnown() {
+        return ErrUnknownKind
+    }
 
-	if handler == nil {
-		return ErrHandlerMissing
-	}
+    if handler == nil {
+        return ErrHandlerMissing
+    }
 
-	if _, taken := registry[kind]; taken {
-		return ErrHandlerAlreadyRegistered
-	}
+    if _, taken := registry[kind]; taken {
+        return ErrHandlerAlreadyRegistered
+    }
 
-	registry[kind] = handler
+    registry[kind] = handler
 
-	return nil
+    return nil
 }
 
 // Covers reports whether every kind this service runs has a handler.
@@ -87,11 +87,11 @@ func (registry Registry) Register(kind queue.Kind, handler Handler) error {
 // in the morning is a queue filling up, and discovered at startup it is a line
 // in a log before anything is accepted.
 func (registry Registry) Covers() bool {
-	for _, kind := range queue.AllKinds() {
-		if _, found := registry[kind]; !found {
-			return false
-		}
-	}
+    for _, kind := range queue.AllKinds() {
+        if _, found := registry[kind]; !found {
+            return false
+        }
+    }
 
-	return true
+    return true
 }

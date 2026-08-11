@@ -8,9 +8,9 @@ import "sync/atomic"
 // the thing it counts sit in one file. A dashboard panel that queries a name
 // nobody increments is the failure this avoids.
 const (
-	MetricRefreshRotated       = "auth_refresh_rotated_total"
-	MetricRefreshReuseDetected = "auth_refresh_reuse_detected_total"
-	MetricLoginRefused         = "auth_login_refused_total"
+    MetricRefreshRotated       = "auth_refresh_rotated_total"
+    MetricRefreshReuseDetected = "auth_refresh_reuse_detected_total"
+    MetricLoginRefused         = "auth_login_refused_total"
 )
 
 // Counters is what the auth surface knows about its own run.
@@ -22,45 +22,45 @@ const (
 // counter would be a uuid in a metric label, which is exactly what the
 // sensitive data rules forbid.
 type Counters struct {
-	rotated       atomic.Int64
-	reuseDetected atomic.Int64
-	loginRefused  atomic.Int64
+    rotated       atomic.Int64
+    reuseDetected atomic.Int64
+    loginRefused  atomic.Int64
 }
 
 // NewCounters builds a fresh set, all at zero.
 func NewCounters() *Counters {
-	return &Counters{}
+    return &Counters{}
 }
 
 // Rotated records one refresh that produced a successor.
 func (counters *Counters) Rotated() {
-	counters.rotated.Add(1)
+    counters.rotated.Add(1)
 }
 
 // ReuseDetected records one spent refresh token presented again, which is the
 // number worth alerting on: it is either a stolen token or a client bug, and
 // both want a person to look.
 func (counters *Counters) ReuseDetected() {
-	counters.reuseDetected.Add(1)
+    counters.reuseDetected.Add(1)
 }
 
 // LoginRefused records one sign in that matched no account.
 func (counters *Counters) LoginRefused() {
-	counters.loginRefused.Add(1)
+    counters.loginRefused.Add(1)
 }
 
 // CounterSnapshot is the three counts read together.
 type CounterSnapshot struct {
-	Rotated       int64
-	ReuseDetected int64
-	LoginRefused  int64
+    Rotated       int64
+    ReuseDetected int64
+    LoginRefused  int64
 }
 
 // Snapshot reads all three counts.
 func (counters *Counters) Snapshot() CounterSnapshot {
-	return CounterSnapshot{
-		Rotated:       counters.rotated.Load(),
-		ReuseDetected: counters.reuseDetected.Load(),
-		LoginRefused:  counters.loginRefused.Load(),
-	}
+    return CounterSnapshot{
+        Rotated:       counters.rotated.Load(),
+        ReuseDetected: counters.reuseDetected.Load(),
+        LoginRefused:  counters.loginRefused.Load(),
+    }
 }

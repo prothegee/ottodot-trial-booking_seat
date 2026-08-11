@@ -13,24 +13,24 @@ const currencyLength = 3
 // Cents rather than a float, because a float cannot hold 0.10 and money that
 // does not add up is worse than money that is awkward to read.
 type Amount struct {
-	// Cents is the charge in the smallest unit of the currency. It is int32
-	// because the column is an integer, so a value that would not survive the
-	// write cannot be built here either.
-	Cents int32
+    // Cents is the charge in the smallest unit of the currency. It is int32
+    // because the column is an integer, so a value that would not survive the
+    // write cannot be built here either.
+    Cents int32
 
-	// Currency is the three letter code. An empty value means DefaultCurrency,
-	// filled in by Normalised rather than assumed by every caller.
-	Currency string
+    // Currency is the three letter code. An empty value means DefaultCurrency,
+    // filled in by Normalised rather than assumed by every caller.
+    Currency string
 }
 
 // Normalised fills in the currency this service defaults to, so a caller that
 // only knows the price does not have to name the country.
 func (amount Amount) Normalised() Amount {
-	if amount.Currency == "" {
-		amount.Currency = DefaultCurrency
-	}
+    if amount.Currency == "" {
+        amount.Currency = DefaultCurrency
+    }
 
-	return amount
+    return amount
 }
 
 // Validate refuses an amount before the driver ever sees it.
@@ -49,23 +49,23 @@ func (amount Amount) Normalised() Amount {
 //   - ErrInvalidAmount when the value is zero or below
 //   - ErrInvalidCurrency when the code is not three capital letters
 func (amount Amount) Validate() error {
-	if amount.Cents <= 0 {
-		return ErrInvalidAmount
-	}
+    if amount.Cents <= 0 {
+        return ErrInvalidAmount
+    }
 
-	currency := amount.Normalised().Currency
+    currency := amount.Normalised().Currency
 
-	if len(currency) != currencyLength {
-		return ErrInvalidCurrency
-	}
+    if len(currency) != currencyLength {
+        return ErrInvalidCurrency
+    }
 
-	for i := 0; i < len(currency); i++ {
-		if currency[i] < 'A' || currency[i] > 'Z' {
-			return ErrInvalidCurrency
-		}
-	}
+    for i := 0; i < len(currency); i++ {
+        if currency[i] < 'A' || currency[i] > 'Z' {
+            return ErrInvalidCurrency
+        }
+    }
 
-	return nil
+    return nil
 }
 
 // SameAs reports whether two amounts are the one charge.
@@ -73,8 +73,8 @@ func (amount Amount) Validate() error {
 // It is what decides whether a replayed idempotency key is a retry or a second,
 // different charge wearing the first one's key.
 func (amount Amount) SameAs(other Amount) bool {
-	left := amount.Normalised()
-	right := other.Normalised()
+    left := amount.Normalised()
+    right := other.Normalised()
 
-	return left.Cents == right.Cents && left.Currency == right.Currency
+    return left.Cents == right.Cents && left.Currency == right.Currency
 }

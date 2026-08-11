@@ -1,23 +1,23 @@
 package payment
 
 import (
-	"context"
-	"errors"
-	"time"
+    "context"
+    "errors"
+    "time"
 
-	"ottodot-trial-booking/backend/internal/identifier"
+    "ottodot-trial-booking/backend/internal/identifier"
 )
 
 // Settings are the two things the service needs handed to it rather than
 // reaching for. Both default to the real ones.
 type Settings struct {
-	// Clock is where every stamped time comes from. Nil means the real clock. A
-	// test sets it so a settled instant is exact rather than approximately
-	// right.
-	Clock func() time.Time
+    // Clock is where every stamped time comes from. Nil means the real clock. A
+    // test sets it so a settled instant is exact rather than approximately
+    // right.
+    Clock func() time.Time
 
-	// NewAttemptID mints the identifier for a new attempt. Nil means UUIDv7.
-	NewAttemptID func() (string, error)
+    // NewAttemptID mints the identifier for a new attempt. Nil means UUIDv7.
+    NewAttemptID func() (string, error)
 }
 
 // Service turns a request to pay into at most one charge.
@@ -31,20 +31,20 @@ type Settings struct {
 // layer up. That ordering is why a parent can be charged and still lose a seat,
 // and why refund_required exists over there rather than here.
 type Service struct {
-	repository Repository
-	provider   Provider
-	settings   Settings
+    repository Repository
+    provider   Provider
+    settings   Settings
 }
 
 // PayCommand is a parent settling one booking.
 type PayCommand struct {
-	BookingID string
-	Amount    Amount
+    BookingID string
+    Amount    Amount
 
-	// IdempotencyKey comes from the request header. The same key twice is a
-	// retry, and it must produce the first answer again rather than a second
-	// charge.
-	IdempotencyKey string
+    // IdempotencyKey comes from the request header. The same key twice is a
+    // retry, and it must produce the first answer again rather than a second
+    // charge.
+    IdempotencyKey string
 }
 
 // NewService builds the service and fills in whatever the settings left out.
@@ -59,23 +59,23 @@ type PayCommand struct {
 //   - an error when a dependency is missing, refused at construction rather
 //     than at the first charge
 func NewService(repository Repository, provider Provider, settings Settings) (*Service, error) {
-	if repository == nil {
-		return nil, errors.New("payment: the service needs a repository")
-	}
+    if repository == nil {
+        return nil, errors.New("payment: the service needs a repository")
+    }
 
-	if provider == nil {
-		return nil, errors.New("payment: the service needs a provider")
-	}
+    if provider == nil {
+        return nil, errors.New("payment: the service needs a provider")
+    }
 
-	if settings.Clock == nil {
-		settings.Clock = time.Now
-	}
+    if settings.Clock == nil {
+        settings.Clock = time.Now
+    }
 
-	if settings.NewAttemptID == nil {
-		settings.NewAttemptID = identifier.NewUUIDv7
-	}
+    if settings.NewAttemptID == nil {
+        settings.NewAttemptID = identifier.NewUUIDv7
+    }
 
-	return &Service{repository: repository, provider: provider, settings: settings}, nil
+    return &Service{repository: repository, provider: provider, settings: settings}, nil
 }
 
 // Pay settles one booking, once.
@@ -105,87 +105,87 @@ func NewService(repository Repository, provider Provider, settings Settings) (*S
 //   - ErrInvalidAmount, ErrInvalidCurrency, ErrInvalidIdempotencyKey, or
 //     ErrInvalidRequest, each refused before anything is written
 func (service *Service) Pay(ctx context.Context, command PayCommand) (Attempt, error) {
-	if command.BookingID == "" {
-		return Attempt{}, ErrInvalidRequest
-	}
+    if command.BookingID == "" {
+        return Attempt{}, ErrInvalidRequest
+    }
 
-	if err := command.Amount.Validate(); err != nil {
-		return Attempt{}, err
-	}
+    if err := command.Amount.Validate(); err != nil {
+        return Attempt{}, err
+    }
 
-	if err := ValidateIdempotencyKey(command.IdempotencyKey); err != nil {
-		return Attempt{}, err
-	}
+    if err := ValidateIdempotencyKey(command.IdempotencyKey); err != nil {
+        return Attempt{}, err
+    }
 
-	attemptID, err := service.settings.NewAttemptID()
-	if err != nil {
-		return Attempt{}, err
-	}
+    attemptID, err := service.settings.NewAttemptID()
+    if err != nil {
+        return Attempt{}, err
+    }
 
-	opened, replayed, err := service.repository.Begin(ctx, BeginRequest{
-		AttemptID:      attemptID,
-		BookingID:      command.BookingID,
-		IdempotencyKey: command.IdempotencyKey,
-		Amount:         command.Amount,
-		Now:            service.settings.Clock(),
-	})
-	if err != nil {
-		return Attempt{}, err
-	}
+    opened, replayed, err := service.repository.Begin(ctx, BeginRequest{
+        AttemptID:      attemptID,
+        BookingID:      command.BookingID,
+        IdempotencyKey: command.IdempotencyKey,
+        Amount:         command.Amount,
+        Now:            service.settings.Clock(),
+    })
+    if err != nil {
+        return Attempt{}, err
+    }
 
-	if replayed {
-		return replayOf(opened)
-	}
+    if replayed {
+        return replayOf(opened)
+    }
 
-	result, err := service.provider.Charge(ctx, ChargeRequest{
-		AttemptID:      opened.ID,
-		Reference:      opened.BookingID,
-		Amount:         opened.Amount,
-		IdempotencyKey: opened.IdempotencyKey,
-	})
-	if err != nil {
-		return opened, err
-	}
+    result, err := service.provider.Charge(ctx, ChargeRequest{
+        AttemptID:      opened.ID,
+        Reference:      opened.BookingID,
+        Amount:         opened.Amount,
+        IdempotencyKey: opened.IdempotencyKey,
+    })
+    if err != nil {
+        return opened, err
+    }
 
-	if result.Outcome == OutcomeDeclined {
-		declined, settleErr := service.repository.Settle(ctx, SettleRequest{
-			AttemptID:     opened.ID,
-			Status:        StatusFailed,
-			FailureReason: result.FailureReason,
-			Now:           service.settings.Clock(),
-		})
-		if settleErr != nil {
-			return Attempt{}, settleErr
-		}
+    if result.Outcome == OutcomeDeclined {
+        declined, settleErr := service.repository.Settle(ctx, SettleRequest{
+            AttemptID:     opened.ID,
+            Status:        StatusFailed,
+            FailureReason: result.FailureReason,
+            Now:           service.settings.Clock(),
+        })
+        if settleErr != nil {
+            return Attempt{}, settleErr
+        }
 
-		return declined, ErrDeclined
-	}
+        return declined, ErrDeclined
+    }
 
-	return service.repository.Settle(ctx, SettleRequest{
-		AttemptID:   opened.ID,
-		Status:      StatusSucceeded,
-		ProviderRef: result.ProviderRef,
-		Now:         service.settings.Clock(),
-	})
+    return service.repository.Settle(ctx, SettleRequest{
+        AttemptID:   opened.ID,
+        Status:      StatusSucceeded,
+        ProviderRef: result.ProviderRef,
+        Now:         service.settings.Clock(),
+    })
 }
 
 // Attempt reads one attempt back.
 func (service *Service) Attempt(ctx context.Context, attemptID string) (Attempt, error) {
-	if attemptID == "" {
-		return Attempt{}, ErrInvalidRequest
-	}
+    if attemptID == "" {
+        return Attempt{}, ErrInvalidRequest
+    }
 
-	return service.repository.Attempt(ctx, attemptID)
+    return service.repository.Attempt(ctx, attemptID)
 }
 
 // AttemptsFor lists every attempt against one booking, oldest first. It is what
 // an operator screen reads, and what proves a replay wrote one row.
 func (service *Service) AttemptsFor(ctx context.Context, bookingID string) ([]Attempt, error) {
-	if bookingID == "" {
-		return nil, ErrInvalidRequest
-	}
+    if bookingID == "" {
+        return nil, ErrInvalidRequest
+    }
 
-	return service.repository.AttemptsFor(ctx, bookingID)
+    return service.repository.AttemptsFor(ctx, bookingID)
 }
 
 // replayOf hands back the answer an earlier call already got, so the second
@@ -196,12 +196,12 @@ func (service *Service) AttemptsFor(ctx context.Context, bookingID string) ([]At
 // money moved. Charging again could charge twice, so the unfinished attempt is
 // reported instead of guessed at.
 func replayOf(stored Attempt) (Attempt, error) {
-	switch stored.Status {
-	case StatusSucceeded:
-		return stored, nil
-	case StatusFailed:
-		return stored, ErrDeclined
-	}
+    switch stored.Status {
+    case StatusSucceeded:
+        return stored, nil
+    case StatusFailed:
+        return stored, ErrDeclined
+    }
 
-	return stored, ErrAttemptPending
+    return stored, ErrAttemptPending
 }

@@ -24,15 +24,15 @@ const MaxIdempotencyKeyLength = 128
 //   - ErrInvalidIdempotencyKey when it is empty, longer than the bound, or
 //     carries a character a header cannot hold
 func ValidateIdempotencyKey(key string) error {
-	if key == "" || len(key) > MaxIdempotencyKeyLength {
-		return ErrInvalidIdempotencyKey
-	}
+    if key == "" || len(key) > MaxIdempotencyKeyLength {
+        return ErrInvalidIdempotencyKey
+    }
 
-	for i := 0; i < len(key); i++ {
-		if key[i] <= ' ' || key[i] > '~' {
-			return ErrInvalidIdempotencyKey
-		}
-	}
+    for i := 0; i < len(key); i++ {
+        if key[i] <= ' ' || key[i] > '~' {
+            return ErrInvalidIdempotencyKey
+        }
+    }
 
-	return nil
+    return nil
 }

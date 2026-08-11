@@ -17,8 +17,8 @@ import "time"
 // The roles this service knows. Anything else is a typo, and a typo in this
 // value would quietly open an admin route.
 const (
-	RoleParent = "parent"
-	RoleAdmin  = "admin"
+    RoleParent = "parent"
+    RoleAdmin  = "admin"
 )
 
 // TypeAccess is the only token type carried as a JWT.
@@ -30,7 +30,7 @@ const TypeAccess = "access"
 
 // IsKnownRole reports whether a role is one this service acts on.
 func IsKnownRole(role string) bool {
-	return role == RoleParent || role == RoleAdmin
+    return role == RoleParent || role == RoleAdmin
 }
 
 // Claims is the entire payload of an access token, and the field list is the
@@ -45,25 +45,25 @@ func IsKnownRole(role string) bool {
 // pass something through, because a pass-through is how an email ends up in a
 // token six months from now.
 type Claims struct {
-	// Subject is the parent id this token speaks for.
-	Subject string `json:"sub"`
+    // Subject is the parent id this token speaks for.
+    Subject string `json:"sub"`
 
-	// Role is parent or admin. It is in the token rather than read per request
-	// because a role read would put a database query back on the hot path.
-	Role string `json:"role"`
+    // Role is parent or admin. It is in the token rather than read per request
+    // because a role read would put a database query back on the hot path.
+    Role string `json:"role"`
 
-	// Type is TypeAccess.
-	Type string `json:"typ"`
+    // Type is TypeAccess.
+    Type string `json:"typ"`
 
-	// TokenID is what a logout denylists. Without it a token could be verified
-	// but never withdrawn.
-	TokenID string `json:"jti"`
+    // TokenID is what a logout denylists. Without it a token could be verified
+    // but never withdrawn.
+    TokenID string `json:"jti"`
 
-	// IssuedAt is unix seconds.
-	IssuedAt int64 `json:"iat"`
+    // IssuedAt is unix seconds.
+    IssuedAt int64 `json:"iat"`
 
-	// ExpiresAt is unix seconds.
-	ExpiresAt int64 `json:"exp"`
+    // ExpiresAt is unix seconds.
+    ExpiresAt int64 `json:"exp"`
 }
 
 // Validate reports whether every claim this service requires is present and
@@ -79,19 +79,19 @@ type Claims struct {
 //   - nil when the claim set is one this service issued
 //   - ErrTokenInvalid otherwise, naming nothing about which part was wrong
 func (claims Claims) Validate() error {
-	if claims.Subject == "" || claims.TokenID == "" {
-		return ErrTokenInvalid
-	}
+    if claims.Subject == "" || claims.TokenID == "" {
+        return ErrTokenInvalid
+    }
 
-	if claims.Type != TypeAccess || !IsKnownRole(claims.Role) {
-		return ErrTokenInvalid
-	}
+    if claims.Type != TypeAccess || !IsKnownRole(claims.Role) {
+        return ErrTokenInvalid
+    }
 
-	if claims.IssuedAt <= 0 || claims.ExpiresAt <= claims.IssuedAt {
-		return ErrTokenInvalid
-	}
+    if claims.IssuedAt <= 0 || claims.ExpiresAt <= claims.IssuedAt {
+        return ErrTokenInvalid
+    }
 
-	return nil
+    return nil
 }
 
 // IsExpired reports whether the token's life is over at the given instant.
@@ -101,11 +101,11 @@ func (claims Claims) Validate() error {
 // works, and there is nothing to buy with it here because one service issues
 // and verifies, on one clock.
 func (claims Claims) IsExpired(now time.Time) bool {
-	return !now.Before(time.Unix(claims.ExpiresAt, 0))
+    return !now.Before(time.Unix(claims.ExpiresAt, 0))
 }
 
 // Expiry is when this token stops being believed, which is how long a logout
 // has to keep its jti on the denylist.
 func (claims Claims) Expiry() time.Time {
-	return time.Unix(claims.ExpiresAt, 0).UTC()
+    return time.Unix(claims.ExpiresAt, 0).UTC()
 }

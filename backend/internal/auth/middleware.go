@@ -1,9 +1,9 @@
 package auth
 
 import (
-	"context"
-	"net/http"
-	"time"
+    "context"
+    "net/http"
+    "time"
 )
 
 // identityKey is the context key the established identity is carried under.
@@ -20,19 +20,19 @@ type identityKey struct{}
 // every request would put a database read back on the path this design took it
 // off.
 type Identity struct {
-	ParentID string
-	Role     string
-	TokenID  string
+    ParentID string
+    Role     string
+    TokenID  string
 
-	// ExpiresAt is when this token stops verifying, which is exactly how long
-	// a logout has to keep its id on the denylist. It is carried here so the
-	// logout handler does not decode a token the middleware already read.
-	ExpiresAt time.Time
+    // ExpiresAt is when this token stops verifying, which is exactly how long
+    // a logout has to keep its id on the denylist. It is carried here so the
+    // logout handler does not decode a token the middleware already read.
+    ExpiresAt time.Time
 }
 
 // IsAdmin reports whether this identity may reach the admin routes.
 func (identity Identity) IsAdmin() bool {
-	return identity.Role == RoleAdmin
+    return identity.Role == RoleAdmin
 }
 
 // IdentityFrom reads the identity a request was authenticated with.
@@ -42,19 +42,19 @@ func (identity Identity) IsAdmin() bool {
 //   - a zero identity and false otherwise, which a handler treats as a bug in
 //     its own wiring rather than as an anonymous caller
 func IdentityFrom(ctx context.Context) (Identity, bool) {
-	held, carried := ctx.Value(identityKey{}).(Identity)
+    held, carried := ctx.Value(identityKey{}).(Identity)
 
-	return held, carried
+    return held, carried
 }
 
 // GuardSettings is what the middleware needs to decide.
 type GuardSettings struct {
-	// FrontendOrigin is the one origin this service serves. A mutation from
-	// anywhere else is refused.
-	FrontendOrigin string
+    // FrontendOrigin is the one origin this service serves. A mutation from
+    // anywhere else is refused.
+    FrontendOrigin string
 
-	// Clock is now. It defaults to time.Now.
-	Clock func() time.Time
+    // Clock is now. It defaults to time.Now.
+    Clock func() time.Time
 }
 
 // Guard is the request side of authentication: read the cookie, believe it or
@@ -64,9 +64,9 @@ type GuardSettings struct {
 // check, a clock comparison, and a denylist lookup, and that is the whole
 // reason the hot path costs no database read.
 type Guard struct {
-	signer   *Signer
-	denylist Denylist
-	settings GuardSettings
+    signer   *Signer
+    denylist Denylist
+    settings GuardSettings
 }
 
 // NewGuard wires the middleware.
@@ -82,15 +82,15 @@ type Guard struct {
 //     here rather than at the first request that would have let everything
 //     through
 func NewGuard(signer *Signer, denylist Denylist, settings GuardSettings) (*Guard, error) {
-	if signer == nil || denylist == nil || settings.FrontendOrigin == "" {
-		return nil, ErrInvalidRequest
-	}
+    if signer == nil || denylist == nil || settings.FrontendOrigin == "" {
+        return nil, ErrInvalidRequest
+    }
 
-	if settings.Clock == nil {
-		settings.Clock = time.Now
-	}
+    if settings.Clock == nil {
+        settings.Clock = time.Now
+    }
 
-	return &Guard{signer: signer, denylist: denylist, settings: settings}, nil
+    return &Guard{signer: signer, denylist: denylist, settings: settings}, nil
 }
 
 // Authenticate establishes the identity behind a request, or refuses it.
@@ -112,17 +112,17 @@ func NewGuard(signer *Signer, denylist Denylist, settings GuardSettings) (*Guard
 //   - a handler that either calls next with an identity in its context, or
 //     answers the envelope itself
 func (guard *Guard) Authenticate(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		identity, err := guard.identify(request)
-		if err != nil {
-			Deny(response, err)
+    return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+        identity, err := guard.identify(request)
+        if err != nil {
+            Deny(response, err)
 
-			return
-		}
+            return
+        }
 
-		next.ServeHTTP(response, request.WithContext(
-			context.WithValue(request.Context(), identityKey{}, identity)))
-	})
+        next.ServeHTTP(response, request.WithContext(
+            context.WithValue(request.Context(), identityKey{}, identity)))
+    })
 }
 
 // RequireRole refuses an established identity that is not the role a route is
@@ -138,20 +138,20 @@ func (guard *Guard) Authenticate(next http.Handler) http.Handler {
 // Return:
 //   - a handler that authenticates first and then checks the role
 func (guard *Guard) RequireRole(role string, next http.Handler) http.Handler {
-	return guard.Authenticate(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		identity, carried := IdentityFrom(request.Context())
+    return guard.Authenticate(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+        identity, carried := IdentityFrom(request.Context())
 
-		if !carried || identity.Role != role {
-			// The refusal names no role and no route. A caller learning which
-			// role would have worked is a caller learning what to go looking
-			// for.
-			Deny(response, ErrForbiddenRole)
+        if !carried || identity.Role != role {
+            // The refusal names no role and no route. A caller learning which
+            // role would have worked is a caller learning what to go looking
+            // for.
+            Deny(response, ErrForbiddenRole)
 
-			return
-		}
+            return
+        }
 
-		next.ServeHTTP(response, request)
-	}))
+        next.ServeHTTP(response, request)
+    }))
 }
 
 // CheckOrigin refuses a mutation that did not come from the origin this service
@@ -175,21 +175,21 @@ func (guard *Guard) RequireRole(role string, next http.Handler) http.Handler {
 // Return:
 //   - a handler that checks writes and passes reads straight through
 func (guard *Guard) CheckOrigin(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if isSafeMethod(request.Method) {
-			next.ServeHTTP(response, request)
+    return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+        if isSafeMethod(request.Method) {
+            next.ServeHTTP(response, request)
 
-			return
-		}
+            return
+        }
 
-		if request.Header.Get("Origin") != guard.settings.FrontendOrigin {
-			Deny(response, ErrOriginRefused)
+        if request.Header.Get("Origin") != guard.settings.FrontendOrigin {
+            Deny(response, ErrOriginRefused)
 
-			return
-		}
+            return
+        }
 
-		next.ServeHTTP(response, request)
-	})
+        next.ServeHTTP(response, request)
+    })
 }
 
 // identify reads the access cookie and decides whether to believe it.
@@ -200,39 +200,39 @@ func (guard *Guard) CheckOrigin(next http.Handler) http.Handler {
 //   - ErrTokenExpired when it verified and its life is over, which is the one
 //     failure the client acts on by refreshing
 func (guard *Guard) identify(request *http.Request) (Identity, error) {
-	token := CookieValue(request, AccessCookieName)
-	if token == "" {
-		return Identity{}, ErrTokenInvalid
-	}
+    token := CookieValue(request, AccessCookieName)
+    if token == "" {
+        return Identity{}, ErrTokenInvalid
+    }
 
-	now := guard.settings.Clock()
+    now := guard.settings.Clock()
 
-	claims, err := guard.signer.Verify(token, now)
-	if err != nil {
-		return Identity{}, err
-	}
+    claims, err := guard.signer.Verify(token, now)
+    if err != nil {
+        return Identity{}, err
+    }
 
-	withdrawn, err := guard.denylist.IsDenied(request.Context(), claims.TokenID, now)
-	if err != nil {
-		// A denylist that cannot be read is a denylist that cannot say no. The
-		// service refuses rather than guessing, because guessing here means
-		// honouring a token somebody has already signed out of.
-		return Identity{}, err
-	}
+    withdrawn, err := guard.denylist.IsDenied(request.Context(), claims.TokenID, now)
+    if err != nil {
+        // A denylist that cannot be read is a denylist that cannot say no. The
+        // service refuses rather than guessing, because guessing here means
+        // honouring a token somebody has already signed out of.
+        return Identity{}, err
+    }
 
-	if withdrawn {
-		return Identity{}, ErrTokenInvalid
-	}
+    if withdrawn {
+        return Identity{}, ErrTokenInvalid
+    }
 
-	return Identity{
-		ParentID:  claims.Subject,
-		Role:      claims.Role,
-		TokenID:   claims.TokenID,
-		ExpiresAt: claims.Expiry(),
-	}, nil
+    return Identity{
+        ParentID:  claims.Subject,
+        Role:      claims.Role,
+        TokenID:   claims.TokenID,
+        ExpiresAt: claims.Expiry(),
+    }, nil
 }
 
 // isSafeMethod reports whether a method changes nothing.
 func isSafeMethod(method string) bool {
-	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
+    return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
 }
