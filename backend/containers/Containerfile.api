@@ -22,9 +22,14 @@ COPY . .
 ARG BUILD_VERSION=dev
 ARG BUILD_COMMIT=unknown
 
+# BUILD_TIME is left empty by default. A local build has no honest value for it,
+# and the version endpoint reports an empty one as "unknown" rather than as a
+# blank field.
+ARG BUILD_TIME=
+
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
-    -ldflags "-s -w -X main.buildVersion=${BUILD_VERSION} -X main.buildCommit=${BUILD_COMMIT}" \
+    -ldflags "-s -w -X main.buildVersion=${BUILD_VERSION} -X main.buildCommit=${BUILD_COMMIT} -X main.buildTime=${BUILD_TIME}" \
     -o /out/api ./cmd/api
 
 FROM gcr.io/distroless/static-debian12:nonroot
