@@ -151,28 +151,63 @@ cannot be asked which identifiers exist, ADR-038.
 
 ## Phase 7: monitoring and data hygiene
 
-- [ ] `internal/observability/metrics.go` with every metric in the table
-- [ ] `internal/observability/logger.go`, request id and booking id on every state change
-- [ ] `internal/observability/redact.go`, cookie and authorization scrubbing at the writer
-- [ ] `internal/observability/telemetry.go`, frontend events into metrics
-- [ ] access failure metrics: `access_denied_total`, `rate_limit_rejected_total`, `bot_check_rejected_total`
-- [ ] transaction failure metrics: `db_transaction_total`, `confirm_transaction_total`, `payment_attempt_total`, `queue_job_failed_total`
-- [ ] node_exporter and cadvisor in `compose.yml`, with the podman socket note in `how-to.md`
-- [ ] `internal/faults/points.go`, `registry.go`, and `handler.go`, guarded and off by default
-- [ ] fault call sites: confirm before commit, confirm lock wait, mock provider error, worker job error, Redis boundary
-- [ ] `fault_injection_enabled` gauge and `fault_injected_total` counter
-- [ ] `containers/prometheus/prometheus.yml` scraping 9000, 9002, 9005, 9006 every 5 seconds
-- [ ] `containers/prometheus/rules.yml` with all twelve alerts
-- [ ] `containers/prometheus/rules_test.yml`, promtool proof that `TransactionErrorSpike` and `RefundBacklog` fire
-- [ ] `containers/grafana/provisioning` datasource and dashboard loaders
-- [ ] `containers/grafana/dashboards/backend.json`, fault banner row, then resources, then failures
-- [ ] `containers/grafana/dashboards/resources.json`, the host-wide fallback view
-- [ ] test: `/metrics` exposes every named metric and no label holds a uuid
-- [ ] test: cpu, memory, and drive panels resolve from layer 1 and layer 2 alone
-- [ ] test: the transaction failure panel queries `confirm_transaction_total{outcome="error"}` by exact name
-- [ ] unit and edge: fault registry counting, ttl, unknown point, and all four guards
-- [ ] simulation 14: nothing sensitive leaks
-- [ ] simulation 15: the core transaction fails and leaves nothing behind
+- [x] `internal/observability/metrics.go` with every metric in the table
+- [x] `internal/observability/logger.go`, request id and booking id on every state change
+- [x] `internal/observability/redact.go`, cookie and authorization scrubbing at the writer
+- [x] `internal/observability/telemetry.go`, frontend events into metrics
+- [x] access failure metrics: `access_denied_total`, `rate_limit_rejected_total`, `bot_check_rejected_total`
+- [x] transaction failure metrics: `db_transaction_total`, `confirm_transaction_total`, `payment_attempt_total`, `queue_job_failed_total`
+- [x] node_exporter and cadvisor in `compose.yml`, with the podman socket note in `how-to.md`
+- [x] `internal/faults/points.go`, `registry.go`, and `handler.go`, guarded and off by default
+- [x] fault call sites: confirm before commit, confirm lock wait, mock provider error, worker job error, Redis boundary
+- [x] `fault_injection_enabled` gauge and `fault_injected_total` counter
+- [x] `containers/prometheus/prometheus.yml` scraping 9000, 9002, 9005, 9006 every 5 seconds
+- [x] `containers/prometheus/rules.yml` with all twelve alerts
+- [x] `containers/prometheus/rules_test.yml`, promtool proof that `TransactionErrorSpike` and `RefundBacklog` fire
+- [x] `containers/grafana/provisioning` datasource and dashboard loaders
+- [x] `containers/grafana/dashboards/backend.json`, fault banner row, then resources, then failures
+- [x] `containers/grafana/dashboards/resources.json`, the host-wide fallback view
+- [x] test: `/metrics` exposes every named metric and no label holds a uuid
+- [x] test: cpu, memory, and drive panels resolve from layer 1 and layer 2 alone
+- [x] test: the transaction failure panel queries `confirm_transaction_total{outcome="error"}` by exact name
+- [x] unit and edge: fault registry counting, ttl, unknown point, and all four guards
+- [x] simulation 14: nothing sensitive leaks
+- [x] simulation 15: the core transaction fails and leaves nothing behind
+
+Landed alongside them, because the metrics above cannot be published or read
+without them:
+
+`internal/bootstrap`, what the two binaries share at startup: opening the pools,
+opening Redis, and building the one registry every metric and every log line goes
+through. All of that was written twice before, which is how two processes end up
+disagreeing about a connect timeout.
+
+`internal/observability/sink.go`, so the four metric groups can stand in for the
+narrow recording interfaces `httpx`, `auth`, `worker`, and `checkout` each declare
+for themselves. None of those packages imports a monitoring library.
+
+`httpx/measure.go`, the per route timer, and `httpx/handler_telemetry.go`, the
+endpoint the client posts to. `database/statistics.go`, the pool and replication
+lag readers, and `cmd/api/sampler.go`, which publishes them on a timer rather than
+inside the scrape, ADR-047.
+
+`booking.ErrLockWaitTimeout` and `booking.ErrTransactionBroken`, so the two
+confirm fault points return failures with real counterparts rather than borrowed
+ones, ADR-046.
+
+Four decisions were taken here rather than in planning, and all four are written
+up. The metric library is a dependency and the logger is the standard library,
+ADR-041. `booking_confirmed_total` carries no label, which contradicts the plan's
+table on purpose, ADR-043. The fault surface is a guarded runtime route rather
+than a build tag, ADR-045. And the dashboards and the alert rules are checked by
+a Go test, because a metric name is a contract with a file nobody compiles,
+ADR-048.
+
+One rewrite that is not new work. `cmd/api` and `cmd/worker` were each one file
+holding every question a process answers, and they are now one file per thing
+assembled, ADR-050. The hand written Prometheus exposition the worker shipped in
+phase 4 is gone, replaced by the shared registry exactly as its own comment said
+it would be, and the four metric names it published carry over unchanged.
 
 ## Phase 8: backend documentation
 
