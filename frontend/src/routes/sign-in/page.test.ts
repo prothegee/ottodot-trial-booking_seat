@@ -31,12 +31,21 @@ const seededSession: Session = {
     children: [{ id: "0192a000-0000-7000-8000-000000000011", full_name: "Mira Tan", grade_level: 5 }],
 };
 
-/** Fills the email field and submits, the way a parent would. */
-async function signInAs(email: string): Promise<void> {
-    const field = screen.getByTestId("sign-in-email") as HTMLInputElement;
+/** The password every seeded account shares, as the seed and how-to.md state it. */
+const seededPassword = "otto123";
 
-    field.value = email;
+/** Types one value into a field the way a parent would. */
+function type(testId: string, value: string): void {
+    const field = screen.getByTestId(testId) as HTMLInputElement;
+
+    field.value = value;
     field.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+/** Fills both fields and submits, the way a parent would. */
+async function signInAs(email: string, password = seededPassword): Promise<void> {
+    type("sign-in-email", email);
+    type("sign-in-password", password);
 
     screen.getByTestId("sign-in-submit").click();
 }
@@ -57,7 +66,7 @@ describe("the sign-in screen", () => {
         await signInAs("ada@example.test");
 
         await waitFor(() => {
-            expect(api.login).toHaveBeenCalledWith("ada@example.test");
+            expect(api.login).toHaveBeenCalledWith("ada@example.test", seededPassword);
         });
 
         await waitFor(() => {
@@ -72,11 +81,50 @@ describe("the sign-in screen", () => {
         await signInAs("  ada@example.test  ");
 
         await waitFor(() => {
-            expect(api.login).toHaveBeenCalledWith("ada@example.test");
+            expect(api.login).toHaveBeenCalledWith("ada@example.test", seededPassword);
         });
     });
 
-    test("edge: a refused sign in is shown in this client's own words", async () => {
+    test("integration: the password is sent as typed, with no trimming", async () => {
+        // A space is a character somebody may have chosen. Trimming it would
+        // refuse a password that is actually right.
+        render(SignInPage);
+
+        await signInAs("ada@example.test", "  spaced out  ");
+
+        await waitFor(() => {
+            expect(api.login).toHaveBeenCalledWith("ada@example.test", "  spaced out  ");
+        });
+    });
+
+    test("behaviour: the password field hides what is typed", async () => {
+        render(SignInPage);
+
+        const field = screen.getByTestId("sign-in-password") as HTMLInputElement;
+
+        expect(field.type).toBe("password");
+    });
+
+    test("integration: the password can be shown, for somebody checking what they typed", async () => {
+        // A hidden field with no way to look is where a wrong password gets
+        // typed twice. The control itself is PasswordField's, and this is the
+        // case that says the sign in screen actually has one.
+        render(SignInPage);
+
+        const field = screen.getByTestId("sign-in-password") as HTMLInputElement;
+
+        type("sign-in-password", seededPassword);
+        screen.getByTestId("sign-in-password-reveal").click();
+
+        await waitFor(() => expect(field.type).toBe("text"));
+
+        expect(field.value).toBe(seededPassword);
+    });
+
+    test("edge: a refused sign in never says which half was wrong", async () => {
+        // The api answers an unknown address and a wrong password with the same
+        // refusal on purpose. A screen that guessed between them would hand
+        // back the difference the api is hiding.
         vi.mocked(api.login).mockRejectedValue(new ApiError("InvalidRequest", "invalid_request", 400));
 
         render(SignInPage);
@@ -85,8 +133,23 @@ describe("the sign-in screen", () => {
 
         const failure = await screen.findByTestId("sign-in-failure");
 
-        expect(failure.textContent).toContain("check it and try again");
+        expect(failure.textContent).toContain("do not match");
+        expect(failure.textContent).not.toContain("password is");
+        expect(failure.textContent).not.toContain("no account");
         expect(goto).not.toHaveBeenCalled();
+    });
+
+    test("edge: a refused sign in never echoes what was typed", async () => {
+        vi.mocked(api.login).mockRejectedValue(new ApiError("InvalidRequest", "invalid_request", 400));
+
+        render(SignInPage);
+
+        await signInAs("nobody@example.test", "hunter2");
+
+        const failure = await screen.findByTestId("sign-in-failure");
+
+        expect(failure.textContent).not.toContain("hunter2");
+        expect(failure.textContent).not.toContain("nobody@example.test");
     });
 
     test("edge: a failure that is not from the api still leaves a readable message", async () => {
@@ -124,5 +187,24 @@ describe("the sign-in screen", () => {
         render(SignInPage);
 
         expect(screen.queryByTestId("sign-in-notice")).toBeNull();
+    });
+
+    test("behaviour: somebody already signed in is sent away rather than shown the form", async () => {
+        // A fresh tab has no memory of the session, which lives in cookies this
+        // code cannot read. The shell restores it, and this screen is where a
+        // parent would otherwise be asked to sign in to an account they are
+        // already signed in to.
+        auth.signIn(seededSession);
+
+        render(SignInPage);
+
+        await waitFor(() => expect(goto).toHaveBeenCalledWith("/"));
+    });
+
+    test("edge: nobody signed in is left on the form", () => {
+        render(SignInPage);
+
+        expect(goto).not.toHaveBeenCalled();
+        expect(screen.getByTestId("sign-in-submit")).toBeInTheDocument();
     });
 });
