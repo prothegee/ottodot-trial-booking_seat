@@ -380,8 +380,9 @@ export FAULT_INJECTION_ENABLED=true      # the api gets it
 `scripts/stack_status.sh backend` reads the setting out of the running container,
 so it answers this in one line rather than by argument.
 
-Pass `--run-integration` when there is no terminal to answer for it, which is
-what continuous integration does:
+Pass `--run-integration` when there is no terminal and no stack up yet, which is
+what continuous integration looks like. A run that finds a stack already up
+starts nothing and stops nothing, so it needs no flag:
 
 ```sh
 APP_ENV=development scripts/test_all.sh --run-integration
@@ -399,7 +400,7 @@ The backend one starts the stack when it is down, applies the schema, seeds an
 empty database, runs the proof tier, and takes the stack down again only if it
 was the one that started it. A stack already up is used and left alone. That is
 why it wants `APP_ENV=development`, and `--run-integration` when there is no
-terminal to answer for it.
+terminal and no stack up yet.
 
 For the fast loop while writing code, `backend/scripts/test.sh` is the four fake
 tiers on their own and starts nothing at all. About five seconds.
@@ -425,14 +426,17 @@ npm run build                                   # the static bundle
 cd ..
 APP_ENV=development backend/scripts/debug_test.sh
 backend/scripts/lib/database_test.sh
+backend/scripts/test_all_test.sh
 frontend/scripts/debug_test.sh
 frontend/scripts/clean_test.sh
 scripts/cleanup_dev_test.sh
 scripts/race_last_seat_test.sh
+scripts/smoke_failure_test.sh
 scripts/smoke_refund_test.sh
 scripts/stack_up_test.sh
 scripts/stack_restart_test.sh
 scripts/stack_status_test.sh
+scripts/test_integration_test.sh
 scripts/lib/confirm_test.sh
 scripts/lib/settings_test.sh
 scripts/lib/stack_test.sh
