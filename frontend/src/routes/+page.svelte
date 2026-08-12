@@ -66,7 +66,7 @@
 
     .lead {
         max-width: 40rem;
-        color: #6b7280;
+        color: var(--muted);
         font-size: 0.9rem;
     }
 
@@ -79,14 +79,14 @@
 
     .waiting {
         font-size: 0.9rem;
-        color: #6b7280;
+        color: var(--muted);
     }
 
     .failure {
         padding: 0.5rem 0.75rem;
         font-size: 0.9rem;
-        color: #b91c1c;
-        background: #fee2e2;
+        color: var(--danger);
+        background: var(--danger-surface);
         border-radius: 0.25rem;
     }
 </style>
