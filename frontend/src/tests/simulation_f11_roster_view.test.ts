@@ -10,7 +10,7 @@ import ClassListPage from "../routes/+page.svelte";
 import RosterPage from "../routes/roster/[classId]/+page.svelte";
 
 /**
- * Simulation F11: the roster view.
+ * Test 11: the roster view.
  *
  *     a teacher opens the roster for a class
  *     the api answers with the confirmed students and their seat numbers
@@ -101,7 +101,7 @@ const parent: Session = {
     children: [],
 };
 
-describe("simulation F11: the roster view", () => {
+describe("test 11: the roster view", () => {
     beforeEach(() => {
         sessionStorage.clear();
 
