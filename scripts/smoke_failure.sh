@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------- #
 # class: destructive
 #
-# Simulation 16: break the confirm transaction on purpose and follow the failure
+# Test 16: break the confirm transaction on purpose and follow the failure
 # all the way to the alert.
 #
 # A metric nobody has ever seen move is a decoration, and an alert nobody has
