@@ -174,7 +174,7 @@ func NewService(
 }
 
 // Counters is what this service has counted, for the metrics endpoint and for
-// the simulation that asserts reuse was noticed.
+// the test that asserts reuse was noticed.
 func (service *Service) Counters() *Counters {
     return service.counters
 }
