@@ -1,7 +1,5 @@
 [![backend main](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-backend.yml/badge.svg?branch=main)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-backend.yml)
-[![backend main-stable](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-backend.yml/badge.svg?branch=main-stable)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-backend.yml)
 [![frontend main](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-frontend.yml/badge.svg?branch=main)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-frontend.yml)
-[![frontend main-stable](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-frontend.yml/badge.svg?branch=main-stable)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-frontend.yml)
 
 # Trial Booking
 
@@ -10,8 +8,11 @@ classes for children. Trial classes seat four students. The whole exercise is
 about one sentence: when two parents reach for the last seat at the same moment,
 exactly one of them may end up confirmed.
 
+**Walkthrough:** `TBA`
+
 The workflow badges above report the two pull request workflows, one per stack,
-on both protected branches.
+on `main`. A merge into `main-stable` is a core engineer decision and is gated by
+review rather than by these workflows.
 
 <br>
 
@@ -44,14 +45,14 @@ What that means in practice today:
 | the payment screen, the hold countdown, and the booking status screen |
 | the roster screen for an operator, and the status screen with backend readiness |
 | every metric in the plan, on Prometheus, drawn by three provisioned dashboards |
-| twelve alert rules, four of them replayed and proven by `promtool` |
+| thirteen alert rules, five of them replayed and proven by `promtool` |
 | fault injection, so the error metrics can be watched moving on a live stack |
 | the last-seat race and the broken transaction, both scripted against a live stack |
 | two pull request workflows, one filtered to each stack, and a deployment simulation that builds both |
 
-Nothing in the code is missing. Two places are left blank on purpose, because
-they are the developer's own words and nobody else can supply them: the five
-`TO FILL` sections of `AI_USAGE.md`, and the `Time Spent` section below.
+Nothing in the code is missing. Two things are still blank, because only the
+developer can supply them: the `Walkthrough` link at the top, and the
+`Time Spent` section below.
 
 Progress is tracked per stack in `backend/phase-track.md` and
 `frontend/phase-track.md`.
@@ -105,9 +106,9 @@ ottodot-trial-booking_seat
 |   |
 |   |___cleanup_dev.sh                     (destructive, development only)
 |   |___cleanup_dev_test.sh                (its guards, never the removing path)
-|   |___race_last_seat.sh                  (simulation 6, over http)
+|   |___race_last_seat.sh                  (test 6, over http)
 |   |___seed_reset.sh                      (destructive, back to the seeded rows)
-|   |___smoke_failure.sh                   (simulation 16, breaks a running api)
+|   |___smoke_failure.sh                   (test 16, breaks a running api)
 |   |___stack_down.sh
 |   |___stack_restart.sh                   (the two above, in one command)
 |   |___stack_restart_test.sh              (that it delegates and removes nothing)
@@ -330,7 +331,7 @@ The fake and the real repository are held to one shared contract suite, so a
 fake that quietly disagrees with the sql fails the build.
 
 The proof was checked to have teeth rather than assumed: removing `for update`
-from the confirm transaction makes the twenty-goroutine simulation fail.
+from the confirm transaction makes the twenty-goroutine test fail.
 
 Two more run against a live stack over http, cookies and all, and neither
 reaches past a guard:
