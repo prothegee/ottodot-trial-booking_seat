@@ -115,6 +115,19 @@ Exit codes: 0 done, 1 declined, 2 refused by a guard.
 ## Tests
 
 ```sh
+scripts/test_all.sh               # everything below, and the formatting check
+```
+
+That is the whole stack in one command, with nothing left out. It starts the
+containers when they are down, applies the schema, seeds an empty database, runs
+the proofs, and takes the containers down again only if it started them. A stack
+already up is used and left alone, which is why it wants `APP_ENV=development`.
+
+For the fast loop while writing code, `scripts/test.sh` below is the four fake
+tiers alone and starts nothing. The two runs inside the command above, each on
+its own:
+
+```sh
 scripts/test.sh                   # build, vet, and the four fast tiers
 scripts/test_proof.sh             # the real database and Redis proofs
 ```
@@ -140,8 +153,14 @@ schema is dropped afterwards.
 Point it somewhere else with `DATABASE_PRIMARY_URL`. Without it, the default is
 the local primary.
 
-Neither script starts anything. Containers up, both tiers, test 16, and
+Neither script starts anything. Containers up, both tiers, test 6, test 16, and
 containers down is one command at the root: `../scripts/test_integration.sh`.
+Everything in this repository, that command included, is `../scripts/test_all.sh`.
+
+Both of those want nothing running when they begin. Against a stack that is
+already up they reuse it, and test 16 then refuses unless that stack was started
+with `FAULT_INJECTION_ENABLED=true`. The root `how-to.md` under Run Every Test
+has the two ways round it.
 
 To run one test file rather than a whole package, `tests-and-diagram.md` lists every
 one with what it proves, a diagram for each test, and the command for that
@@ -566,9 +585,10 @@ own default, `admin` with `admin`, from `GRAFANA_USER` and `GRAFANA_PASSWORD` in
 
 The three dashboards are `backend.json`, `frontend.json`, and `resources.json`.
 The first opens with the two numbers somebody has to act on, money owed to a
-parent and work that failed, then the fault injection banner, then resources,
-then the two failure groups the brief calls out. The last is the host wide
-fallback for a machine where cAdvisor will not run.
+parent and work that failed, then the fault injection banner, then the confirm
+transactions those faults break. Resources, containers, access failures,
+traffic, bookings, and the infrastructure follow under those. The last is the
+host wide fallback for a machine where cAdvisor will not run.
 
 **No panel reads `No data` on a working stack.** Every counter carrying a label
 is created at zero for each value it can take, so a group nobody has hit yet
@@ -637,6 +657,20 @@ twenty lost races, and `RefundBacklog` and `RefreshReuse` firing when they
 should. The Go test in `internal/observability` covers the other half: that every
 metric name in every dashboard and every rule is one something actually
 publishes.
+
+**Watching `RefundBacklog` on the real stack.** `refund_pending_bookings` is a
+gauge this api counts every five seconds from the bookings sitting in
+`refund_required`, so the `Refunds owed` panel only moves when rows do:
+
+```sh
+APP_ENV=development ../scripts/smoke_refund.sh --increase 3
+APP_ENV=development ../scripts/smoke_refund.sh --decrease 3
+```
+
+It asks which demo parent the refund is for, writes the bookings with the charge
+that settled behind each one, and then follows the number to this api's gauge and
+to Prometheus. The alert needs the number held above zero for five minutes, so an
+increase is left standing rather than undone straight away.
 
 <br>
 
@@ -942,8 +976,7 @@ test scripts and the end to end failure run, which is
 `../scripts/smoke_failure.sh` at the root because it drives the api over http
 rather than through Go.
 
-What remains for the repository as a whole is the five sections of
-`../AI_USAGE.md` that are a first-hand account, and the `Time Spent` section of
-the root `../README.md`.
+What remains for the repository as a whole is the `Time Spent` section of the
+root `../README.md`, and the walkthrough link beside it.
 
 Progress is tracked in `phase-track.md`.
