@@ -9,7 +9,7 @@ import (
     "ottodot-trial-booking/backend/internal/booking"
 )
 
-// Simulation 1: duplicate booking rejected.
+// Test 1: duplicate booking rejected.
 //
 //	parent -> api: book child C into class X
 //	api    -> repository: insert booking pending_payment, ok
