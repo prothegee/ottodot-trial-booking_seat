@@ -15,7 +15,7 @@ func TestRotatingARefreshToken(t *testing.T) {
     t.Run("integration: a refresh issues a new pair and spends the old token", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        first, err := stage.service.LogIn(ctx, contractParentEmail)
+        first, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -48,7 +48,7 @@ func TestRotatingARefreshToken(t *testing.T) {
     t.Run("unit: the new access token verifies and speaks for the same parent", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        first, err := stage.service.LogIn(ctx, contractParentEmail)
+        first, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -73,7 +73,7 @@ func TestRotatingARefreshToken(t *testing.T) {
     t.Run("unit: the successor stays in the same family", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        first, err := stage.service.LogIn(ctx, contractParentEmail)
+        first, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -101,7 +101,7 @@ func TestRotatingARefreshToken(t *testing.T) {
     t.Run("unit: a refresh that produced a successor is counted", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        first, err := stage.service.LogIn(ctx, contractParentEmail)
+        first, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -121,13 +121,14 @@ func TestRotatingARefreshToken(t *testing.T) {
         // minutes.
         stage := newServiceStage(t)
 
-        first, err := stage.service.LogIn(ctx, contractParentEmail)
+        first, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
 
         stage.directory.Add(
             contractParentEmail,
+            seededPasswordHash,
             auth.Parent{ID: contractParentID, DisplayName: contractParentName, Role: auth.RoleAdmin},
             []auth.Child{{ID: contractChildID, FullName: contractChildName, GradeLevel: 5}})
 
@@ -160,7 +161,7 @@ func TestRotatingARefreshToken(t *testing.T) {
     t.Run("edge: a refresh token past its life is refused", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        first, err := stage.service.LogIn(ctx, contractParentEmail)
+        first, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -175,7 +176,7 @@ func TestRotatingARefreshToken(t *testing.T) {
     t.Run("edge: an expired refresh is not counted as reuse", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        first, err := stage.service.LogIn(ctx, contractParentEmail)
+        first, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -194,7 +195,7 @@ func TestRotatingARefreshToken(t *testing.T) {
     t.Run("behaviour: a spent token presented again is reported as reuse and counted", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        first, err := stage.service.LogIn(ctx, contractParentEmail)
+        first, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -215,7 +216,7 @@ func TestRotatingARefreshToken(t *testing.T) {
     t.Run("edge: a chain of refreshes works as long as each one presents the newest token", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        issued, err := stage.service.LogIn(ctx, contractParentEmail)
+        issued, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
