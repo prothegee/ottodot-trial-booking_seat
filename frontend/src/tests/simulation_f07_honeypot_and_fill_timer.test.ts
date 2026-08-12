@@ -9,7 +9,7 @@ import { booking } from "$lib/stores/booking";
 import PayPage from "../routes/pay/[bookingId]/+page.svelte";
 
 /**
- * Simulation F7: the honeypot and the fill timer.
+ * Test 7: the honeypot and the fill timer.
  *
  *     form mounts, timer starts
  *     fields filled
@@ -110,7 +110,7 @@ async function measureOneSubmission(holdOpenMs: number): Promise<number> {
     return measured;
 }
 
-describe("simulation F7: the honeypot and the fill timer", () => {
+describe("test 7: the honeypot and the fill timer", () => {
     beforeEach(() => {
         sessionStorage.clear();
 
