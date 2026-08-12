@@ -122,6 +122,7 @@ backend
 |___/scripts
 |   |___/lib
 |   |   |___database.sh                    (psql inside the primary container)
+|   |   |___database_test.sh               (which runtime it reaches that container through)
 |   |
 |   |___db_reset.sh                        (destructive, dev only, prompts)
 |   |___debug.sh                           (one process from source, in the foreground)
