@@ -2,6 +2,7 @@ package httpx
 
 import (
     "net/http"
+    "strings"
     "time"
 )
 
@@ -18,6 +19,11 @@ import (
 // read. A latency panel that measured only the handler would be reassuring and
 // wrong.
 //
+// Note:
+//   - building the middleware also creates that route's series at zero, since
+//     this is where the pattern is already known and a panel with no series at
+//     all looks the same as an exporter that stopped
+//
 // Param:
 // route - string (the registered pattern, from the constants in paths.go)
 // counters - *Counters (where the observation goes, nil for nowhere)
@@ -28,6 +34,13 @@ func Measure(route string, counters *Counters) Middleware {
     return func(next http.Handler) http.Handler {
         if counters == nil {
             return next
+        }
+
+        // Created at zero here, where the pattern is already known, so the two
+        // request panels draw on a service nobody has called yet instead of
+        // reading No data, which is what a broken exporter looks like too.
+        if method, _, found := strings.Cut(route, " "); found {
+            counters.DeclareRoute(route, method)
         }
 
         return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
