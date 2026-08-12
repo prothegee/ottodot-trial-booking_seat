@@ -106,15 +106,21 @@ ottodot-trial-booking_seat
 |   |
 |   |___cleanup_dev.sh                     (destructive, development only)
 |   |___cleanup_dev_test.sh                (its guards, never the removing path)
-|   |___race_last_seat.sh                  (test 6, over http)
+|   |___race_last_seat.sh                  (test 6, over http, --fresh-class to repeat)
+|   |___race_last_seat_test.sh             (its guards, and that its cleanup names one class)
 |   |___seed_reset.sh                      (destructive, back to the seeded rows)
 |   |___smoke_failure.sh                   (test 16, breaks a running api)
+|   |___smoke_refund.sh                    (destructive, moves the refunds owed number)
+|   |___smoke_refund_test.sh               (its flags, its account rule, and its floor)
 |   |___stack_down.sh
 |   |___stack_restart.sh                   (the two above, in one command)
 |   |___stack_restart_test.sh              (that it delegates and removes nothing)
+|   |___stack_status.sh                    (what is up, and what the tests still need)
+|   |___stack_status_test.sh               (that it only reads, and reports every service)
 |   |___stack_up.sh                        (all, backend, or frontend)
 |   |___stack_up_test.sh                   (which services it waits on)
-|   |___test_integration.sh                (containers up, both tiers, then down)
+|   |___test_all.sh                        (every test in the repository, nothing left out)
+|   |___test_integration.sh                (containers up, both tiers, tests 6 and 16, down)
 |
 |___.gitignore
 |___AI_USAGE.md
@@ -126,6 +132,27 @@ ottodot-trial-booking_seat
 
 <br>
 
+## Why This Stack
+
+One line each. Every choice serves the same goal: the seat is decided in a
+single transaction, and nothing outside it is allowed to decide one.
+
+| choice | why |
+| :- | :- |
+| Go with `net/http`, no framework | the hard part is a transaction, not routing, so no check is hidden behind a convention |
+| Postgres holds every deciding read | a row lock is only worth something where the data lives |
+| Redis is cache and rate limit only | it can be down without any invariant being at risk |
+| the job queue is a Postgres table | background work survives a restart, and there is no second store to keep honest |
+| login is two cookies, short-lived and long-lived | no database read to check who you are, and a stolen cookie shows up on first use |
+| SvelteKit built static, served by nginx | no rendering server in front of the one place a seat count can be trusted |
+| two self-contained stacks | either one deploys alone, and neither can grow a quiet dependency on the other |
+
+`backend/README.md` and `frontend/README.md` each carry the same section with
+the trade-off for every row. `backend/ADR.md` and `frontend/ADR.md` carry the
+full decision, including what was rejected and what it cost.
+
+<br>
+
 ## How To Run
 
 Full commands, including what to do when something refuses to start, are in
@@ -134,25 +161,33 @@ Full commands, including what to do when something refuses to start, are in
 ```sh
 export APP_ENV=development
 
-scripts/stack_up.sh backend        # the databases, redis, the api, the worker, the monitoring
-backend/scripts/migrate.sh         # apply the schema
-backend/scripts/seed.sh            # the synthetic dataset, asks before creating the accounts
+cd frontend && npm install && cd ..  # the client's dependencies, once
 
-backend/scripts/test.sh            # build, vet, and the four fast tiers
-backend/scripts/test_proof.sh      # the real database proof
+scripts/test_all.sh                  # every test, from nothing running
 
-scripts/stack_up.sh frontend       # the client on 9001
-cd frontend && npm install && npm test
+scripts/stack_up.sh backend          # the databases, redis, the api, the worker, the monitoring
+backend/scripts/migrate.sh           # apply the schema
+backend/scripts/seed.sh              # the synthetic dataset, asks before creating the accounts
+scripts/stack_up.sh frontend         # the client on 9001
 ```
 
-The brief's scenario, against that running system:
+Tests first, on purpose. `scripts/test_all.sh` starts its own stack and takes it
+down again, so it wants nothing running when it begins. Run it against a stack
+that is already up and its last step refuses, because test 16 needs an api
+started with the fault surface on and an already-running one has not got it.
+`how-to.md` under Run Every Test has the two ways round that.
+
+The brief's scenario, against the running system from the last four lines:
 
 ```sh
-scripts/race_last_seat.sh
+scripts/race_last_seat.sh                # the seeded seat, once
+scripts/race_last_seat.sh --fresh-class  # a throwaway class, as often as you like
 ```
 
 `scripts/stack_up.sh` with no argument starts both stacks. `scripts/stack_down.sh`
-stops them and leaves their local state alone.
+stops them and leaves their local state alone. `scripts/stack_status.sh` says
+what is up without changing anything, and adds the three readings that decide
+whether the test runs can work: the schema, the seed, and the fault surface.
 
 Three numbered walkthroughs to follow by hand, debug the project, run every test,
 and break it on purpose to watch the alert fire, are in `how-to.md` under Step By
@@ -338,18 +373,20 @@ reaches past a guard:
 
 | script | proves |
 | :- | :- |
-| `scripts/race_last_seat.sh` | the brief's scenario, then reads four tables back to check they agree: one seat handed out, two charges settled, an audit line each, and a refund queued for the parent who lost |
+| `scripts/race_last_seat.sh` | the brief's scenario, then reads four tables back to check they agree: one seat handed out, two charges settled, an audit line each, and a refund queued for the parent who lost. `--fresh-class` races a throwaway class so it can be run again |
 | `scripts/smoke_failure.sh` | the confirm transaction broken on purpose, and the error arriving in the api's own counter, in Prometheus, in the alert, and in the panel bound to the same series |
 
 The second one exists because of a specific kind of self-deception. A metric
 nobody has watched move is a decoration, and an alert nobody has watched fire is
 worse, because it is mistaken for coverage.
 
-`scripts/test_integration.sh` puts real containers around the proof tier and the
-second of those, in one command, and continuous integration calls the same file.
-The race script stays a separate command because the seat it races for is gone
-once somebody has it, so it wants a freshly seeded database rather than whatever
-a previous run left.
+`scripts/test_integration.sh` puts real containers around the proof tier and both
+of those, in one command, and continuous integration calls the same file. It
+gives the race script `--fresh-class`, so the race happens on a throwaway class
+made and then deleted for the run. Without that it would be a once-only command,
+because the seeded seat is gone the moment somebody has it.
+
+`scripts/test_all.sh` is that file plus every other test in the repository.
 
 <br>
 
@@ -387,6 +424,11 @@ most trust.
 
 Beside it, `TransactionErrorSpike` on the confirm transaction, because that is
 the one path where a failure means a seat may have been sold twice.
+
+`scripts/smoke_refund.sh` moves that first number on demand, so the panel and the
+alert can both be watched arriving and clearing rather than taken on trust.
+`--increase` writes bookings that say a parent paid and lost the seat,
+`--decrease` closes that many again, and it asks which demo parent first.
 
 <br>
 
