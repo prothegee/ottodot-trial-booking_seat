@@ -132,6 +132,7 @@ backend
 |   |___seed.sh                            (asks before creating the demo accounts)
 |   |___test.sh                            (build, vet, and the four fast tiers)
 |   |___test_all.sh                        (every backend test, starts a stack for the proofs)
+|   |___test_all_test.sh                   (its flags, and when its terminal guard applies)
 |   |___test_proof.sh                      (the proof tier, needs the stack up)
 |
 |___ADR.md
