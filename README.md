@@ -113,6 +113,7 @@ ottodot-trial-booking_seat
 |   |___race_last_seat_test.sh             (its guards, and that its cleanup names one class)
 |   |___seed_reset.sh                      (destructive, back to the seeded rows)
 |   |___smoke_failure.sh                   (test 16, breaks a running api)
+|   |___smoke_failure_test.sh              (its guards, and which booking it reuses)
 |   |___smoke_refund.sh                    (destructive, moves the refunds owed number)
 |   |___smoke_refund_test.sh               (its flags, its account rule, and its floor)
 |   |___stack_down.sh
@@ -124,6 +125,7 @@ ottodot-trial-booking_seat
 |   |___stack_up_test.sh                   (which services it waits on)
 |   |___test_all.sh                        (every test in the repository, nothing left out)
 |   |___test_integration.sh                (containers up, both tiers, tests 6 and 16, down)
+|   |___test_integration_test.sh           (its flags, and when its terminal guard applies)
 |
 |___.gitignore
 |___AI_USAGE.md

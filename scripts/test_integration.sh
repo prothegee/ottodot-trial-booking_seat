@@ -11,8 +11,9 @@
 #
 # It is the automation class, which is its own set of rules. It never prompts,
 # because a workflow has nobody to answer, and it refuses to run without --yes
-# when there is no terminal, because a script that starts and stops containers
-# should not be reachable by accident from a pipe.
+# when there is no terminal and no stack up yet, because a script that starts
+# and stops containers should not be reachable by accident from a pipe. Finding
+# a stack already up starts nothing, so that run needs no flag.
 #
 # The same file runs locally and in continuous integration. There is no second
 # definition of what the proof tier is, so nothing can drift between the two.
@@ -79,14 +80,19 @@ refuse() {
     exit 2
 }
 
-# The automation guard. A terminal may run this without ceremony. A pipe has to
-# say so.
+# The automation guard. A terminal may run this without ceremony, and so may a
+# pipe when the stack is already up: that run starts nothing and stops nothing,
+# so the question the flag answers does not arise.
 require_deliberate_run() {
     if [ -t 0 ]; then
         return 0
     fi
 
     if confirm_is_assumed_yes; then
+        return 0
+    fi
+
+    if stack_is_up; then
         return 0
     fi
 

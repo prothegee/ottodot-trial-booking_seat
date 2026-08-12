@@ -1162,6 +1162,7 @@ guard, so none of them starts or removes anything:
 ```sh
 APP_ENV=development scripts/debug_test.sh
 scripts/lib/database_test.sh
+scripts/test_all_test.sh
 ```
 
 The repository-wide guards, for the scripts under the root `scripts/`, are
