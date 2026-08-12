@@ -10,42 +10,48 @@ classes for children. Trial classes seat four students. The whole exercise is
 about one sentence: when two parents reach for the last seat at the same moment,
 exactly one of them may end up confirmed.
 
-The workflow badges above go green once the workflows are added, which is the
-last phase of this build.
+The workflow badges above report the two pull request workflows, one per stack,
+on both protected branches.
 
 <br>
 
 ## Current State
 
 This repository is built in phases and this document is kept honest about which
-of them exist. Seven of nine phases are finished on each stack.
+of them exist. All nine phases are finished on each stack.
 
-| stack | done | next |
-| :- | :- | :- |
-| backend | phase 1 foundation, phase 2 booking core, phase 3 payment, phase 4 queue and worker, phase 5 authentication, phase 6 http surface, phase 7 monitoring and data hygiene | phase 9 repository wide |
-| frontend | phase 1 scaffold, phase 2 api client and auth, phase 3 internal cache, phase 4 booking flow, phase 5 payment and status, phase 6 bot prevention cooperation, phase 7 roster, status, telemetry | phase 9 visual polish |
+| stack | done |
+| :- | :- |
+| backend | phase 1 foundation, phase 2 booking core, phase 3 payment, phase 4 queue and worker, phase 5 authentication, phase 6 http surface, phase 7 monitoring and data hygiene, phase 8 documentation, phase 9 repository wide |
+| frontend | phase 1 scaffold, phase 2 api client and auth, phase 3 internal cache, phase 4 booking flow, phase 5 payment and status, phase 6 bot prevention cooperation, phase 7 roster, status, telemetry, phase 8 documentation, phase 9 visual polish |
 
 What that means in practice today:
 
-| works now | not built yet |
-| :- | :- |
-| the schema, its four unique indexes, and seed data | the continuous integration workflows |
-| the booking core: hold, confirm, cancel, fail, expire, and the last-seat transaction | the end to end smoke script, and the video walkthrough |
-| the payment path: a deterministic provider, and one charge per idempotency key | |
-| the job queue and the worker that drains it, on port 9002 | |
-| the http api on port 9000, end to end from sign in to a seat number | |
-| ETag caching, a Redis token bucket, and the honeypot, fill timer, and challenge | |
-| authentication: HS256 access tokens, rotating refresh tokens, and the four auth routes | |
-| the last-seat race proven against real Postgres, and two workers proven never to share a job | |
-| one refresh token proven to be spendable exactly once, under real parallelism | |
-| the client api layer, its auth store, and the sign-in screen | |
-| the client cache: three tiers, with conditional revalidation | |
-| the class list and the booking screen, with one idempotency key per attempt | |
-| the payment screen, the hold countdown, and the booking status screen | |
-| the roster screen for an operator, and the status screen with backend readiness | |
-| every metric in the plan, on Prometheus, drawn by three provisioned dashboards | |
-| twelve alert rules, four of them replayed and proven by `promtool` | |
-| fault injection, so the error metrics can be watched moving on a live stack | |
+| works now |
+| :- |
+| the schema, its four unique indexes, and seed data |
+| the booking core: hold, confirm, cancel, fail, expire, and the last-seat transaction |
+| the payment path: a deterministic provider, and one charge per idempotency key |
+| the job queue and the worker that drains it, on port 9002 |
+| the http api on port 9000, end to end from sign in to a seat number |
+| ETag caching, a Redis token bucket, and the honeypot, fill timer, and challenge |
+| authentication: HS256 access tokens, rotating refresh tokens, and the four auth routes |
+| the last-seat race proven against real Postgres, and two workers proven never to share a job |
+| one refresh token proven to be spendable exactly once, under real parallelism |
+| the client api layer, its auth store, and the sign-in screen with a sign out beside it |
+| the client cache: three tiers, with conditional revalidation |
+| the class list and the booking screen, with one idempotency key per attempt |
+| the payment screen, the hold countdown, and the booking status screen |
+| the roster screen for an operator, and the status screen with backend readiness |
+| every metric in the plan, on Prometheus, drawn by three provisioned dashboards |
+| twelve alert rules, four of them replayed and proven by `promtool` |
+| fault injection, so the error metrics can be watched moving on a live stack |
+| the last-seat race and the broken transaction, both scripted against a live stack |
+| two pull request workflows, one filtered to each stack, and a deployment simulation that builds both |
+
+Nothing in the code is missing. Two places are left blank on purpose, because
+they are the developer's own words and nobody else can supply them: the five
+`TO FILL` sections of `AI_USAGE.md`, and the `Time Spent` section below.
 
 Progress is tracked per stack in `backend/phase-track.md` and
 `frontend/phase-track.md`.
@@ -89,18 +95,32 @@ ottodot-trial-booking_seat
 |
 |___/scripts
 |   |___/lib
+|   |   |___api.sh                         (sign in, hold a seat, pay, in one place)
 |   |   |___confirm.sh                     (the guard, manifest, and prompt)
 |   |   |___confirm_test.sh                (every guard, never the confirming path)
+|   |   |___settings.sh                    (makes a stack's settings file from its template)
+|   |   |___settings_test.sh               (the copy, the file it leaves alone, the refusal)
 |   |   |___stack.sh                       (which stacks exist, and where)
+|   |   |___stack_test.sh                  (its runtime socket discovery)
 |   |
-|   |___stack_up.sh                        (all, backend, or frontend)
+|   |___cleanup_dev.sh                     (destructive, development only)
+|   |___cleanup_dev_test.sh                (its guards, never the removing path)
+|   |___race_last_seat.sh                  (simulation 6, over http)
+|   |___seed_reset.sh                      (destructive, back to the seeded rows)
+|   |___smoke_failure.sh                   (simulation 16, breaks a running api)
 |   |___stack_down.sh
+|   |___stack_restart.sh                   (the two above, in one command)
+|   |___stack_restart_test.sh              (that it delegates and removes nothing)
+|   |___stack_up.sh                        (all, backend, or frontend)
+|   |___stack_up_test.sh                   (which services it waits on)
+|   |___test_integration.sh                (containers up, both tiers, then down)
 |
 |___.gitignore
 |___AI_USAGE.md
 |___README.md
 |___explanation.md
 |___how-to.md
+|___work-rules.md                          (the ceiling on a delegated run)
 ```
 
 <br>
@@ -113,22 +133,73 @@ Full commands, including what to do when something refuses to start, are in
 ```sh
 export APP_ENV=development
 
-scripts/stack_up.sh backend        # postgres primary, postgres replica, redis
+scripts/stack_up.sh backend        # the databases, redis, the api, the worker, the monitoring
 backend/scripts/migrate.sh         # apply the schema
-backend/scripts/seed.sh            # the synthetic dataset
+backend/scripts/seed.sh            # the synthetic dataset, asks before creating the accounts
 
-cd backend && go test ./...        # the four fast tiers, nothing needs to run
-cd backend && go test -tags=containers ./...   # the real database proof
+backend/scripts/test.sh            # build, vet, and the four fast tiers
+backend/scripts/test_proof.sh      # the real database proof
 
 scripts/stack_up.sh frontend       # the client on 9001
 cd frontend && npm install && npm test
 ```
 
+The brief's scenario, against that running system:
+
+```sh
+scripts/race_last_seat.sh
+```
+
 `scripts/stack_up.sh` with no argument starts both stacks. `scripts/stack_down.sh`
 stops them and leaves their local state alone.
 
+Three numbered walkthroughs to follow by hand, debug the project, run every test,
+and break it on purpose to watch the alert fire, are in `how-to.md` under Step By
+Step. The last of them runs in development only, and the api refuses to start
+with it switched on anywhere else.
+
+To run a process from the source rather than from a built image, each stack has
+a debug script: `backend/scripts/debug.sh` for the api, `backend/scripts/debug.sh
+worker` for the worker, and `frontend/scripts/debug.sh` for the dev server. The
+backend one starts the databases and the monitoring it needs, and on ctrl-c stops
+only what it started, without removing anything. The frontend one starts no
+container, so it stops none.
+
 Every container runs on the loopback address only. Ports are listed in
 `how-to.md`.
+
+Sign in at `http://127.0.0.1:9001/sign-in` as `alice.tan@example.test`, or as any
+of the four seeded accounts. They share the password `otto123`, which `how-to.md`
+lists alongside the rest of them. Signing out is the control in the header, which
+revokes the refresh token at the api before it clears this browser.
+
+Neither stack's settings file is committed. `backend/config.json` and
+`frontend/.env` are made from the committed templates beside them, by the scripts
+above, on the first run. A value stated in one of those files wins over an
+environment variable of the same name.
+
+<br>
+
+## Monitoring
+
+It starts with the backend stack, because every scrape target is a backend
+surface, and it starts with `backend/scripts/debug.sh` too, so the dashboards are
+live whether a process is running in a container or from source. Nothing has to
+be configured after that: the data source and the three dashboards are files
+under `backend/containers/grafana/`, loaded on every start.
+
+| open | what is there |
+| :- | :- |
+| `http://127.0.0.1:9004` | Grafana. Sign in as `admin` with `admin` |
+| `http://127.0.0.1:9003` | Prometheus, its scrape targets and its alert rules |
+| `http://127.0.0.1:9000/metrics` | what the api publishes, including the events the client posts to it |
+| `http://127.0.0.1:9002/metrics` | what the worker publishes: queue depth and job outcomes |
+
+The three dashboards are `backend`, `frontend`, and `resources`. Cpu, memory, and
+drive usage come from node_exporter on 9005 and cAdvisor on 9006, and cAdvisor is
+the one service allowed to fail, which is what `resources` is for. `how-to.md`
+under Monitoring has the rest, `backend/how-to.md` has the queries and the
+administrator sign in.
 
 <br>
 
@@ -200,6 +271,21 @@ says exactly that is what an operator needs.
 background work, and `refresh_tokens` for sessions. Full column list in
 `backend/LLD.md`.
 
+**The endpoints a booking travels through.** Everything under `/api/v1`, and the
+five below are the whole flow. The full list, with who may call each one, is in
+`backend/README.md`.
+
+| endpoint | what it does |
+| :- | :- |
+| `GET /students` | the children on the signed-in account, to choose one |
+| `GET /classes` | the catalogue, with advisory seat counts |
+| `POST /bookings` | asks for a hold, which is a place on the payment screen and not a seat |
+| `POST /bookings/{bookingId}/payments` | settles the charge, then runs the confirm transaction that decides the seat |
+| `GET /bookings/{bookingId}` | the status the parent is shown afterwards |
+
+An operator reads `GET /classes/{classId}/roster`, which is admin only and lists
+confirmed bookings alone.
+
 **Booking statuses.** `pending_payment`, `confirmed`, `payment_failed`,
 `refund_required`, `expired`, `cancelled`. `payment_failed` and
 `refund_required` are deliberately separate: one means no money moved, the other
@@ -246,14 +332,32 @@ fake that quietly disagrees with the sql fails the build.
 The proof was checked to have teeth rather than assumed: removing `for update`
 from the confirm transaction makes the twenty-goroutine simulation fail.
 
+Two more run against a live stack over http, cookies and all, and neither
+reaches past a guard:
+
+| script | proves |
+| :- | :- |
+| `scripts/race_last_seat.sh` | the brief's scenario, then reads four tables back to check they agree: one seat handed out, two charges settled, an audit line each, and a refund queued for the parent who lost |
+| `scripts/smoke_failure.sh` | the confirm transaction broken on purpose, and the error arriving in the api's own counter, in Prometheus, in the alert, and in the panel bound to the same series |
+
+The second one exists because of a specific kind of self-deception. A metric
+nobody has watched move is a decoration, and an alert nobody has watched fire is
+worse, because it is mistaken for coverage.
+
+`scripts/test_integration.sh` puts real containers around the proof tier and the
+second of those, in one command, and continuous integration calls the same file.
+The race script stays a separate command because the seat it races for is gone
+once somebody has it, so it wants a freshly seeded database rather than whatever
+a previous run left.
+
 <br>
 
 ## Assumptions
 
 | assumption | reason |
 | :- | :- |
-| sign in is a seeded email with no password | authentication is not what the brief is about, and a real password flow adds surface without adding an answer |
-| the payment provider is mocked, with deterministic outcomes | a test and a recorded walkthrough have to reproduce exactly |
+| the four seeded accounts share one password, written down in `how-to.md` | a reviewer has to be able to sign in as each of them without being handed anything out of band. The storage is real, argon2id, so only the sharing is the shortcut |
+| the payment provider is mocked, with deterministic outcomes | a test and a demonstration have to reproduce exactly |
 | a hold lasts ten minutes and a parent may hold three at once | long enough to find a card, short enough that a seat behind someone who walked away comes back |
 | `hold_allowance` defaults to 2 | the brief requires parent B to select a seat parent A is holding, and an allowance of 0 makes that impossible |
 | one asynchronous replica, promoted by hand | deciding reads all go to the primary, so replica lag is a display concern, not a correctness one |
@@ -268,7 +372,7 @@ from the confirm transaction makes the twenty-goroutine simulation fail.
 | a real payment provider | the interface is the same shape, and a real one adds credentials and a sandbox without adding judgment |
 | automatic failover | promotion is one documented command, and an automatic one needs a quorum that a single-machine demo cannot honestly show |
 | a browser end-to-end runner | the real proof is the api-level race, and a browser runner would be slower and prove less |
-| visual polish | the brief weights correctness over appearance, so it is the last phase and only if time remains |
+| visual polish beyond a layout and spacing pass | the brief weights correctness over appearance, so the client got tokens, readable failures, and a phone width, and nothing past that |
 
 <br>
 
@@ -289,7 +393,7 @@ the one path where a failure means a seat may have been sold twice.
 
 | next | why it matters |
 | :- | :- |
-| finish phase 9 | the continuous integration workflows, the end to end smoke script, and the recorded walkthrough |
+| a browser end-to-end run in continuous integration | the api-level race is the real proof, and a browser run would catch the one class of break neither tier sees: a client that stops sending what the api reads |
 | a roster export an operator can hand to a teacher | the brief asks for a roster, and a screen is not the form a teacher wants it in |
 | alert thresholds from real history | every threshold here is written for a stack demonstrated for an afternoon, and a quarter of data would move most of them |
 | load behaviour beyond four seats | the lock is per class, which is fine here, and worth measuring before a class type with a larger capacity exists |
@@ -307,7 +411,8 @@ To be filled in before submission.
 | document | contents |
 | :- | :- |
 | `how-to.md` | running both stacks, ports, and what to do when something refuses |
-| `explanation.md` | one walkthrough written for a non-technical reader and a reviewer at once |
+| `work-rules.md` | the ceiling on a delegated run, and the report written when it is hit |
+| `explanation.md` | one explanation written for a non-technical reader and a reviewer at once |
 | `AI_USAGE.md` | the tooling used to build this and how the result was verified |
 | `backend/README.md` | the Go stack, its ports, and its own documents |
 | `frontend/README.md` | the client, its port, and its own documents |
