@@ -1,6 +1,7 @@
 package config_test
 
 import (
+    "runtime"
     "strings"
     "testing"
     "time"
@@ -84,7 +85,8 @@ func TestEveryValueCanBeOverridden(t *testing.T) {
         "REDIS_ADDRESS":            "redis:6379",
         "ACCESS_TOKEN_TTL":         "5m",
         "REFRESH_TOKEN_TTL":        "48h",
-        "FRONTEND_ORIGIN":          "http://localhost:5173",
+        "ALLOWED_ORIGINS":          "http://localhost:5173,http://127.0.0.1:5173",
+        "WORKER_COUNT":             "4",
         "BUILD_VERSION":            "1.2.3",
         "BUILD_COMMIT":             "abc1234",
     })
@@ -108,6 +110,14 @@ func TestEveryValueCanBeOverridden(t *testing.T) {
 
     if loaded.Build.Version != "1.2.3" || loaded.Build.Commit != "abc1234" {
         t.Fatal("build identity was not taken from the environment")
+    }
+
+    if len(loaded.AllowedOrigins) != 2 || loaded.AllowedOrigins[0] != "http://localhost:5173" {
+        t.Fatalf("the origin list was not taken from the environment: %v", loaded.AllowedOrigins)
+    }
+
+    if loaded.Worker.Count != 4 {
+        t.Fatalf("expected four workers, got %d", loaded.Worker.Count)
     }
 }
 
@@ -224,8 +234,25 @@ func TestMalformedValuesAreNamedByTheirKey(t *testing.T) {
         },
         {
             name:     "edge: an origin with no scheme",
-            values:   map[string]string{"FRONTEND_ORIGIN": "127.0.0.1:9001"},
-            fragment: "FRONTEND_ORIGIN is \"127.0.0.1:9001\"",
+            values:   map[string]string{"ALLOWED_ORIGINS": "127.0.0.1:9001"},
+            fragment: "ALLOWED_ORIGINS holds \"127.0.0.1:9001\"",
+        },
+        {
+            name: "edge: one good origin does not excuse a bad one beside it",
+            values: map[string]string{
+                "ALLOWED_ORIGINS": "http://127.0.0.1:9001,localhost:9001",
+            },
+            fragment: "ALLOWED_ORIGINS holds \"localhost:9001\"",
+        },
+        {
+            name:     "edge: an origin carrying a path would never match a browser's header",
+            values:   map[string]string{"ALLOWED_ORIGINS": "http://127.0.0.1:9001/app"},
+            fragment: "an origin is a scheme and a host with no path",
+        },
+        {
+            name:     "edge: a negative worker count",
+            values:   map[string]string{"WORKER_COUNT": "-1"},
+            fragment: "WORKER_COUNT is -1",
         },
         {
             name:     "edge: a connection url with no host",
@@ -248,6 +275,36 @@ func TestMalformedValuesAreNamedByTheirKey(t *testing.T) {
             }
         })
     }
+}
+
+func TestTheWorkerCount(t *testing.T) {
+    t.Run("unit: a stated count is what the worker uses", func(t *testing.T) {
+        settings := config.WorkerSettings{Count: 3}
+
+        if settings.Concurrency() != 3 {
+            t.Fatalf("expected three, got %d", settings.Concurrency())
+        }
+    })
+
+    t.Run("unit: zero means one per processor", func(t *testing.T) {
+        // Zero is the shipped default, so this is the number every stack
+        // actually runs with until somebody changes it.
+        settings := config.WorkerSettings{Count: 0}
+
+        if settings.Concurrency() != runtime.NumCPU() {
+            t.Fatalf("expected %d, got %d", runtime.NumCPU(), settings.Concurrency())
+        }
+    })
+
+    t.Run("edge: the resolution never hands back something unusable", func(t *testing.T) {
+        // A zero reaching the runner would mean a worker that claims jobs and
+        // never runs one.
+        for _, count := range []int{0, 1, 2, 64} {
+            if resolved := (config.WorkerSettings{Count: count}).Concurrency(); resolved < 1 {
+                t.Fatalf("a count of %d resolved to %d", count, resolved)
+            }
+        }
+    })
 }
 
 func TestSettingsThatContradictEachOther(t *testing.T) {
