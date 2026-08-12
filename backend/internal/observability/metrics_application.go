@@ -1,6 +1,8 @@
 package observability
 
 import (
+    "math"
+    "net/http"
     "strconv"
 
     "github.com/prometheus/client_golang/prometheus"
@@ -21,7 +23,16 @@ const (
     PoolStateAcquired = "acquired"
     PoolStateIdle     = "idle"
     PoolStateTotal    = "total"
+
+    QueueStateReady   = "ready"
+    QueueStateClaimed = "claimed"
+    QueueStateParked  = "parked"
 )
+
+// queueStates is the closed list the depth gauge is published for, named once so
+// the method writing a reading and the method writing that there is none cannot
+// disagree about which series they cover.
+var queueStates = []string{QueueStateReady, QueueStateClaimed, QueueStateParked}
 
 // ApplicationMetrics is everything that is neither a resource number nor a
 // failure count: what the service is doing when it is working.
@@ -41,10 +52,11 @@ type ApplicationMetrics struct {
     duplicateRejected prometheus.Counter
     holdExpired       prometheus.Counter
 
-    queueDepth    *prometheus.GaugeVec
-    queueDuration *prometheus.HistogramVec
-    jobsClaimed   prometheus.Counter
-    jobsCompleted prometheus.Counter
+    queueDepth       *prometheus.GaugeVec
+    queueDepthUnread prometheus.Counter
+    queueDuration    *prometheus.HistogramVec
+    jobsClaimed      prometheus.Counter
+    jobsCompleted    prometheus.Counter
 
     cacheLookup    *prometheus.CounterVec
     poolConnection *prometheus.GaugeVec
@@ -103,6 +115,11 @@ func newApplicationMetrics(registry prometheus.Registerer) *ApplicationMetrics {
             Help: "Jobs the queue holds right now, by state.",
         }, []string{LabelState}),
 
+        queueDepthUnread: prometheus.NewCounter(prometheus.CounterOpts{
+            Name: MetricQueueDepthUnread,
+            Help: "Scrapes where the queue could not be asked how deep it is.",
+        }),
+
         queueDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
             Name:    MetricQueueJobDuration,
             Help:    "How long a job took, by kind and how it ended.",
@@ -155,6 +172,7 @@ func newApplicationMetrics(registry prometheus.Registerer) *ApplicationMetrics {
         metrics.duplicateRejected,
         metrics.holdExpired,
         metrics.queueDepth,
+        metrics.queueDepthUnread,
         metrics.queueDuration,
         metrics.jobsClaimed,
         metrics.jobsCompleted,
@@ -188,6 +206,24 @@ func (metrics *ApplicationMetrics) RequestObserved(route string, method string, 
     }
 
     metrics.requests.WithLabelValues(route, method, strconv.Itoa(status)).Observe(seconds)
+}
+
+// DeclareRoute creates one registered route's timing series at zero.
+//
+// Note:
+//   - status 200 only. That label is the one on this metric whose values are not
+//     a closed list, and inventing a series for every code a route might answer
+//     would be guessing rather than declaring
+//
+// Param:
+// route - string (the registered pattern, never a path that arrived)
+// method - string (the method that pattern is registered for)
+func (metrics *ApplicationMetrics) DeclareRoute(route string, method string) {
+    if metrics == nil {
+        return
+    }
+
+    metrics.requests.WithLabelValues(route, method, strconv.Itoa(http.StatusOK))
 }
 
 // NotModified records one conditional read answered with no body.
@@ -269,9 +305,28 @@ func (metrics *ApplicationMetrics) QueueDepth(ready int, claimed int, parked int
         return
     }
 
-    metrics.queueDepth.WithLabelValues("ready").Set(float64(ready))
-    metrics.queueDepth.WithLabelValues("claimed").Set(float64(claimed))
-    metrics.queueDepth.WithLabelValues("parked").Set(float64(parked))
+    metrics.queueDepth.WithLabelValues(QueueStateReady).Set(float64(ready))
+    metrics.queueDepth.WithLabelValues(QueueStateClaimed).Set(float64(claimed))
+    metrics.queueDepth.WithLabelValues(QueueStateParked).Set(float64(parked))
+}
+
+// QueueDepthUnknown publishes that the queue could not be asked how deep it is.
+//
+// Note:
+//   - not-a-number, because zero reads as an empty queue and leaving the gauge
+//     alone keeps serving the last reading as though it were current
+//   - the counter beside it is what an alert fires on, since a comparison
+//     against not-a-number is always false
+func (metrics *ApplicationMetrics) QueueDepthUnknown() {
+    if metrics == nil {
+        return
+    }
+
+    for _, state := range queueStates {
+        metrics.queueDepth.WithLabelValues(state).Set(math.NaN())
+    }
+
+    metrics.queueDepthUnread.Inc()
 }
 
 // QueueJob records one finished job attempt.
@@ -360,4 +415,25 @@ func (metrics *ApplicationMetrics) FaultInjected(point string) {
     }
 
     metrics.faultInjected.WithLabelValues(point).Inc()
+}
+
+// DeclareFaultPoints creates the trigger series for every point at zero.
+//
+// Note:
+//   - it is the counter half of the argument the gauge beside it already makes.
+//     A panel bound to a metric that is simply absent reads the same as one
+//     bound to a metric that says nothing has fired, and only one of those is
+//     news
+//   - the points come from the caller, which is the package that owns the list
+//
+// Param:
+// points - []string (every point this service can be broken at)
+func (metrics *ApplicationMetrics) DeclareFaultPoints(points []string) {
+    if metrics == nil {
+        return
+    }
+
+    for _, point := range points {
+        metrics.faultInjected.WithLabelValues(point)
+    }
 }
