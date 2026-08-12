@@ -29,7 +29,7 @@ import (
 )
 
 // scratchPoolSize has to cover the widest race in this package, which is the
-// twenty parallel confirms of simulation 5. A pool smaller than the fan-out
+// twenty parallel confirms of test 5. A pool smaller than the fan-out
 // would queue the goroutines and quietly weaken the proof.
 const scratchPoolSize = 25
 
