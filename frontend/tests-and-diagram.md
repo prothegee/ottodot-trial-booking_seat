@@ -78,14 +78,17 @@ npm test -- 'src/routes/book/[classId]/page.test.ts'
 
 ## The Tests
 
-Seventeen scenarios, numbered `F1` to `F17` so they never collide with the
-backend's own numbers. They live in `src/tests/`, one file each, and they are
-the behaviour tier: a whole flow, from what a parent does to what they end up
-looking at.
+Seventeen scenarios, numbered 1 to 17. They live in `src/tests/`, one file each,
+and they are the behaviour tier: a whole flow, from what a parent does to what
+they end up looking at.
+
+The backend numbers its own scenarios the same way, and the two sets are
+unrelated. A bare test number only means something once the stack it belongs to
+is named, so anything crossing between the two says which one it means.
 
 <br>
 
-### F1: the happy path
+### Test 1: the happy path
 
 ```mermaid
 sequenceDiagram
@@ -121,12 +124,12 @@ holding, and the booking invalidates the class list so the next view of it is
 the count after the seat was taken.
 
 ```sh
-npm test -- src/tests/simulation_f01_happy_path_booking.test.ts
+npm test -- src/tests/simulation_01_happy_path_booking.test.ts
 ```
 
 <br>
 
-### F2: the class filled while the parent was choosing
+### Test 2: the class filled while the parent was choosing
 
 ```mermaid
 sequenceDiagram
@@ -160,12 +163,12 @@ invalidated, the list is read again, and the message names the real cause. A
 cached count is a hint, the api is the only thing that decides.
 
 ```sh
-npm test -- src/tests/simulation_f02_stale_seat_count.test.ts
+npm test -- src/tests/simulation_02_stale_seat_count.test.ts
 ```
 
 <br>
 
-### F3: the payment was declined
+### Test 3: the payment was declined
 
 ```mermaid
 sequenceDiagram
@@ -200,12 +203,12 @@ finished attempt, so sending the same key back would replay the decline for as
 long as the parent kept trying.
 
 ```sh
-npm test -- src/tests/simulation_f03_payment_declined.test.ts
+npm test -- src/tests/simulation_03_payment_declined.test.ts
 ```
 
 <br>
 
-### F4: this child already has a booking
+### Test 4: this child already has a booking
 
 ```mermaid
 sequenceDiagram
@@ -233,12 +236,12 @@ the child already has. Nothing here checks first and then books, because a
 check followed by a write is the bug this whole exercise is about.
 
 ```sh
-npm test -- src/tests/simulation_f04_duplicate_booking.test.ts
+npm test -- src/tests/simulation_04_duplicate_booking.test.ts
 ```
 
 <br>
 
-### F5: the seat was lost after paying
+### Test 5: the seat was lost after paying
 
 ```mermaid
 sequenceDiagram
@@ -274,12 +277,12 @@ telling them apart is the difference between a parent who waits for a refund
 and a parent who tries to pay again.
 
 ```sh
-npm test -- src/tests/simulation_f05_seat_lost_after_paying.test.ts
+npm test -- src/tests/simulation_05_seat_lost_after_paying.test.ts
 ```
 
 <br>
 
-### F6: the hold countdown reaches zero
+### Test 6: the hold countdown reaches zero
 
 ```mermaid
 flowchart TD
@@ -313,12 +316,12 @@ booking expired from the browser's clock would be this client deciding
 something only the backend decides.
 
 ```sh
-npm test -- src/tests/simulation_f06_hold_countdown.test.ts
+npm test -- src/tests/simulation_06_hold_countdown.test.ts
 ```
 
 <br>
 
-### F7: the honeypot and the fill timer
+### Test 7: the honeypot and the fill timer
 
 ```mermaid
 flowchart TD
@@ -345,12 +348,12 @@ about the parent. A hard coded number would pass the backend's check while
 proving nothing about who filled the form in.
 
 ```sh
-npm test -- src/tests/simulation_f07_honeypot_and_fill_timer.test.ts
+npm test -- src/tests/simulation_07_honeypot_and_fill_timer.test.ts
 ```
 
 <br>
 
-### F8: the submit control is clicked twice
+### Test 8: the submit control is clicked twice
 
 ```mermaid
 sequenceDiagram
@@ -384,12 +387,12 @@ in-flight window, and the idempotency key would have made a leaked second call
 harmless anyway. The control is the cheap layer, the key is the correct one.
 
 ```sh
-npm test -- src/tests/simulation_f08_double_submit.test.ts
+npm test -- src/tests/simulation_08_double_submit.test.ts
 ```
 
 <br>
 
-### F9: silent refresh, single flight
+### Test 9: silent refresh, single flight
 
 ```mermaid
 sequenceDiagram
@@ -420,12 +423,12 @@ nothing retried twice, and no sign out reported, so the parent sees no
 interruption.
 
 ```sh
-npm test -- src/tests/simulation_f09_silent_refresh.test.ts
+npm test -- src/tests/simulation_09_silent_refresh.test.ts
 ```
 
 <br>
 
-### F10: hard sign out on a reused token
+### Test 10: hard sign out on a reused token
 
 ```mermaid
 sequenceDiagram
@@ -444,7 +447,7 @@ Reading it:
 
 1. The client makes an ordinary call.
 2. The api answers 401 `token_expired`.
-3. The client refreshes, exactly as it would in F9.
+3. The client refreshes, exactly as it would in test 9.
 4. This time the api answers 401 `token_reused`: that refresh token had already
    been spent, so the whole family was revoked.
 5. The client clears the auth store and the whole of `sessionStorage`. It does
@@ -455,12 +458,12 @@ Proves: no retry loop, the auth store and the whole of `sessionStorage`
 cleared, and the reason surviving so the sign-in screen can state it.
 
 ```sh
-npm test -- src/tests/simulation_f10_hard_sign_out.test.ts
+npm test -- src/tests/simulation_10_hard_sign_out.test.ts
 ```
 
 <br>
 
-### F11: the roster view
+### Test 11: the roster view
 
 ```mermaid
 flowchart TD
@@ -490,12 +493,12 @@ so a cached copy would be the one place in the browser where another family's
 name outlives the screen that showed it.
 
 ```sh
-npm test -- src/tests/simulation_f11_roster_view.test.ts
+npm test -- src/tests/simulation_11_roster_view.test.ts
 ```
 
 <br>
 
-### F12: a fresh cache sends no request
+### Test 12: a fresh cache sends no request
 
 ```mermaid
 sequenceDiagram
@@ -524,12 +527,12 @@ Proves: exactly one call, an identical rendered list, and the lookup reporting
 itself as fresh.
 
 ```sh
-npm test -- src/tests/simulation_f12_fresh_cache.test.ts
+npm test -- src/tests/simulation_12_fresh_cache.test.ts
 ```
 
 <br>
 
-### F13: a stale cache revalidates to a 304
+### Test 13: a stale cache revalidates to a 304
 
 ```mermaid
 sequenceDiagram
@@ -561,12 +564,12 @@ carries the stored tag, the 304 does not replace the body, subscribers are not
 needlessly notified, and the entry is fresh again afterwards.
 
 ```sh
-npm test -- src/tests/simulation_f13_stale_revalidation.test.ts
+npm test -- src/tests/simulation_13_stale_revalidation.test.ts
 ```
 
 <br>
 
-### F14: a mutation invalidates the cache
+### Test 14: a mutation invalidates the cache
 
 ```mermaid
 flowchart TD
@@ -595,12 +598,12 @@ sees. A mutation that failed changes nothing, because nothing is known to have
 changed.
 
 ```sh
-npm test -- src/tests/simulation_f14_mutation_invalidates.test.ts
+npm test -- src/tests/simulation_14_mutation_invalidates.test.ts
 ```
 
 <br>
 
-### F15: the status route reflects backend readiness
+### Test 15: the status route reflects backend readiness
 
 ```mermaid
 flowchart TD
@@ -636,12 +639,12 @@ costs nobody a seat, so showing it as an outage would send somebody looking for
 a problem that is not costing anything.
 
 ```sh
-npm test -- src/tests/simulation_f15_status_route.test.ts
+npm test -- src/tests/simulation_15_status_route.test.ts
 ```
 
 <br>
 
-### F16: nothing sensitive is held by the client
+### Test 16: nothing sensitive is held by the client
 
 ```mermaid
 flowchart TD
@@ -673,12 +676,12 @@ badly it is written, which is why the case watches `document.cookie` rather
 than trusting that nobody wrote the line.
 
 ```sh
-npm test -- src/tests/simulation_f16_nothing_held.test.ts
+npm test -- src/tests/simulation_16_nothing_held.test.ts
 ```
 
 <br>
 
-### F17: the backend transaction broke mid-payment
+### Test 17: the backend transaction broke mid-payment
 
 ```mermaid
 sequenceDiagram
@@ -718,11 +721,11 @@ screen as pending, the countdown keeps running because the hold was not
 touched, the cached list is left alone because nothing is known to have
 changed, the retry reuses the same key, and the request id is rendered for
 quoting. A declined payment is a finished attempt and earns a
-fresh key, as in F3. An `internal_error` is an attempt of unknown outcome, so
+fresh key, as in test 3. An `internal_error` is an attempt of unknown outcome, so
 the same key must go back or a retry risks charging twice.
 
 ```sh
-npm test -- src/tests/simulation_f17_transaction_broke.test.ts
+npm test -- src/tests/simulation_17_transaction_broke.test.ts
 ```
 
 <br>
