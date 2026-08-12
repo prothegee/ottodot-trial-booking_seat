@@ -1,6 +1,6 @@
-[![backend main](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-backend.yml/badge.svg?branch=main)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-backend.yml)
-[![frontend main](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-frontend.yml/badge.svg?branch=main)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-frontend.yml)
-[![deploy simulation main-stable](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/deploy-simulation.yml/badge.svg?branch=main-stable)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/deploy-simulation.yml)
+[![backend main](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-backend.yml/badge.svg)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-backend.yml)
+[![frontend main](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-frontend.yml/badge.svg)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-frontend.yml)
+[![deploy simulation](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/deploy-simulation.yml/badge.svg)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/deploy-simulation.yml)
 
 # Trial Booking
 
