@@ -25,7 +25,10 @@ indent_style = tab
 ##
 ## Two-space families, matching what is already written.
 ##
-[*.{yml,yaml,json}]
+[*.{json}]
+indent_size = 4
+
+[*.{yml,yaml}]
 indent_size = 2
 
 ##
