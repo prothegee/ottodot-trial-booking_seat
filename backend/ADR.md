@@ -809,7 +809,7 @@ and the audit trail records the payment path as the cause rather than a person.
 
 **Consequences.** A declined booking finishes immediately and its hold is
 released, so the seat is free for the next parent rather than parked for the
-rest of the countdown. That is the behaviour simulation 2 describes and the
+rest of the countdown. That is the behaviour test 2 describes and the
 first thing the frontend's declined screen needed to be true.
 
 The alternative, leaving the booking to expire, would have been a seat held for
@@ -1029,7 +1029,7 @@ cannot break a panel down by class or by parent, and that is the correct trade:
 those questions belong to a query against the database, where there is an access
 control decision in front of them.
 
-Simulation 14 asserts the property rather than trusting it. It drives a whole
+Test 14 asserts the property rather than trusting it. It drives a whole
 booking and then scans the exposition for anything shaped like a uuid.
 
 The one place values arrive from outside the process is the telemetry endpoint.
@@ -1105,7 +1105,7 @@ The header pattern is deliberately greedy to the end of the line or the next
 delimiter. `Bearer <token>` is two words, so stopping at the first space would
 replace the scheme and leave the token, which is the half that matters.
 
-Simulation 14 drives a failing request with a session cookie on it and asserts
+Test 14 drives a failing request with a session cookie on it and asserts
 nothing from that cookie reached the output.
 
 <br>
@@ -1226,7 +1226,7 @@ publishes.
 Three specific things are checked by name as well. The transaction failure panel
 queries `confirm_transaction_total{outcome="error"}`, which is the exact series
 `TransactionErrorSpike` fires on. Cpu, memory, and drive still resolve from the
-queries that do not mention cAdvisor. And every one of the twelve alerts the plan
+queries that do not mention cAdvisor. And every one of the thirteen alerts the plan
 names is present.
 
 **Consequences.** The names come from a registry that has been driven rather
