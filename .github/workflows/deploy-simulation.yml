@@ -19,7 +19,7 @@
 # the check that runs once that decision has been made.
 # ---------------------------------------------------------------------------- #
 
-name: deploy simulation
+name: deployment # simulation
 
 on:
     push:
