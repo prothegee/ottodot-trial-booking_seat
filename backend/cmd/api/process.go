@@ -31,7 +31,7 @@ import (
 //	the unwind is the reverse: stop accepting, let in flight requests finish,
 //	then give the stores back through the deferred close
 func run() error {
-    settings, err := config.LoadFromEnvironment()
+    settings, err := config.LoadFromFile(config.DefaultFilePath)
     if err != nil {
         return fmt.Errorf("the configuration was refused: %w", err)
     }
@@ -48,12 +48,24 @@ func run() error {
 
     defer deps.close()
 
-    surface, bookings, err := buildSurface(deps, watch, settings)
+    // Resolved once, so the log line below and the /version route are the same
+    // answer rather than two that could drift apart.
+    identity := buildIdentity(settings.Build)
+
+    surface, bookings, err := buildSurface(deps, watch, settings, identity)
     if err != nil {
         return fmt.Errorf("the api could not be wired: %w", err)
     }
 
     listener := newListener(settings.Api, surface)
+
+    // Before the signal handler and before anything is announced. A port that is
+    // already held is a reason not to start, not a line in a log somebody reads
+    // afterwards wondering why no request ever arrived.
+    socket, err := bindListener(listener)
+    if err != nil {
+        return fmt.Errorf("the api could not take its port: %w", err)
+    }
 
     ctx, stop := bootstrap.ShutdownSignal()
     defer stop()
@@ -63,11 +75,12 @@ func run() error {
     // the database is the thing that is broken.
     go sampleGauges(ctx, deps.pools, bookings, watch)
 
-    go serve(listener, watch.Logger)
+    go serve(listener, socket, watch.Logger)
 
     watch.Logger.Info("the api is serving",
-        "version", buildVersion,
-        "commit", buildCommit,
+        "version", identity.Version,
+        "commit", identity.Commit,
+        "built_at", identity.BuiltAt,
         "address", listener.Addr)
 
     <-ctx.Done()
