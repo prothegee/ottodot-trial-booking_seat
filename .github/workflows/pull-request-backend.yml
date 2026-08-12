@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------- #
-# What has to be green before backend work reaches main or main-stable.
+# What has to be green before backend work reaches main.
 #
 # Four jobs, in order of how long they take to tell you something. The fast
 # tiers and the shell suites answer in under a minute, the alert rules answer in
@@ -27,7 +27,7 @@ on:
     pull_request:
         branches:
             - main
-            - main-stable
+            # - main-stable
 
 # A second push to the same pull request cancels the first. There is no value in
 # finishing a proof run for code that has already been replaced.
