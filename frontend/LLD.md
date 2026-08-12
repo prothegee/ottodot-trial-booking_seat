@@ -939,19 +939,19 @@ that says it is running.
 | `routes/sign-in/page.test.ts` | integration, behaviour | the screen, including the notice after a reused token |
 | `routes/page.test.ts` | integration, edge | the list renders, a full class offers no way in, a failed read says so |
 | `routes/book/[classId]/page.test.ts` | integration, edge | a hold moves on, a full class and a duplicate are answered on the screen |
-| `tests/simulation_f09_silent_refresh.test.ts` | behaviour | three parallel expiries, one refresh, three retries |
-| `tests/simulation_f10_hard_sign_out.test.ts` | behaviour | a reused token ends the session once, with no retry loop |
-| `tests/simulation_f12_fresh_cache.test.ts` | behaviour | a second view inside five seconds sends nothing at all |
-| `tests/simulation_f13_stale_revalidation.test.ts` | behaviour | the stale body renders first, the 304 changes nothing but the age |
-| `tests/simulation_f14_mutation_invalidates.test.ts` | behaviour | the new seat count renders, not the one that was just changed |
-| `tests/simulation_f01_happy_path_booking.test.ts` | behaviour | pick, hold, pay, seat number. One key on both calls |
-| `tests/simulation_f02_stale_seat_count.test.ts` | behaviour | a full class refuses, the entry is aged, the next read shows the real count |
-| `tests/simulation_f04_duplicate_booking.test.ts` | behaviour | one call, no retry, and a link to the booking that exists |
+| `tests/simulation_09_silent_refresh.test.ts` | behaviour | three parallel expiries, one refresh, three retries |
+| `tests/simulation_10_hard_sign_out.test.ts` | behaviour | a reused token ends the session once, with no retry loop |
+| `tests/simulation_12_fresh_cache.test.ts` | behaviour | a second view inside five seconds sends nothing at all |
+| `tests/simulation_13_stale_revalidation.test.ts` | behaviour | the stale body renders first, the 304 changes nothing but the age |
+| `tests/simulation_14_mutation_invalidates.test.ts` | behaviour | the new seat count renders, not the one that was just changed |
+| `tests/simulation_01_happy_path_booking.test.ts` | behaviour | pick, hold, pay, seat number. One key on both calls |
+| `tests/simulation_02_stale_seat_count.test.ts` | behaviour | a full class refuses, the entry is aged, the next read shows the real count |
+| `tests/simulation_04_duplicate_booking.test.ts` | behaviour | one call, no retry, and a link to the booking that exists |
 | `lib/api/attempt.test.ts` | unit, behaviour, edge | which kinds spend a key, and that an unknown kind keeps it |
 | `lib/booking/bot_signals.test.ts` | unit, edge | a real measurement, a backwards clock, and a rounded fraction |
 | `lib/components/CaptchaWidget.test.ts` | unit, behaviour, edge | one token, the unanswered state, and no callback after unmount |
 | `lib/components/PaymentForm.test.ts` | unit, behaviour, edge | one field only, the honeypot sent as it stands, the token carried |
-| `tests/simulation_f07_honeypot_and_fill_timer.test.ts` | behaviour | the field is hidden, unreachable, and empty, and the elapsed time is measured rather than fixed |
+| `tests/simulation_07_honeypot_and_fill_timer.test.ts` | behaviour | the field is hidden, unreachable, and empty, and the elapsed time is measured rather than fixed |
 | `lib/telemetry/emitter.test.ts` | unit, edge | batching, a swallowed failure, no retry, the cap, and an idle emitter scheduling nothing |
 | `lib/telemetry/page_load.test.ts` | unit, edge | the gap rather than the mount, one report per screen, and a pattern rather than a path |
 | `lib/stores/bookings.test.ts` | unit, edge, behaviour | an empty answer told apart from one never asked for, and a failed read leaving the list alone |
@@ -959,9 +959,9 @@ that says it is running.
 | `lib/stores/roster.test.ts` | unit, edge, behaviour | a refusal for the role told apart from any other failure, and a failed read clearing the names |
 | `lib/stores/status.test.ts` | unit, edge, behaviour | polling that stops, a 503 read as an answer, and degraded distinguished from unavailable |
 | `lib/components/ReadinessDot.test.ts` | unit, edge, behaviour | the three states, the fourth for no answer, and the state readable without the colour |
-| `tests/simulation_f11_roster_view.test.ts` | behaviour | confirmed only, seats in order, never cached, and the api refusing a parent |
-| `tests/simulation_f15_status_route.test.ts` | behaviour | green, amber, red, grey, and the polling stopping on the way out |
-| `tests/simulation_f16_nothing_held.test.ts` | behaviour | four surfaces scanned, and no code path reading a cookie |
+| `tests/simulation_11_roster_view.test.ts` | behaviour | confirmed only, seats in order, never cached, and the api refusing a parent |
+| `tests/simulation_15_status_route.test.ts` | behaviour | green, amber, red, grey, and the polling stopping on the way out |
+| `tests/simulation_16_nothing_held.test.ts` | behaviour | four surfaces scanned, and no code path reading a cookie |
 | `lib/config/build_identity.test.ts` | unit, edge, behaviour | the manifest version, the short commit, and what each answers where neither exists |
 | `lib/config/api_base_url.test.ts` | unit, edge, behaviour | the loopback pair aligned both ways, and a real address left alone |
 | `lib/session/sign_out_request.test.ts` | integration, behaviour, edge | the api told first, nothing left behind, and a refused logout still clearing this device |
