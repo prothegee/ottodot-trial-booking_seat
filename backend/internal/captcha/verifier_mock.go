@@ -29,7 +29,7 @@ const (
 // MockVerifier is the verifier every test and every demo runs against.
 //
 // It is deterministic on purpose. A challenge that passed at random would make a
-// failing test a coin toss and a recorded demonstration a matter of luck, so
+// failing test a coin toss and a demonstration a matter of luck, so
 // this one decides from the token alone and answers the same way every time.
 type MockVerifier struct {
     mutex sync.Mutex
