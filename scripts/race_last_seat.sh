@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------- #
 # class: safe
 #
-# Simulation 6, the scenario the brief asks for, against a live system.
+# Test 6, the scenario the brief asks for, against a live system.
 #
 #   1. Parent A takes the last seat of a class and goes to pay
 #   2. Parent B takes the same seat and goes to pay
