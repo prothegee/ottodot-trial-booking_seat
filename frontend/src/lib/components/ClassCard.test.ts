@@ -69,6 +69,31 @@ describe("a class card", () => {
         expect(screen.getByTestId("class-card-closed")).toBeInTheDocument();
     });
 
+    test("unit: everything a reader can act on is the last block in the card", () => {
+        // The bottom alignment hangs on this. The card is a column that the grid
+        // stretches to the tallest one in the row, and the spare height is sent
+        // above this block, so a button that sat loose among the text would go
+        // back to being wherever the words above it happened to end.
+        const { container } = render(ClassCard, { props: { trialClass: openClass(), showRoster: true } });
+
+        const card = container.querySelector('[data-testid="class-card"]');
+        const actions = card?.lastElementChild;
+
+        expect(actions).not.toBeNull();
+        expect(actions?.querySelector('[data-testid="class-card-book"]')).not.toBeNull();
+        expect(actions?.querySelector('[data-testid="class-card-roster"]')).not.toBeNull();
+    });
+
+    test("edge: a full class puts its note in the same block the button would have used", () => {
+        // Otherwise a full card and a bookable one would end at different
+        // heights, which is the staircase again with one card in it.
+        const { container } = render(ClassCard, { props: { trialClass: openClass({ seats_remaining: 0 }) } });
+
+        const actions = container.querySelector('[data-testid="class-card"]')?.lastElementChild;
+
+        expect(actions?.querySelector('[data-testid="class-card-closed"]')).not.toBeNull();
+    });
+
     test("edge: one seat left is still bookable", () => {
         // The boundary the whole exercise is about. Off by one here would hide
         // the last seat from everybody.
