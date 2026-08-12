@@ -309,7 +309,7 @@
             "id": 11,
             "type": "timeseries",
             "title": "Reaching confirmation",
-            "description": "The whole funnel as one number. It is a ratio of rates rather than of totals, so an afternoon of history does not flatten what is happening now.",
+            "description": "The whole funnel as one number. It is a ratio of rates rather than of totals, so an afternoon of history does not flatten what is happening now. Each side is summed first, because the two carry different step labels and would otherwise never be matched against each other, and the divisor has a floor under it so an hour where nobody started reads as nobody reaching the end rather than as a panel with nothing in it.",
             "datasource": {
                 "type": "prometheus",
                 "uid": "ottodot-prometheus"
@@ -323,7 +323,7 @@
             "targets": [
                 {
                     "refId": "A",
-                    "expr": "rate(frontend_booking_funnel_total{step=\"confirmed\"}[5m]) / rate(frontend_booking_funnel_total{step=\"list\"}[5m])",
+                    "expr": "sum(rate(frontend_booking_funnel_total{step=\"confirmed\"}[5m])) / clamp_min(sum(rate(frontend_booking_funnel_total{step=\"list\"}[5m])), 1e-9)",
                     "legendFormat": "confirmed per list view",
                     "datasource": {
                         "type": "prometheus",
@@ -356,7 +356,7 @@
             "id": 13,
             "type": "timeseries",
             "title": "Page load",
-            "description": "Measured in the browser and posted here, because nothing on the server can see how long a route took to become usable.",
+            "description": "Measured in the browser and posted here, because nothing on the server can see how long a route took to become usable. The average is drawn beside the two percentiles because a percentile of no page loads is not a number at all: with nobody on the site the panel would otherwise read No data, which is what broken telemetry looks like too.",
             "datasource": {
                 "type": "prometheus",
                 "uid": "ottodot-prometheus"
@@ -381,6 +381,15 @@
                     "refId": "B",
                     "expr": "histogram_quantile(0.50, sum by (le) (rate(frontend_page_load_seconds_bucket[5m])))",
                     "legendFormat": "p50",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "C",
+                    "expr": "sum(rate(frontend_page_load_seconds_sum[5m])) / clamp_min(sum(rate(frontend_page_load_seconds_count[5m])), 1e-9)",
+                    "legendFormat": "average",
                     "datasource": {
                         "type": "prometheus",
                         "uid": "ottodot-prometheus"
