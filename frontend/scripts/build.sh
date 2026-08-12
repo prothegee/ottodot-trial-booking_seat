@@ -4,37 +4,36 @@
 #
 # Static build with the version and the commit injected.
 #
-# The commit is read from git when nothing overrides it, so a local build still
-# says which code it came from. A reviewer watching a recording has to be able
-# to tell which build is on screen.
+# Neither is defaulted here. When nothing states them, vite.config.ts takes the
+# version package.json declares and the commit git recorded, so a local build
+# still says which code it came from. A reviewer has to be able to tell which
+# build is on screen, and one place deciding that is easier to trust than two.
+#
+# Where the bundle points is .env, not this script. That file is made from
+# .env.template on the first run and belongs to the machine it is on.
 #
 # Usage:
 #   frontend/scripts/build.sh
-#   BUILD_VERSION=1.4.0 API_BASE_URL=https://api.example.test frontend/scripts/build.sh
+#   BUILD_VERSION=1.4.0 frontend/scripts/build.sh
 # ---------------------------------------------------------------------------- #
 
 set -euo pipefail
 
 frontend_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repository_root="$(cd "$frontend_root/.." && pwd)"
+
+source "$repository_root/scripts/lib/settings.sh"
 
 cd "$frontend_root"
 
-resolve_commit() {
-    if [ -n "${BUILD_COMMIT:-}" ]; then
-        printf '%s\n' "$BUILD_COMMIT"
+# The build reads .env, so a missing one has to be dealt with here rather than
+# by the dev server alone. Vite bakes these values into the bundle, which is why
+# this file matters at build time and not at run time.
+settings_ensure "$frontend_root/.env" "$frontend_root/.env.template" || exit 2
 
-        return 0
-    fi
-
-    git rev-parse --short=7 HEAD 2>/dev/null || printf 'unknown\n'
-}
-
-export API_BASE_URL="${API_BASE_URL:-http://127.0.0.1:9000}"
-export BUILD_VERSION="${BUILD_VERSION:-dev}"
-BUILD_COMMIT="$(resolve_commit)"
-export BUILD_COMMIT
-
-printf 'building version %s, commit %s, api %s\n' "$BUILD_VERSION" "$BUILD_COMMIT" "$API_BASE_URL"
+printf 'building version %s, commit %s\n' \
+    "${BUILD_VERSION:-from package.json}" "${BUILD_COMMIT:-from git}"
+printf 'the api address comes from %s/.env\n' "$frontend_root"
 
 npm run build
 
