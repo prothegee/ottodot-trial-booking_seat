@@ -10,7 +10,7 @@ import { bookingsPath, createBookingStore } from "$lib/stores/booking";
 import { classListPath, createClassesStore } from "$lib/stores/classes";
 
 /**
- * Simulation F4: the same child is booked into the same class twice.
+ * Test 4: the same child is booked into the same class twice.
  *
  *     parent -> client: book the same child into the same class
  *     client -> api: create the booking
@@ -76,7 +76,7 @@ function newStage() {
     };
 }
 
-describe("simulation F4: this child already has a booking for this class", () => {
+describe("test 4: this child already has a booking for this class", () => {
     beforeEach(() => {
         sessionStorage.clear();
     });
