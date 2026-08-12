@@ -175,28 +175,28 @@
 
     .loading {
         margin: 0;
-        color: #6b7280;
+        color: var(--muted);
     }
 
     .failure {
         margin: 0;
         padding: 0.5rem 0.75rem;
         font-size: 0.9rem;
-        color: #b91c1c;
-        background: #fee2e2;
+        color: var(--danger);
+        background: var(--danger-surface);
         border-radius: 0.25rem;
     }
 
     .terminal {
         margin: 0;
         font-size: 0.9rem;
-        color: #374151;
+        color: var(--ink-soft);
     }
 
     .reference {
         margin: 0;
         font-size: 0.75rem;
-        color: #6b7280;
+        color: var(--muted);
     }
 
     .onward {
