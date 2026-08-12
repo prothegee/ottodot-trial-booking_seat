@@ -1,12 +1,49 @@
 package main
 
 import (
+    "net/http"
     "strconv"
     "strings"
     "testing"
 
+    "ottodot-trial-booking/backend/internal/config"
+    "ottodot-trial-booking/backend/internal/operations"
     "ottodot-trial-booking/backend/internal/payment"
 )
+
+func TestTheMetricsPortIsTakenBeforeTheWorkerAnnouncesItself(t *testing.T) {
+    t.Run("behaviour: a free port is bound and the socket holds it", func(t *testing.T) {
+        socket, err := bindListener(&http.Server{Addr: "127.0.0.1:0"})
+        if err != nil {
+            t.Fatalf("a free port was refused: %v", err)
+        }
+
+        defer socket.Close()
+
+        if socket.Addr().String() == "" {
+            t.Fatal("the socket reported no address to answer on")
+        }
+    })
+
+    t.Run("edge: a metrics port already held is refused rather than reported afterwards", func(t *testing.T) {
+        // A held metrics port means a second worker is already running, and two
+        // consumers of one queue is worth refusing. Binding inside the serving
+        // goroutine reported it only after this process had started consuming.
+        held, err := bindListener(&http.Server{Addr: "127.0.0.1:0"})
+        if err != nil {
+            t.Fatalf("a free port was refused: %v", err)
+        }
+
+        defer held.Close()
+
+        second, err := bindListener(&http.Server{Addr: held.Addr().String()})
+        if err == nil {
+            second.Close()
+
+            t.Fatal("a port already held was accepted, a second worker would consume the same queue")
+        }
+    })
+}
 
 func TestTheMetricsListenerIsReachableFromItsOwnContainer(t *testing.T) {
     t.Run("unit: the address is the port on every interface", func(t *testing.T) {
@@ -32,12 +69,50 @@ func TestTheMetricsListenerIsReachableFromItsOwnContainer(t *testing.T) {
 }
 
 func TestTheBuildIdentityHasSomewhereToBeStamped(t *testing.T) {
-    t.Run("unit: both values exist for the linker to overwrite", func(t *testing.T) {
-        // The Containerfile passes -X main.buildVersion and -X main.buildCommit.
-        // A symbol the linker cannot find is ignored without a word, so the
-        // stamp would silently do nothing and every image would report `dev`.
-        if buildVersion == "" || buildCommit == "" {
-            t.Fatalf("expected defaults a local build can report, got %q and %q", buildVersion, buildCommit)
+    t.Run("unit: an unstamped build starts silent so the next source is asked", func(t *testing.T) {
+        // The bug this case exists for: these two defaulted to "dev" and
+        // "unknown", words that look like answers and stop configuration from
+        // ever being consulted.
+        if buildVersion != "" || buildCommit != "" {
+            t.Fatalf("expected empty defaults, got %q and %q", buildVersion, buildCommit)
+        }
+    })
+
+    t.Run("behaviour: an unstamped worker takes its version from configuration", func(t *testing.T) {
+        version, _ := buildIdentity(config.BuildSettings{Version: "0.1.0"})
+
+        if version != "0.1.0" {
+            t.Fatalf("expected the configured version, got %q", version)
+        }
+    })
+
+    t.Run("behaviour: a stamped worker describes itself, whatever the machine says", func(t *testing.T) {
+        previousVersion, previousCommit := buildVersion, buildCommit
+
+        t.Cleanup(func() {
+            buildVersion, buildCommit = previousVersion, previousCommit
+        })
+
+        buildVersion, buildCommit = "1.4.0", "abcdef1"
+
+        version, commit := buildIdentity(config.BuildSettings{Version: "0.1.0", Commit: "9999999"})
+
+        if version != "1.4.0" || commit != "abcdef1" {
+            t.Fatalf("configuration overrode the linker, got %q and %q", version, commit)
+        }
+    })
+
+    t.Run("edge: a value no source can name is a word rather than a blank", func(t *testing.T) {
+        // This goes straight into a log line, where an empty field reads as a
+        // logger that dropped it.
+        version, commit := buildIdentity(config.BuildSettings{})
+
+        if version != operations.UnknownValue {
+            t.Fatalf("expected unknown for a version nobody stated, got %q", version)
+        }
+
+        if commit == "" {
+            t.Fatal("the commit was reported as an empty log field")
         }
     })
 }
