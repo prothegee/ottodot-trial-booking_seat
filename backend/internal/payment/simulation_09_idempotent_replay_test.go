@@ -8,7 +8,7 @@ import (
     "ottodot-trial-booking/backend/internal/payment"
 )
 
-// Simulation 9: idempotent payment replay.
+// Test 9: idempotent payment replay.
 //
 //	parent -> api: pay with idempotency key K
 //	api    -> repository: write the attempt under key K, charge, settled
