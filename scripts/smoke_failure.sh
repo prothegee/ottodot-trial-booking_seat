@@ -238,9 +238,9 @@ arm_the_fault() {
 
 # Holds a seat, reusing the booking from an earlier run rather than refusing.
 #
-# The booking this leaves behind stays in pending_payment, so a second run finds
-# it and is answered already_booked. That is correct behaviour by the api and no
-# reason for this script to stop.
+# The select names pending_payment because other scripts write terminal rows for
+# this same child and class, and newest-first alone picks one of those rather
+# than the seat being held. It is also the one status confirm accepts.
 hold_a_seat() {
     api_request POST "$jar_parent" /api/v1/bookings \
         "$(printf '{"student_id":"%s","class_id":"%s"}' "$SMOKE_STUDENT_ID" "$SMOKE_CLASS_ID")" \
@@ -263,12 +263,13 @@ hold_a_seat() {
     booking_id="$(database_scalar "
         select id from bookings
         where student_id = '$SMOKE_STUDENT_ID' and class_id = '$SMOKE_CLASS_ID'
+          and status = 'pending_payment'
         order by created_at desc
         limit 1
     ")"
 
     if [ -z "$booking_id" ]; then
-        refuse "no booking row exists for that child and class"
+        refuse "no booking is in pending_payment for that child and class"
     fi
 }
 
