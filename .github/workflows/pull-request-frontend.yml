@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------- #
-# What has to be green before client work reaches main or main-stable.
+# What has to be green before client work reaches main.
 #
 # Three jobs. The tiers run against the fake transport and need nothing running,
 # the shell suites check this stack's own scripts without starting a thing, and
@@ -24,7 +24,7 @@ on:
     pull_request:
         branches:
             - main
-            - main-stable
+            # - main-stable
 
 concurrency:
     group: frontend-${{ github.workflow }}-${{ github.ref }}
