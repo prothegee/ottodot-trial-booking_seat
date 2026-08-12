@@ -12,7 +12,7 @@ import { classListPath, createClassesStore } from "$lib/stores/classes";
 import { trialPayment } from "$lib/booking/price";
 
 /**
- * Simulation F1: the happy path.
+ * Test 1: the happy path.
  *
  *     parent -> client: pick a class, pick a child, submit
  *     client -> api: create a booking with an idempotency key
@@ -91,7 +91,7 @@ function newStage() {
     };
 }
 
-describe("simulation F1: a booking from the class list to a confirmed seat", () => {
+describe("test 1: a booking from the class list to a confirmed seat", () => {
     beforeEach(() => {
         sessionStorage.clear();
     });
