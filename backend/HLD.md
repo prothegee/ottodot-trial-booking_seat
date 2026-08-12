@@ -368,7 +368,7 @@ behind one office connection.
 
 **Each layer is cheaper than the one below it.** A signature check costs no
 database read, the ownership check costs one, the bucket costs one shared store
-read, and only then does anything reach a transaction. Simulation 10 walks every
+read, and only then does anything reach a transaction. Test 10 walks every
 branch and asserts that a refusal at each one leaves the repository untouched.
 
 **Where each thing lives.**
@@ -434,7 +434,7 @@ flowchart LR
     cadv[cAdvisor 9006] -->|per container| prom
     client[Svelte client 9001] -->|POST /api/v1/telemetry| api
     prom --> graf[Grafana 9004]
-    prom --> rules[twelve alert rules]
+    prom --> rules[thirteen alert rules]
 ```
 
 Layer one is scraped at two addresses rather than one. The api and the worker are
