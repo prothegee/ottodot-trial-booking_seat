@@ -218,6 +218,34 @@ func (service *Service) Worklist(ctx context.Context, status Status, limit int) 
     return service.repository.Worklist(ctx, request)
 }
 
+// ParentBookings lists one parent's own bookings, newest first.
+//
+// Note:
+//   - this is the read that lets a parent find a booking again after the screen
+//     that made it has gone. Without it the only way back to a booking is the
+//     address it was created at, which nobody keeps.
+//   - the parent is the whole of the authorisation here, so it has to come from
+//     the token. Nothing in this package checks where the caller got it, which
+//     is the same split the worklist follows: listing and authorising are two
+//     responsibilities.
+//
+// Param:
+// parentID - string (whose bookings, taken from the authenticated identity)
+// limit - int (how many rows at most)
+//
+// Return:
+//   - that parent's bookings, newest first, empty when they have none
+//   - ErrInvalidRequest for an empty parent or a limit below one
+func (service *Service) ParentBookings(ctx context.Context, parentID string, limit int) ([]Booking, error) {
+    request := ParentBookingsRequest{ParentID: parentID, Limit: limit}
+
+    if err := request.Validate(); err != nil {
+        return nil, err
+    }
+
+    return service.repository.ParentBookings(ctx, request)
+}
+
 // Expire releases a hold whose deadline has passed.
 //
 // Note:
