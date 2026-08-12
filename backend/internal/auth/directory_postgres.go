@@ -22,24 +22,28 @@ func NewPostgresDirectory(pool *pgxpool.Pool) *PostgresDirectory {
     return &PostgresDirectory{pool: pool}
 }
 
-// ParentByEmail is the sign in lookup.
+// CredentialByEmail is the sign in lookup.
 //
 // The comparison is on lower(email) rather than on email, so an address typed
 // with a capital letter reaches the same account. The fake normalises the same
 // way, which is what keeps the two from disagreeing about who exists.
-func (directory *PostgresDirectory) ParentByEmail(ctx context.Context, email string) (Parent, error) {
+//
+// This is the only query in the service that reads password_hash, and it reads
+// it nowhere else.
+func (directory *PostgresDirectory) CredentialByEmail(ctx context.Context, email string) (Credential, error) {
     normalised := normaliseEmail(email)
     if normalised == "" {
-        return Parent{}, ErrInvalidRequest
+        return Credential{}, ErrInvalidRequest
     }
 
-    var found Parent
+    var found Credential
 
     err := directory.pool.QueryRow(ctx,
-        `select id, full_name, role from parents where lower(email) = $1`,
-        normalised).Scan(&found.ID, &found.DisplayName, &found.Role)
+        `select id, full_name, role, password_hash from parents where lower(email) = $1`,
+        normalised).Scan(
+        &found.Parent.ID, &found.Parent.DisplayName, &found.Parent.Role, &found.PasswordHash)
     if err != nil {
-        return Parent{}, translate(err, ErrNoSuchParent)
+        return Credential{}, translate(err, ErrNoSuchParent)
     }
 
     return found, nil
