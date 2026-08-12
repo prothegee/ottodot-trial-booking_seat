@@ -80,6 +80,7 @@ frontend
 |   |___debug_test.sh
 |   |___dev.sh
 |   |___test.sh
+|   |___test_all.sh                        (every frontend test, and the build)
 |
 |___/src
 |   |___/lib
@@ -277,6 +278,26 @@ to the backend stack and starts with either `../scripts/stack_up.sh backend` or
 `../backend/scripts/debug.sh`. `scripts/debug.sh` here reports whether Grafana is
 answering and starts nothing. `how-to.md` under Looking At What The Client
 Reports has the series names and their labels.
+
+<br>
+
+## Why This Stack
+
+Every part was chosen to keep this client out of the decision. It shows what the
+api says and refuses nothing on its own. The full reasoning for each choice,
+including what was rejected, is in `ADR.md`.
+
+| part | choice | why |
+| :- | :- | :- |
+| framework | SvelteKit with `ssr = false` and `prerender = false`, built static | a rendering server would be a second moving part in front of the one place a seat count can be trusted (ADR-F001) |
+| serving | nginx in its own container, one config file | a static bundle needs a server, and client routes such as `/book/[classId]` only exist at runtime, so every unknown path is handed the same document (ADR-F002) |
+| session | both tokens in HttpOnly cookies, never read here | no token sits anywhere a script on the page can reach, and whether a session is valid is learned from a response (ADR-F004) |
+| seat counts | advisory on every screen, never a gate | the count may be stale by the time a parent clicks, so a refusal from the api is the real answer and each screen handles it (ADR-F003, ADR-F019) |
+| tests | an injected fake transport, no browser and no network | the whole suite runs in about two seconds, and a test can prove that no request was sent at all (ADR-F012) |
+
+The built output ships zero runtime dependencies. Everything in `package.json`
+is a build or test tool, because what is deployed is a directory of files and an
+nginx container, with no Node process anywhere.
 
 <br>
 
