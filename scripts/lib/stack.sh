@@ -15,7 +15,10 @@
 #
 # Note:
 # - COMPOSE_COMMAND overrides the search when a machine needs something else,
-#   for example "nerdctl compose"
+#   for example "nerdctl compose". The runtime is read back out of it, so the
+#   two cannot disagree
+# - CONTAINER_RUNTIME overrides that reading on a machine where the runtime is
+#   not named after its compose
 # ---------------------------------------------------------------------------- #
 
 STACK_NAMES=("backend" "frontend")
@@ -37,40 +40,6 @@ STACK_DATA_DIRECTORIES=(
 
 stack_repository_root() {
     cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd
-}
-
-# The container runtime a root script talks to directly, for the few things
-# compose has no answer for: waiting on a health check inside a container, or
-# removing one by name.
-#
-# Podman is preferred when both are installed, because a rootless runtime is the
-# safer of the two to hand a removal command to.
-#
-# Return:
-# - the command name on standard output
-# - exit 1 with a message when neither is installed
-stack_container_runtime() {
-    if [ -n "${CONTAINER_RUNTIME:-}" ]; then
-        printf '%s\n' "$CONTAINER_RUNTIME"
-
-        return 0
-    fi
-
-    if command -v podman >/dev/null 2>&1; then
-        printf 'podman\n'
-
-        return 0
-    fi
-
-    if command -v docker >/dev/null 2>&1; then
-        printf 'docker\n'
-
-        return 0
-    fi
-
-    printf 'no container runtime found, install podman or docker\n' >&2
-
-    return 1
 }
 
 stack_resolve_compose() {
@@ -101,6 +70,45 @@ stack_resolve_compose() {
     printf 'no compose command found, install podman-compose or docker compose\n' >&2
 
     return 1
+}
+
+# The container runtime a root script talks to directly, for the few things
+# compose has no answer for: waiting on a health check inside a container, or
+# removing one by name.
+#
+# It has to be the runtime compose itself used. A machine carrying both podman
+# and docker but no podman-compose starts the stack with docker compose, and a
+# podman exec then looks in a store that has never seen those containers, so
+# every call answers "no such container" until the wait gives up.
+#
+# The name comes from the compose command for that reason. Dropping a "-compose"
+# suffix turns podman-compose into podman and docker-compose into docker, and
+# "docker compose" already begins with the runtime's own name.
+#
+# Return:
+# - the command name on standard output
+# - exit 1 with a message when that runtime is not installed
+stack_container_runtime() {
+    local runtime
+
+    if [ -n "${CONTAINER_RUNTIME:-}" ]; then
+        printf '%s\n' "$CONTAINER_RUNTIME"
+
+        return 0
+    fi
+
+    stack_resolve_compose || return 1
+
+    runtime="${stack_compose_command[0]%-compose}"
+
+    if ! command -v "$runtime" >/dev/null 2>&1; then
+        printf "compose runs through '%s' and '%s' is not installed\n" \
+            "${stack_compose_command[*]}" "$runtime" >&2
+
+        return 1
+    fi
+
+    printf '%s\n' "$runtime"
 }
 
 # Points cAdvisor at a runtime socket this user can open, and at the image store
