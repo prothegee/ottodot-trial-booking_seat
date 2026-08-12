@@ -575,7 +575,7 @@ interface StatusState {
 
 The only thing in this client that polls. The timer starts after the first read
 rather than before it, so a slow first answer cannot be overlapped by the second,
-and simulation F15 asserts that the requests stop after the screen unmounts.
+and test 15 asserts that the requests stop after the screen unmounts.
 ADR-F035.
 
 A 503 from `/readyz` is a successful read of a real answer rather than a failure.
@@ -976,5 +976,5 @@ The error mapping table is written out by hand in its test rather than read from
 the implementation. A test that asks the mapping what it maps and then agrees
 with the answer proves nothing.
 
-Behaviour simulations live in `src/tests/`, one file per simulation, named after
+Behaviour tests live in `src/tests/`, one file per test, named after
 it. Everything else sits beside the code it covers.
