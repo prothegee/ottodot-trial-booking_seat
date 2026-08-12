@@ -10,7 +10,7 @@ import { bookingsPath, createBookingStore } from "$lib/stores/booking";
 import { classListPath, createClassesStore } from "$lib/stores/classes";
 
 /**
- * Simulation F2: the seat count was stale, and the class was full by the time
+ * Test 2: the seat count was stale, and the class was full by the time
  * the parent submitted.
  *
  *     note over client: the cached list says one seat left
@@ -81,7 +81,7 @@ function newStage() {
     };
 }
 
-describe("simulation F2: the class filled while the parent was choosing", () => {
+describe("test 2: the class filled while the parent was choosing", () => {
     beforeEach(() => {
         sessionStorage.clear();
     });
