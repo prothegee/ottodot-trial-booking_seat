@@ -39,6 +39,7 @@ const (
     MetricDuplicateRejected       = "booking_duplicate_rejected_total"
     MetricHoldExpired             = "booking_hold_expired_total"
     MetricQueueDepth              = "queue_depth"
+    MetricQueueDepthUnread        = "queue_depth_read_failed_total"
     MetricQueueJobDuration        = "queue_job_duration_seconds"
     MetricWorkerJobsClaimed       = "worker_jobs_claimed_total"
     MetricWorkerJobsCompleted     = "worker_jobs_completed_total"
