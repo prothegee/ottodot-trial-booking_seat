@@ -11,16 +11,19 @@ import (
 // used to work out what is deployed.
 const ServiceName = "ottodot-trial-booking-api"
 
-// unknownValue is what an unstamped build reports. It is a word rather than an
-// empty string, so a body always has the same shape and a reader can see that
-// the value is missing rather than wonder whether the field is.
-const unknownValue = "unknown"
+// UnknownValue is what a build no source could name reports. It is a word rather
+// than an empty string, so a body always has the same shape and a reader can see
+// that the value is missing rather than wonder whether the field is.
+//
+// It is exported because the worker reports the same two values in its first log
+// line, and one word for "nobody knew" is easier to search for than two.
+const UnknownValue = "unknown"
 
 // Identity is the build this process came from.
 //
-// Nothing here is read from the environment at request time. Every value is
-// stamped at link time, which is what makes this route an answer about the
-// binary rather than about the machine it happens to be running on.
+// Every value is resolved once at startup and never at request time. Which
+// source answered is decided by the process that builds this, and the order is
+// written down there.
 type Identity struct {
     Service string `json:"service"`
     Version string `json:"version"`
@@ -38,9 +41,9 @@ type Identity struct {
 //     This route needs no token, so anything it says is said to everyone.
 //
 // Param:
-// version - string (stamped at link time, "dev" for a local build)
-// commit - string (stamped at link time)
-// builtAt - string (stamped at link time, an RFC 3339 instant)
+// version - string (already resolved, empty when no source stated one)
+// commit - string (already resolved, empty when no source stated one)
+// builtAt - string (already resolved, an RFC 3339 instant or empty)
 //
 // Return:
 //   - the identity, with anything unstamped reported as unknown
@@ -63,10 +66,10 @@ func (identity Identity) Handle(response http.ResponseWriter, _ *http.Request) {
     _ = json.NewEncoder(response).Encode(identity)
 }
 
-// orUnknown keeps an unstamped field readable rather than empty.
+// orUnknown keeps a field no source could answer readable rather than empty.
 func orUnknown(value string) string {
     if value == "" {
-        return unknownValue
+        return UnknownValue
     }
 
     return value
