@@ -164,8 +164,8 @@ jobs:
                   go-version-file: backend/go.mod
                   cache-dependency-path: backend/go.sum
 
-            # Containers up, the tagged suite against real Postgres, simulation
-            # 16 against the running api, containers down. --yes because there is
-            # no terminal here to answer the automation guard.
+            # Containers up, the tagged suite against real Postgres, test 6 and
+            # test 16 against the running api, containers down. --yes because
+            # there is no terminal here to answer the automation guard.
             - name: the real stack
               run: scripts/test_integration.sh --yes
