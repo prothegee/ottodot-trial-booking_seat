@@ -245,7 +245,7 @@ in its own test rather than read from the implementation.
 
 In exchange the whole suite runs in about two seconds, and a test can assert
 that no request was sent at all, which is the only way to prove the fresh-cache
-case in simulation F12.
+case in test 12.
 
 <br>
 
@@ -456,7 +456,7 @@ key.
 
 **Consequences.** A screen retries by calling `pay` again, and the right key
 goes out whichever failure it is recovering from. Two edge tests pin the two
-directions, and simulations F3 and F17 assert them end to end, one on a fresh
+directions, and tests 3 and 17 assert them end to end, one on a fresh
 key and one on the same key.
 
 The set has exactly two members and both are there for a reason a reader can
@@ -605,7 +605,7 @@ wrapper. `display: none` was rejected for the same reason as `type="hidden"`.
 **Consequences.** It is a real, laid out field that nobody can see, reach with
 the keyboard, or hear read out, and `autocomplete="off"` is what stops a browser
 or a password manager filling it in on the parent's behalf, which would refuse a
-real person. Simulation F7 asserts all four properties, because each one is a
+real person. Test 7 asserts all four properties, because each one is a
 line somebody could delete without anything else breaking.
 
 The field name is deliberately plausible. A field named `honeypot` is a field a
@@ -633,7 +633,7 @@ rather than as evidence.
 mid-form cannot produce a negative. The fallback can, which is why the
 arithmetic guards it anyway rather than trusting the clock it was handed.
 
-Simulation F7 mounts the screen twice, holds each open for a different stretch,
+Test 7 mounts the screen twice, holds each open for a different stretch,
 and asserts the two numbers differ. A constant would pass every other test in
 this repository.
 
@@ -786,8 +786,8 @@ survives a reload. Nothing about a roster is worth that.
 The hidden link is a courtesy and is written down here as one. Anybody can type
 the route, and what actually refuses them is the api answering `forbidden_role`.
 A client that treated a hidden link as protection would be one developer tools
-window away from handing over every other family's name, which is why simulation
-F11 drives the refusal rather than only checking that the link is absent.
+window away from handing over every other family's name, which is why test 11
+drives the refusal rather than only checking that the link is absent.
 
 The refused case has a screen of its own rather than sharing the generic failure
 message, because a parent who reached it by typing deserves a plain sentence
@@ -809,7 +809,7 @@ stops the timer, and the screen calls it when it is destroyed.
 
 **Consequences.** A timer that outlives its screen is a request every fifteen
 seconds for a page nobody is looking at, and in a test it is a warning after the
-case has finished. Simulation F15 asserts that the requests stop after the screen
+case has finished. Test 15 asserts that the requests stop after the screen
 unmounts, which is the only way to know the cleanup is real.
 
 A 503 from readiness is treated as a successful read of a real answer. The api
@@ -921,7 +921,7 @@ one click from a parent halfway through booking a seat.
 
 **Consequences.** One less thing on a screen whose job is a booking. The route
 loses its only discoverable entry point, which is why `README.md` and `how-to.md`
-both name the address. Simulation F15 is unaffected, because it mounts the screen
+both name the address. Test 15 is unaffected, because it mounts the screen
 directly rather than navigating to it.
 
 <br>
