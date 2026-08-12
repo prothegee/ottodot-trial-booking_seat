@@ -5,7 +5,7 @@ file on its own. `how-to.md` has the whole-suite commands, this file is the
 index underneath them.
 
 Run everything from `frontend/` unless a line says otherwise. The backend has
-its own copy of this file at `backend/test-diagram.md`.
+its own copy of this file at `backend/tests-and-diagram.md`.
 
 <br>
 
@@ -69,7 +69,7 @@ npm test -- 'src/routes/book/[classId]/page.test.ts'
 
 <br>
 
-## The Simulations
+## The Tests
 
 Seventeen scenarios, numbered `F1` to `F17` so they never collide with the
 backend's own numbers. They live in `src/tests/`, one file each, and they are
@@ -506,7 +506,7 @@ sequenceDiagram
     Client->>Parent: confirmed, the seat number shown
 ```
 
-The client half of backend simulation 15. Proves: the message never says the
+The client half of backend test 15. Proves: the message never says the
 seat was lost and never says the payment was declined, the booking stays on
 screen as pending, the countdown keeps running because the hold was not
 touched, the cached list is left alone because nothing is known to have
@@ -524,7 +524,7 @@ npm test -- src/tests/simulation_f17_transaction_broke.test.ts
 ## Every Other Test, By Folder
 
 One line per file: the tiers its own cases declare, what it covers, and the
-command for that file alone. The simulations above are not repeated here.
+command for that file alone. The tests above are not repeated here.
 
 ### src/lib/api
 
@@ -758,4 +758,4 @@ listed in the root `how-to.md` under Run Every Test.
 | `how-to.md` | the whole-suite commands, and Writing A Test |
 | `HLD.md` | Testing, why every test drives a fake transport |
 | `LLD.md` | Tests, the same file list with what each one covers |
-| `phase-track.md` | which phase each simulation landed in |
+| `phase-track.md` | which phase each test landed in |
