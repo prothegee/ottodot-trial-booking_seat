@@ -46,8 +46,8 @@ scripts/test.sh
 scripts/build.sh
 ```
 
-To run one test file rather than all of them, `test-diagram.md` lists every one
-with what it proves, a diagram for each simulation, and the command for that
+To run one test file rather than all of them, `tests-and-diagram.md` lists every one
+with what it proves, a diagram for each test, and the command for that
 file on its own.
 
 <br>
@@ -409,8 +409,8 @@ There is nothing for you to do." A button next to that sentence would invite a
 parent to ask for something already happening.
 
 The backend half is `cmd/worker/refunds.go` and `internal/payment/refund.go`.
-Backend simulation 08 drives a lost seat through to a settled refund and asserts
-the same job run twice refunds once, and frontend simulation F05 covers what the
+Backend test 08 drives a lost seat through to a settled refund and asserts
+the same job run twice refunds once, and frontend test 05 covers what the
 parent reads while it happens.
 
 <br>
