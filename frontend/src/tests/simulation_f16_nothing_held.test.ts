@@ -4,8 +4,10 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { Booking, Session, TrialClass } from "$lib/api/types";
 import { trialPayment } from "$lib/booking/price";
 import { classMutator, classReader } from "$lib/session/cached_api";
+import { api } from "$lib/session/client";
 import { auth } from "$lib/stores/auth";
 import { booking } from "$lib/stores/booking";
+import { bookings } from "$lib/stores/bookings";
 import { classes } from "$lib/stores/classes";
 import { createEmitter } from "$lib/telemetry/emitter";
 import { apiErrorEvent, cacheEvent, funnelEvent, pageLoadEvent, type TelemetryBatch } from "$lib/telemetry/event";
@@ -47,6 +49,10 @@ vi.mock("$lib/session/cached_api", () => ({
     classMutator: { send: vi.fn() },
 }));
 
+vi.mock("$lib/session/client", () => ({
+    api: { request: vi.fn() },
+}));
+
 vi.mock("$lib/telemetry/report", () => ({
     reportPageLoad: vi.fn(),
     reportApiError: vi.fn(),
@@ -82,6 +88,9 @@ const heldBooking: Booking = {
     id: bookingId,
     student_id: studentId,
     class_id: classId,
+    class_subject: "science",
+    class_title: "Science Discovery",
+    class_starts_at: "2026-08-15T01:28:26.224983Z",
     status: "pending_payment",
     seat_no: null,
     hold_expires_at: "2026-08-11T09:10:00.000Z",
@@ -121,7 +130,10 @@ describe("simulation F16: nothing sensitive is held by the client", () => {
 
         auth.signOut("requested");
         booking.reset();
+        bookings.reset();
         classes.reset();
+
+        vi.mocked(api.request).mockReset().mockResolvedValue({ bookings: [confirmedBooking] });
 
         vi.mocked(classReader.read).mockReset().mockResolvedValue({
             body: { classes: [trialClass] },
@@ -143,12 +155,14 @@ describe("simulation F16: nothing sensitive is held by the client", () => {
         await classes.load();
         await booking.create({ student_id: studentId, class_id: classId });
         await booking.pay(bookingId, trialPayment());
+        await bookings.load();
 
         expect(get(booking).booking?.status).toBe("confirmed");
 
         // Surface one: every store, serialised.
         scan("the auth store", JSON.stringify(get(auth)));
         scan("the booking store", JSON.stringify(get(booking)));
+        scan("the bookings store", JSON.stringify(get(bookings)));
         scan("the classes store", JSON.stringify(get(classes)));
 
         // Surface two: everything the browser was asked to keep.
