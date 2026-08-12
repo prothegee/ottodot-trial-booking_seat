@@ -47,6 +47,13 @@ type Repository interface {
     // behind the admin role.
     Worklist(ctx context.Context, request WorklistRequest) ([]Booking, error)
 
+    // ParentBookings lists one parent's own bookings, newest first.
+    //
+    // It is scoped in the query rather than filtered after the read, so a
+    // caller cannot be handed a row belonging to somebody else and then be
+    // trusted to drop it.
+    ParentBookings(ctx context.Context, request ParentBookingsRequest) ([]Booking, error)
+
     // Hold grants a place on the payment screen, in one transaction.
     Hold(ctx context.Context, request HoldRequest) (Booking, error)
 
@@ -155,6 +162,35 @@ func (request WorklistRequest) Validate() error {
     }
 
     if request.Status != "" && !request.Status.IsKnown() {
+        return ErrInvalidRequest
+    }
+
+    return nil
+}
+
+// ParentBookingsRequest is what one parent asked to see of their own.
+type ParentBookingsRequest struct {
+    // ParentID is whose bookings these are. It comes from the token and never
+    // from the request body or the query string, because it is the only thing
+    // separating one family's bookings from another's.
+    ParentID string
+
+    // Limit caps how many rows come back, for the same reason the worklist has
+    // one: a read with no ceiling is a read that grows with the table.
+    Limit int
+}
+
+// Validate refuses a list that names nobody or that would read without a cap.
+//
+// Return:
+//   - nil when the request can be served
+//   - ErrInvalidRequest otherwise
+func (request ParentBookingsRequest) Validate() error {
+    if request.ParentID == "" {
+        return ErrInvalidRequest
+    }
+
+    if request.Limit < 1 {
         return ErrInvalidRequest
     }
 
