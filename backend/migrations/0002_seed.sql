@@ -3,19 +3,26 @@
 --
 -- Covers every case the brief lists, plus the class the last seat race script
 -- needs. Names are obviously fake and every address uses example.test, so no
--- real person appears in a screen recording.
+-- real person appears on a shared screen.
 --
--- Identifiers are fixed rather than generated, so a test, a script, and the
--- video can all name the same row.
+-- Identifiers are fixed rather than generated, so a test, a script, and a
+-- demonstration can all name the same row.
 --
 -- Applied by backend/scripts/seed.sh, never by backend/scripts/migrate.sh.
 -- ---------------------------------------------------------------------------- --
 
-insert into parents (id, email, full_name, role) values
-    ('0192a000-0000-7000-8000-000000000001', 'alice.tan@example.test',      'Alice Tan',      'parent'),
-    ('0192a000-0000-7000-8000-000000000002', 'budi.santoso@example.test',   'Budi Santoso',   'parent'),
-    ('0192a000-0000-7000-8000-000000000003', 'chandra.wijaya@example.test', 'Chandra Wijaya', 'parent'),
-    ('0192a000-0000-7000-8000-000000000009', 'ops.admin@example.test',      'Ops Admin',      'admin');
+-- Every seeded account shares one password, otto123, and the string below is its
+-- argon2id hash. It is written out rather than computed, because postgres has no
+-- argon2 of its own.
+--
+-- One shared password for four accounts is a development convenience and nothing
+-- else. It is printed in how-to.md, so treat any environment holding these rows
+-- as one that anybody can sign in to.
+insert into parents (id, email, full_name, password_hash, role) values
+    ('0192a000-0000-7000-8000-000000000001', 'alice.tan@example.test',      'Alice Tan',      '$argon2id$v=19$m=65536,t=1,p=4$8HvgNB40ArlxEEpvrs6x2g$6BJSMpsmkP7ai0ihs7HAYUm6bO2rwxAfMvY9i0C6mZs', 'parent'),
+    ('0192a000-0000-7000-8000-000000000002', 'budi.santoso@example.test',   'Budi Santoso',   '$argon2id$v=19$m=65536,t=1,p=4$8HvgNB40ArlxEEpvrs6x2g$6BJSMpsmkP7ai0ihs7HAYUm6bO2rwxAfMvY9i0C6mZs', 'parent'),
+    ('0192a000-0000-7000-8000-000000000003', 'chandra.wijaya@example.test', 'Chandra Wijaya', '$argon2id$v=19$m=65536,t=1,p=4$8HvgNB40ArlxEEpvrs6x2g$6BJSMpsmkP7ai0ihs7HAYUm6bO2rwxAfMvY9i0C6mZs', 'parent'),
+    ('0192a000-0000-7000-8000-000000000009', 'ops.admin@example.test',      'Ops Admin',      '$argon2id$v=19$m=65536,t=1,p=4$8HvgNB40ArlxEEpvrs6x2g$6BJSMpsmkP7ai0ihs7HAYUm6bO2rwxAfMvY9i0C6mZs', 'admin');
 
 insert into students (id, parent_id, full_name, grade_level) values
     ('0192a000-0000-7000-8000-000000000011', '0192a000-0000-7000-8000-000000000001', 'Mira Tan',      5),
@@ -39,9 +46,15 @@ insert into trial_classes (id, subject, title, starts_at, capacity) values
 --   ...021 open class:       4 seats, 0 confirmed, the ordinary happy path
 --   ...022 nearly full:      4 seats, 3 confirmed, the capacity boundary
 --   ...023 duplicate target: 1 confirmed for Mira Tan, the duplicate attempt
---   ...024 failure target:   the payment decline path, the mock provider in
---                            internal/payment declines for this class id
+--   ...024 failure target:   4 seats, 0 confirmed, room to demonstrate a decline
 --   ...025 race class:       1 seat, 0 confirmed, the last seat race script
+--
+-- The decline is driven by the amount, not by the class. The mock provider reads
+-- the last two digits of amount_cents: 4501 declines and 4502 is an unreachable
+-- provider, both accepted in development only. So the payment failure case is a
+-- thing to do rather than a row to read, and ...024 is an empty class set aside
+-- for doing it, so a decline never has to be run against a class the other cases
+-- depend on. See how-to.md under The Api.
 
 insert into bookings (id, student_id, class_id, status, seat_no, confirmed_at) values
     ('0192a000-0000-7000-8000-000000000031', '0192a000-0000-7000-8000-000000000015', '0192a000-0000-7000-8000-000000000022', 'confirmed', 1, now()),
