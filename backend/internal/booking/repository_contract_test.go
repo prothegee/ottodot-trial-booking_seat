@@ -911,3 +911,151 @@ func runDeclineAndWorklistContract(t *testing.T, newFixture func(t *testing.T) r
         }
     })
 }
+
+// The contract for the parent's own list.
+//
+// It is in this suite rather than only in the fake because the scoping is the
+// whole of the authorisation: the fake reads a map of children and the sql
+// reads the students table, and an implementation that got that wrong would
+// hand one family another family's bookings while every fast test stayed green.
+func runParentBookingsContract(t *testing.T, newFixture func(t *testing.T) repositoryFixture) {
+    t.Helper()
+
+    ctx := context.Background()
+
+    t.Run("integration: a parent's own bookings come back newest first", func(t *testing.T) {
+        fixture := newFixture(t)
+        seedContractFixture(t, fixture)
+        repository := fixture.Repository()
+
+        first := mustHold(t, repository, studentOne, classOpen, contractMoment)
+        second := mustHold(t, repository, studentTwo, classOpen, contractMoment.Add(time.Minute))
+
+        listed, err := repository.ParentBookings(ctx, booking.ParentBookingsRequest{
+            ParentID: parentOne, Limit: 10,
+        })
+        if err != nil {
+            t.Fatalf("the list was refused: %v", err)
+        }
+
+        if len(listed) != 2 {
+            t.Fatalf("%d bookings were listed, wanted 2", len(listed))
+        }
+
+        if listed[0].ID != second.ID || listed[1].ID != first.ID {
+            t.Fatalf("the list is not newest first: %s then %s", listed[0].ID, listed[1].ID)
+        }
+    })
+
+    t.Run("behaviour: another parent's booking is never in the list", func(t *testing.T) {
+        fixture := newFixture(t)
+        seedContractFixture(t, fixture)
+        repository := fixture.Repository()
+
+        mine := mustHold(t, repository, studentOne, classOpen, contractMoment)
+        theirs := mustHold(t, repository, studentThree, classOpen, contractMoment.Add(time.Minute))
+
+        listed, err := repository.ParentBookings(ctx, booking.ParentBookingsRequest{
+            ParentID: parentOne, Limit: 10,
+        })
+        if err != nil {
+            t.Fatalf("the list was refused: %v", err)
+        }
+
+        if len(listed) != 1 || listed[0].ID != mine.ID {
+            t.Fatalf("%d bookings were listed, wanted only %s", len(listed), mine.ID)
+        }
+
+        for _, one := range listed {
+            if one.ID == theirs.ID {
+                t.Fatal("another parent's booking reached this list")
+            }
+        }
+    })
+
+    t.Run("behaviour: a finished booking is still listed, so a parent can see what happened", func(t *testing.T) {
+        // The point of this screen is the booking that did not go through. A
+        // list of only live bookings would hide the declined payment that the
+        // parent is trying to find out about.
+        fixture := newFixture(t)
+        seedContractFixture(t, fixture)
+        repository := fixture.Repository()
+
+        granted := mustHold(t, repository, studentOne, classOpen, contractMoment)
+
+        if _, err := repository.Fail(ctx, booking.FailRequest{
+            BookingID: granted.ID, Now: contractMoment.Add(time.Minute),
+        }); err != nil {
+            t.Fatalf("the decline was refused: %v", err)
+        }
+
+        listed, err := repository.ParentBookings(ctx, booking.ParentBookingsRequest{
+            ParentID: parentOne, Limit: 10,
+        })
+        if err != nil {
+            t.Fatalf("the list was refused: %v", err)
+        }
+
+        if len(listed) != 1 || listed[0].Status != booking.StatusPaymentFailed {
+            t.Fatalf("the declined booking is not in the list: %+v", listed)
+        }
+    })
+
+    t.Run("edge: the list honours its cap", func(t *testing.T) {
+        fixture := newFixture(t)
+        seedContractFixture(t, fixture)
+        repository := fixture.Repository()
+
+        mustHold(t, repository, studentOne, classOpen, contractMoment)
+        mustHold(t, repository, studentTwo, classOpen, contractMoment.Add(time.Minute))
+
+        listed, err := repository.ParentBookings(ctx, booking.ParentBookingsRequest{
+            ParentID: parentOne, Limit: 1,
+        })
+        if err != nil {
+            t.Fatalf("the list was refused: %v", err)
+        }
+
+        if len(listed) != 1 {
+            t.Fatalf("a limit of one returned %d rows", len(listed))
+        }
+    })
+
+    t.Run("edge: a parent who has booked nothing gets an empty list rather than a failure", func(t *testing.T) {
+        fixture := newFixture(t)
+        seedContractFixture(t, fixture)
+
+        listed, err := fixture.Repository().ParentBookings(ctx, booking.ParentBookingsRequest{
+            ParentID: parentThree, Limit: 10,
+        })
+        if err != nil {
+            t.Fatalf("a parent with no bookings was refused: %v", err)
+        }
+
+        if len(listed) != 0 {
+            t.Fatalf("%d bookings were listed for a parent who has none", len(listed))
+        }
+    })
+
+    t.Run("edge: a list naming nobody is refused rather than reading every parent", func(t *testing.T) {
+        fixture := newFixture(t)
+        seedContractFixture(t, fixture)
+
+        _, err := fixture.Repository().ParentBookings(ctx, booking.ParentBookingsRequest{Limit: 10})
+
+        if !errors.Is(err, booking.ErrInvalidRequest) {
+            t.Fatalf("a list scoped to nobody answered %v", err)
+        }
+    })
+
+    t.Run("edge: a list with no cap is refused rather than reading everything", func(t *testing.T) {
+        fixture := newFixture(t)
+        seedContractFixture(t, fixture)
+
+        _, err := fixture.Repository().ParentBookings(ctx, booking.ParentBookingsRequest{ParentID: parentOne})
+
+        if !errors.Is(err, booking.ErrInvalidRequest) {
+            t.Fatalf("an uncapped list answered %v", err)
+        }
+    })
+}
