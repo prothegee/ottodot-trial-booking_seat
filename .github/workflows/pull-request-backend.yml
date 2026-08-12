@@ -21,7 +21,7 @@
 # thing it means there.
 # ---------------------------------------------------------------------------- #
 
-name: pull request backend
+name: backend main
 
 on:
     pull_request:
