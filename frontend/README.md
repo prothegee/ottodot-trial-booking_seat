@@ -1,4 +1,4 @@
-[![frontend main](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-frontend.yml/badge.svg?branch=main)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-frontend.yml)
+[![frontend main](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-frontend.yml/badge.svg)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-frontend.yml)
 
 # Frontend
 
