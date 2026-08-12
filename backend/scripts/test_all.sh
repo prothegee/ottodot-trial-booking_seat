@@ -24,6 +24,9 @@
 #   APP_ENV=development backend/scripts/test_all.sh                    (a terminal)
 #   APP_ENV=development backend/scripts/test_all.sh --run-integration  (a workflow)
 #
+# The flag is only needed when there is no stack yet. A run that finds one up
+# uses it and leaves it up, so it starts nothing and needs no permission.
+#
 # Note:
 # - FAULT_INJECTION_ENABLED is not needed here. Nothing in this file breaks a
 #   confirm transaction on purpose, which is test 16's job
@@ -110,6 +113,13 @@ run_step() {
     return 1
 }
 
+stack_is_up() {
+    database_require_running >/dev/null 2>&1
+}
+
+# The automation guard. A terminal may run this without ceremony, and so may a
+# pipe when the stack is already up: that run starts nothing and stops nothing,
+# so the question the flag answers does not arise.
 require_deliberate_run() {
     if [ -t 0 ]; then
         return 0
@@ -119,13 +129,17 @@ require_deliberate_run() {
         return 0
     fi
 
+    if stack_is_up; then
+        return 0
+    fi
+
     printf 'refused: stdin is not a terminal, pass --run-integration to start and stop containers deliberately\n' >&2
 
     exit 2
 }
 
 bring_up() {
-    if database_require_running >/dev/null 2>&1; then
+    if stack_is_up; then
         printf 'the backend stack is already up, using it\n'
 
         return 0
@@ -182,6 +196,7 @@ main() {
     run_step "build, vet, and the four fake tiers" "$backend_root/scripts/test.sh"
     run_step "the guards on this stack's scripts" "$backend_root/scripts/debug_test.sh"
     run_step "the runtime this stack's database reaches for" "$backend_root/scripts/lib/database_test.sh"
+    run_step "the guards on this runner" "$backend_root/scripts/test_all_test.sh"
 
     reached_the_stack="yes"
 
