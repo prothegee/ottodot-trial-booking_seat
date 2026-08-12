@@ -2,7 +2,7 @@
 # The api binary, port 9000.
 #
 # Build context is the backend directory:
-#   podman build -f containers/Containerfile.api -t ottodot-api ./backend
+#   docker build -f containers/Containerfile.api -t ottodot-api ./backend
 #
 # Two stages so the shipped image carries the binary and nothing else. No shell,
 # no package manager, no source.
@@ -19,12 +19,13 @@ RUN go mod download
 
 COPY . .
 
-ARG BUILD_VERSION=dev
-ARG BUILD_COMMIT=unknown
-
-# BUILD_TIME is left empty by default. A local build has no honest value for it,
-# and the version endpoint reports an empty one as "unknown" rather than as a
-# blank field.
+# All three default to empty, and empty is how the binary says it was not
+# stamped. The build context is a copy of the source without the repository, so
+# nothing in here can work a commit out on its own: what is not handed in is
+# answered by the process at startup, from its configuration and from its own
+# file, and reported as unknown when no source could name it.
+ARG BUILD_VERSION=
+ARG BUILD_COMMIT=
 ARG BUILD_TIME=
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
