@@ -5,9 +5,10 @@ and what living with it costs. A record is written when the decision is taken,
 not afterwards, so the reasoning survives even when nobody remembers the
 conversation.
 
-Records for parts that are not built yet are still here, because the decision
-was taken during planning and the code follows it rather than the other way
-round. Each one says which phase implements it.
+Each record says which phase implements it. Records were written while the work
+was being planned rather than afterwards, so some of them carried `planned` for
+several phases. Every one of them is now implemented, and the second status is
+kept in the table because that is what those records read as while they waited.
 
 | status | meaning |
 | :- | :- |
@@ -368,7 +369,7 @@ guards against.
 
 ## ADR-018: Containers are allowed in continuous integration
 
-**Status:** planned, phase 9
+**Status:** accepted, phase 9
 
 **Context.** The proof tier needs Postgres. Running it only locally means the
 one test that proves the headline claim is the one test nobody runs.
@@ -406,7 +407,7 @@ The startup guard is already enforced and tested in the configuration loader.
 **Status:** accepted, phase 3
 
 **Context.** The brief needs a payment step and no real provider is in scope. A
-mock that fails at random would make a failing test a coin toss and a recorded
+mock that fails at random would make a failing test a coin toss and a
 demonstration a matter of luck.
 
 **Decision.** One `payment.Provider` interface with the shape a real provider
@@ -630,8 +631,8 @@ signing key. Until then an asymmetric key buys key handling and nothing else.
 **Status:** accepted, phase 5
 
 **Context.** A JWT payload is base64, not encryption. Anyone holding the token
-reads it, including whoever picks it out of a shared screen recording. The
-usual way an email ends up in a token is not a decision, it is a convenience: a
+reads it, including whoever picks it out of a shared screen. The usual way an
+email ends up in a token is not a decision, it is a convenience: a
 map of extra claims, and six months later somebody puts a name in it.
 
 **Decision.** `Claims` is a struct with exactly six fields, `sub`, `role`,
@@ -736,9 +737,9 @@ signature stops verifying, so nothing here grows without bound.
 
 **Status:** accepted, phase 5
 
-**Context.** Sign in is by seeded email with no password. An endpoint that
-answers "no such account" for one address and "signed in" for another is an
-endpoint that tells anyone who asks which addresses have accounts here.
+**Context.** An endpoint that answers "no such account" for one address and
+"signed in" for another is an endpoint that tells anyone who asks which addresses
+have accounts here.
 
 **Decision.** `ErrNoSuchParent` maps to 400 `invalid_request`, the same answer a
 malformed body gets, and the message repeats nothing the caller sent. The
@@ -753,6 +754,10 @@ contract for the sole purpose of confirming who has an account.
 The counter is where enumeration becomes visible: one refusal is a typo, a
 thousand is somebody working through a list, and neither needs an identifier in
 a metric label to be seen.
+
+Extended by ADR-052, which adds a password. A wrong password joins an unknown
+address under this same answer, and the timing was equalised so the two cannot be
+told apart by how long they take.
 
 <br>
 
@@ -1307,3 +1312,294 @@ contexts. Those were written twice before, which is how two processes end up
 disagreeing about a connect timeout.
 
 The cost is more files. That is the point of it.
+
+<br>
+
+## ADR-051: Redis runs with protected mode off inside a private network
+
+**Status:** accepted, phase 9
+
+**Context.** Redis 8 ships `protected-mode yes`, which refuses every client that
+is not on its own loopback interface when no password is set. In containers that
+is every client there is: the api and the worker each have their own network
+namespace, so both are answered `DENIED` and the api restarts in a loop. The
+stack could not start.
+
+Three ways out. Set `requirepass` and give both processes the password. Bind
+Redis to a container address that the runtime decides. Or turn protected mode off
+and rely on what is already holding.
+
+**Decision.** Protected mode is off in `containers/redis/redis.conf`, and the
+file says why at length rather than leaving a reader to wonder.
+
+**Consequences.** What is holding is two layers below that file. The port is
+published as `127.0.0.1:6379`, so nothing off the machine can reach it, and the
+compose network is private to this stack. Adding a password here would move a
+secret into the compose file and change nothing about who can connect.
+
+A deployment that puts Redis anywhere but a private network sets
+`REDIS_PASSWORD` and turns protected mode back on. The api already reads that
+variable and holds it as a secret, so that is a configuration change rather than
+a code change.
+
+This was found by running the phase 9 integration path against real containers
+for the first time, which is the sort of thing that only that tier can find.
+
+<br>
+
+## ADR-052: Sign in takes a password, hashed with argon2id
+
+**Status:** accepted, phase 10
+
+**Context.** Sign in took an email and nothing else. Anybody who knew a seeded
+address was that parent, and `parents` had no column that could hold anything to
+check. Calling that authentication in a document about security was the part that
+did not survive a second reading.
+
+**Decision.** `parents` gains `password_hash`, and sign in verifies the typed
+password against it with argon2id at 64 MiB and one pass. The parameters travel
+inside the stored string in the standard encoding, so raising them later leaves
+every existing row verifiable.
+
+Three details are the decision rather than the implementation:
+
+The hash is read on one path only. `CredentialByEmail` is the single query that
+selects `password_hash`, and it returns a `Credential` rather than a `Parent`, so
+the hash sits on no struct a handler could put into a response by reflex.
+
+The unknown-address path does the hashing work anyway and throws it away.
+Skipping it would make an address nobody holds measurably faster to refuse than a
+real address with a wrong password, and that difference is readable from outside,
+which would give back exactly what ADR-032 hides.
+
+A stored hash that cannot be read is its own error, `ErrPasswordUnusable`, and
+never a wrong password. One is somebody mistyping and the other is a seed or a
+migration that went wrong, and an account whose hash is unreadable can never be
+signed in to.
+
+**Consequences.** The four seeded accounts share one password, `otto123`, and it
+is written down in `how-to.md`. That is the development convenience, not the
+storage: no password exists anywhere in this system, in development or otherwise.
+
+`backend/scripts/seed.sh` moves from the safe class to prompting. It can still
+only insert into an empty database, so it destroys nothing, but what it creates
+is four accounts whose password is public. Its flag is `--generate-demo-users`
+rather than `--yes`, because a flag should name what happens rather than what is
+being waived.
+
+The schema carries the rule too. `parents_password_hashed` refuses any row whose
+value does not begin `$argon2id$`, so the one mistake that could quietly sign
+everybody in is refused by the database rather than found in a log.
+
+<br>
+
+## ADR-053: The api answers a browser's origin questions, and the answer is the same list as the csrf check
+
+**Status:** accepted, phase 10
+
+**Context.** The client is served on 9001 and the api answers on 9000, so every
+call a browser makes is cross origin. The api sent no cors headers at all, which
+meant a browser refused to hand any answer to the page while curl saw a perfectly
+correct service. Every screen failed with a message that explained nothing, and
+the whole suite passed, because a suite of curl calls cannot see this.
+
+**Decision.** One cors layer, wrapped around the whole surface including the
+operations routes, driven by the same `ALLOWED_ORIGINS` the csrf check reads.
+
+`FRONTEND_ORIGIN` becomes `ALLOWED_ORIGINS` and becomes a list. A browser treats
+`127.0.0.1:9001` and `localhost:9001` as different origins, both reach the same
+development stack, and a reviewer types whichever they think of. One value meant
+one of the two silently failed.
+
+The origin is echoed rather than answered with a wildcard, because a wildcard is
+not permitted once credentials are involved and the session here is cookies. The
+layer is innermost of the three outer wrappers, so a preflight carries a request
+id and is covered by the panic recovery, and it answers preflights itself: a
+preflight carries no cookie, so passing it to the origin check would refuse the
+very request that asks whether a write is permitted.
+
+`Guard.OriginIsAllowed` is exported and is what both the cors layer and the
+origin check call. Two copies of that rule could disagree, and a browser told a
+write is permitted and then refused when it makes one is worse than either answer
+alone.
+
+**Consequences.** A refused origin gets an ordinary response with no cors headers
+rather than an error status. The browser turns that into the failure, and a
+status would confirm to a probing page that the origin was recognised and
+rejected.
+
+`Vary: Origin` is on every answer including refusals, so a cache in front of this
+service cannot hand one origin's answer to a request from another.
+
+The tests that would have caught this are in `internal/httpx/cors_test.go` for
+the layer and in `router_test.go` for the wiring, because a cors layer that
+exists and is not on the router is the same bug still there.
+
+<br>
+
+## ADR-054: A build identity is asked of four sources in order
+
+**Status:** accepted, phase 10
+
+**Context.** `/version` answered `{"version":"dev","commit":"unknown","built_at":
+"unknown"}` on every running stack. The three values were link time variables
+that defaulted to those words, and `compose.yml` passed the same words as build
+arguments, so the stamp changed nothing. `config.BuildSettings` existed, was
+loaded, and was read by nothing. A reviewer opening the status screen saw three
+fields that could not tell them which build was in front of them.
+
+**Decision.** Four sources, asked in order, first answer wins:
+
+| order | source |
+| :- | :- |
+| 1 | the linker, `-X main.buildVersion` and the other two |
+| 2 | `BUILD_VERSION` and `BUILD_COMMIT` from `config.json` or the environment |
+| 3 | the record the Go toolchain embeds, and the running binary's own timestamp |
+| 4 | the word `unknown` |
+
+The defaults become empty strings, because empty is how a source says it has no
+answer and a word like `dev` ends the search before anything that does know is
+asked. The linker is first, because a released image describes itself and no
+setting on the host it happens to run on may rename it. `config.json.template`
+states `0.1.0`, which is the one committed place the backend version number is
+written down.
+
+The third source is what removes the last two `unknown`s without anything being
+written down anywhere: the Go toolchain records the revision in every binary it
+builds from a checkout, and the binary's file timestamp is the moment the linker
+produced it. Copying a file into an image keeps its time, so that holds for a
+container too.
+
+**Consequences.** A container build has no repository in its context, so the
+toolchain records no revision there. `scripts/stack_up.sh` stamps the images it
+builds with this checkout's commit and the moment it built them, so a stack
+started the documented way reports a real commit rather than a container-shaped
+blank.
+
+The third source has one condition that is easy to miss: `go build` records the
+revision on its own and `go run` records it only when passed `-buildvcs=true`.
+The from-source path was answering `unknown` for that reason alone, with a
+checkout right there to read. `scripts/debug.sh` passes the flag, the documented
+commands carry it, and `internal/config/build_identity_test.go` fails if it is
+ever dropped from the script. The alternative, reading `.git` at startup, was
+refused: it reports the checkout the process was started in rather than the
+source it was built from, so it can state a commit that is not the running code,
+which is worse than saying `unknown`.
+
+The api and the worker resolve the same way and log the resolved values, so a
+stack whose two halves disagree is visible rather than hidden.
+
+The container does not read `config.json`, which is ADR-024 and stays true, so
+`compose.yml` states the version a second time. `internal/config/build_identity_test.go`
+reads both files and fails when they drift apart, because that drift is otherwise
+silent: the api would answer one version and the image would be tagged another.
+
+`stack_up.sh` gained `--build` for the backend, matching the frontend. Without it
+a source change is invisible: the image already exists, compose starts it, and the
+stack comes up healthy running the code from before the edit.
+
+<br>
+
+## ADR-055: A request header this api reads is a header the preflight names
+
+**Status:** accepted, phase 10
+
+**Context.** ADR-053 added the cors layer and permitted `Content-Type` and
+`If-None-Match`. Two handlers read `Idempotency-Key`, which was never added. A
+browser sends only the headers a preflight permitted, so every booking and every
+payment was refused before it left the page: the preflight answered without the
+header named, the browser blocked the request, and the screen showed the generic
+failure. curl was unaffected, the api was correct, and the whole suite passed.
+
+**Decision.** `allowedRequestHeaders` is built from `IdempotencyKeyHeader` rather
+than repeating the string, so the constant the handlers read and the list the
+preflight answers cannot drift apart.
+
+**Consequences.** Adding a request header to a handler means adding it to that
+list in the same change. `cors_test.go` walks every header this api reads and
+fails when one of them is not permitted, which is the case that would have caught
+this. It also checks the match case insensitively, because a browser lowercases
+what it asks for and this client sends `idempotency-key`.
+
+The general lesson is ADR-053's, stated again: no number of curl calls can see
+this class of bug, because curl never sends a preflight.
+
+<br>
+
+## ADR-056: A parent can list their own bookings, and the token is the whole scope
+
+**Status:** accepted, phase 10
+
+**Context.** A booking could be read one at a time, at
+`GET /api/v1/bookings/{bookingId}`, and nothing listed them. The identifier is
+minted by the api and reaches a parent only as part of the address of the screen
+they were on. Closing that tab lost it. There is no email in this service and no
+receipt, so a parent who paid and then closed the tab had no way at all to find
+out whether the payment landed, and "no way to find out" reads exactly like
+"the money is gone".
+
+The operator worklist already lists bookings, and it is not an answer here. It
+crosses every parent, which is why it sits behind the admin role.
+
+**Decision.** `GET /api/v1/bookings` answers the bookings of whoever is signed
+in, newest first, capped at 50.
+
+The parent comes from the authenticated identity and from nowhere else. The
+route reads nothing from the request: no query string, no body, no path value.
+`ParentBookings` applies the parent inside the statement, as a subquery on
+`students`, so there is no shape of the call that returns another family's row
+to be filtered out afterwards.
+
+The cap is fixed rather than a page size a client can ask for. A family has a
+handful of bookings, so a parameter would be a knob with nothing behind it and
+one more value to validate. The cap exists so the read cannot grow with an
+account that has been used for years.
+
+Every status is listed, finished ones included. A parent opens this to find out
+what happened, and what happened is often that it did not go through.
+
+**Consequences.** The route shares its address with `POST /api/v1/bookings` and
+differs only in the method, which the mux matches on, so the two cannot be
+confused for one another.
+
+It is `no-store`, like the single booking read and for the same reason: a stale
+`pending_payment` after a card cleared looks exactly like a payment that was
+lost.
+
+`ParentBookings` is a repository method rather than a `WorklistRequest` with a
+parent field. Folding it in would have put the one read that must never cross
+parents into the same method as the one that always does, and a mistake there is
+one family reading another's bookings.
+
+The read goes to the primary. This is the screen a parent opens straight after
+paying, and a replica a second behind would show the booking they just paid for
+as still waiting for money.
+
+<br>
+
+## ADR-057: Each service owns its data directory
+
+**Status:** accepted, phase 10
+
+**Context.** Every service's state sat in one tree, `backend/.data/`, deleted as
+a single path. `scripts/cleanup_dev.sh` failed to remove one container and said
+nothing, then deleted that tree while the container was still running. Postgres
+kept serving from deleted files: it answered `pg_isready` and failed every query,
+so the next run reported a duplicate catalogue entry rather than the truth.
+
+**Decision.** State moves to `containers/<service>/.data`, next to that service's
+own configuration. One volume per service, independent of the others.
+
+Two supporting changes. The cleanup reports a removal it could not do and refuses
+to delete any state while a container is still there. The readiness gates in
+`debug.sh` and `stack_up.sh` ask for `select 1` over tcp rather than
+`pg_isready`, which also answers yes for the temporary server the postgres image
+runs while it builds a new database.
+
+**Consequences.** This amends ADR-015: a wipe is now five visible paths rather
+than one, and `cleanup_dev.sh` names them all from the same list compose reads.
+
+The directory is `.data` and not `data` because this tree is inside the Go
+module. `go build ./...` walks every directory that does not start with a dot or
+an underscore, and a container written one is not readable by the user running
+it.
