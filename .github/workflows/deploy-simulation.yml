@@ -48,7 +48,7 @@ jobs:
             # 503 from a service still loading count as worth another attempt.
             CURL_RETRY: --retry 30 --retry-delay 2 --retry-connrefused --retry-all-errors
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v7
 
             - name: name this build
               run: printf 'BUILD_COMMIT=%s\n' "${GITHUB_SHA::7}" >> "$GITHUB_ENV"
@@ -62,8 +62,11 @@ jobs:
             - name: apply the schema
               run: backend/scripts/migrate.sh
 
+            # The flag is required, not a convenience. seed.sh creates four
+            # accounts sharing one written-down password, so it refuses to run
+            # unattended unless the caller names that action deliberately.
             - name: insert the seed rows
-              run: backend/scripts/seed.sh
+              run: backend/scripts/seed.sh --generate-demo-users
 
             - name: the api is alive, ready, and says what it is
               run: |

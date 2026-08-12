@@ -1,5 +1,6 @@
 [![backend main](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-backend.yml/badge.svg?branch=main)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-backend.yml)
 [![frontend main](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-frontend.yml/badge.svg?branch=main)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-frontend.yml)
+[![deploy simulation main-stable](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/deploy-simulation.yml/badge.svg?branch=main-stable)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/deploy-simulation.yml)
 
 # Trial Booking
 
@@ -10,9 +11,11 @@ exactly one of them may end up confirmed.
 
 **Walkthrough:** `TBA`
 
-The workflow badges above report the two pull request workflows, one per stack,
-on `main`. A merge into `main-stable` is a core engineer decision and is gated by
-review rather than by these workflows.
+The badges above report all three workflows: one pull request workflow per stack
+on `main`, and the deployment simulation on `main-stable`. A merge into
+`main-stable` is a core engineer decision and is gated by review rather than by a
+workflow, so the third badge reports what happened after that decision rather
+than gating it.
 
 <br>
 
