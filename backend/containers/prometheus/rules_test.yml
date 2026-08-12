@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------- #
-# Proof that the two alerts that matter most actually fire.
+# Proof that the alerts that matter most actually fire.
 #
 # Run with:
 #   promtool test rules containers/prometheus/rules_test.yml
@@ -9,11 +9,14 @@
 # rule file and asserts what comes out, so a rule broken by an edit fails a pull
 # request instead of failing a night.
 #
-# It covers three things: that TransactionErrorSpike fires on a broken
-# transaction, that it does NOT fire on a lost race, and that RefundBacklog fires
-# while somebody is owed money. The middle one is the case worth the most: those
-# two outcomes look identical in a rollback count, and telling them apart is the
-# whole reason confirm_transaction_total carries an outcome label.
+# The cases that earn their place are the ones where an alert must stay quiet.
+# TransactionErrorSpike must not fire on a lost race, because those two outcomes
+# look identical in a rollback count and telling them apart is the whole reason
+# confirm_transaction_total carries an outcome label. NotReady must not fire when
+# a process was moved to this machine on purpose, because a stopped container is
+# what running from source looks like, not an outage. QueueUnreadable must fire
+# on a counter that climbs and stay quiet on one that sits at zero, because on a
+# working worker that counter is published at zero forever.
 # ---------------------------------------------------------------------------- #
 
 rule_files:
@@ -103,3 +106,82 @@ tests:
                   exp_annotations:
                       summary: "A spent refresh token was presented again"
                       description: "The whole token family was revoked, which signs the real parent out too. That is the correct trade for a stolen token and it is worth knowing about."
+
+    - interval: 1m
+      name: an api running from source raises nothing while its container is down
+      input_series:
+          # What backend/scripts/debug.sh leaves behind: the container target is
+          # down because that script stopped it to take the port, and the process
+          # is answering on this machine instead. Reading either target alone
+          # would call a deliberate move an outage.
+          - series: 'up{component="api", job="api", instance="api:9000"}'
+            values: "0x8"
+          - series: 'up{component="api", job="api-source", instance="host.containers.internal:9000"}'
+            values: "1x8"
+
+      alert_rule_test:
+          - eval_time: 5m
+            alertname: NotReady
+            exp_alerts: []
+
+    - interval: 1m
+      name: an api answering nowhere raises the alert after two minutes
+      input_series:
+          - series: 'up{component="api", job="api", instance="api:9000"}'
+            values: "0x8"
+          - series: 'up{component="api", job="api-source", instance="host.containers.internal:9000"}'
+            values: "0x8"
+
+      alert_rule_test:
+          - eval_time: 1m
+            alertname: NotReady
+            exp_alerts: []
+
+          - eval_time: 4m
+            alertname: NotReady
+            exp_alerts:
+                - exp_labels:
+                      severity: critical
+                      component: api
+                  exp_annotations:
+                      summary: "A backend process has stopped answering"
+                      description: "Either the process is down or its dependencies are. /readyz names which dependency on the instance itself."
+
+    - interval: 1m
+      name: a worker that cannot read the queue raises the alert
+      input_series:
+          # What a stack whose schema was never applied looks like. The depth
+          # itself is published as not-a-number in this state, so QueueStalled
+          # can see nothing and this counter is the only thing left to fire on.
+          - series: 'queue_depth_read_failed_total{component="worker", job="worker"}'
+            values: "0+1x12"
+
+      alert_rule_test:
+          - eval_time: 3m
+            alertname: QueueUnreadable
+            exp_alerts: []
+
+          - eval_time: 9m
+            alertname: QueueUnreadable
+            exp_alerts:
+                - exp_labels:
+                      severity: critical
+                      component: worker
+                      job: worker
+                  exp_annotations:
+                      summary: "The worker cannot read the queue"
+                      description: "Every scrape is failing to ask the queue its depth. The usual cause is the schema never being applied, so start with backend/scripts/migrate.sh."
+
+    - interval: 1m
+      name: a worker reading the queue normally raises nothing
+      input_series:
+          # The counter is registered by both processes and stays at zero on a
+          # working one, which is what makes the panel draw rather than read
+          # No data. A flat count must never be mistaken for a rising one.
+          - series: 'queue_depth_read_failed_total{component="worker", job="worker"}'
+            values: "0x12"
+
+      alert_rule_test:
+          - eval_time: 9m
+            alertname: QueueUnreadable
+            exp_alerts: []
