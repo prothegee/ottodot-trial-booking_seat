@@ -22,6 +22,7 @@ type MetricSink interface {
     NotModified(route string)
     PanicRecovered()
     RequestObserved(route string, method string, status int, seconds float64)
+    DeclareRoute(route string, method string)
 }
 
 // Counters are what this surface has done, for the tests that assert a request
@@ -154,6 +155,17 @@ func (counters *Counters) PanicRecovered() {
 func (counters *Counters) RequestObserved(route string, method string, status int, seconds float64) {
     if counters.sink != nil {
         counters.sink.RequestObserved(route, method, status, seconds)
+    }
+}
+
+// DeclareRoute creates one route's timing series before any request arrives.
+//
+// It has no local count beside it, unlike the others here, because nothing in a
+// test needs to assert that a route was registered: the router refusing to build
+// is what says that.
+func (counters *Counters) DeclareRoute(route string, method string) {
+    if counters.sink != nil {
+        counters.sink.DeclareRoute(route, method)
     }
 }
 
