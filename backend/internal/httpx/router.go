@@ -58,6 +58,10 @@ type Routes struct {
     // Recovery is where a panic is written down. Nil means nowhere, which is
     // acceptable in a test and not in a running service.
     Recovery ReportFunc
+
+    // Failures is where the error behind an internal_error is written down. Nil
+    // means nowhere, which is acceptable in a test and not in a running service.
+    Failures ReportFunc
 }
 
 // ErrIncompleteRoutes means something the router needs was not handed to it.
@@ -127,6 +131,7 @@ func NewRouter(routes Routes) (http.Handler, error) {
     routes.handle(mux, StudentsPath, routes.Students.list, readChain)
     routes.handle(mux, ClassListPath, routes.Classes.list, readChain)
     routes.handle(mux, ClassPath, routes.Classes.one, readChain)
+    routes.handle(mux, ParentBookingsPath, routes.Bookings.list, readChain)
     routes.handle(mux, BookingPath, routes.Bookings.read, readChain)
     routes.handle(mux, BookingEventsPath, routes.Bookings.events, readChain)
 
@@ -155,10 +160,27 @@ func NewRouter(routes Routes) (http.Handler, error) {
         })
     }
 
-    // The two outermost wrappers go on once, around everything, including the
+    // The four outermost wrappers go on once, around everything, including the
     // operations routes. A panic in a readiness probe should no more take the
     // process down than a panic in a booking.
-    return Chain(mux, WithRequestID, Recover(routes.Recovery, routes.Counters)), nil
+    //
+    // The failure report sits inside the request id, because the id is what the
+    // detail it writes down is filed under.
+    //
+    // The cors layer is innermost of the four and outermost of everything else.
+    // It has to see a request id and be covered by the recovery, and it has to
+    // answer a preflight before the origin check would refuse one: a preflight
+    // carries no cookie, so passing it down would mean refusing the very request
+    // that asks whether a write is permitted.
+    crossOrigin := func(next http.Handler) http.Handler {
+        return CrossOrigin(routes.Guard, next)
+    }
+
+    return Chain(mux,
+        WithRequestID,
+        Recover(routes.Recovery, routes.Counters),
+        ReportFailures(routes.Failures),
+        crossOrigin), nil
 }
 
 // handle registers one route with its guard chain and its timer.
