@@ -25,7 +25,7 @@ flowchart TD
 
     every["scripts/test_all.sh<br/>nothing left out"] --> format["scripts/format.sh --check"]
     every --> fast
-    every --> guards["scripts/debug_test.sh"]
+    every --> guards["scripts/debug_test.sh<br/>scripts/lib/database_test.sh"]
     every --> up
     every --> proof
 
@@ -1161,6 +1161,7 @@ guard, so none of them starts or removes anything:
 
 ```sh
 APP_ENV=development scripts/debug_test.sh
+scripts/lib/database_test.sh
 ```
 
 The repository-wide guards, for the scripts under the root `scripts/`, are
