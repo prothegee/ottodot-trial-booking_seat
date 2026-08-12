@@ -8,13 +8,14 @@
 #
 # Each stack's own runner is called rather than copied, so there is one
 # definition of what a green backend means and one of what a green frontend
-# means. This file adds the six suites at the root, and the last step, which is
-# scripts/test_integration.sh: containers up, the schema, the seed, the proof
+# means. This file adds the eleven suites at the root, and the last step, which
+# is scripts/test_integration.sh: containers up, the schema, the seed, the proof
 # tier, test 16, and the containers down again if this run started them.
 #
 # This file and the backend runner both start containers, so both want
-# APP_ENV=development and a terminal, and both take --run-integration when there
-# is no terminal to answer for them. The frontend runner needs neither.
+# APP_ENV=development, and both take --run-integration when there is no terminal
+# and no stack up yet. A run that finds a stack starts nothing, so it needs no
+# flag at all. The frontend runner needs neither.
 #
 # The proof tier runs twice: once inside the backend runner, once inside the
 # integration step. Each of those commands has to be complete on its own, which
@@ -119,17 +120,19 @@ run_step() {
 
 # The suites for the scripts up here, which belong to neither stack. They read
 # their subject or stop inside a guard, so none of them starts or removes
-# anything, and together they take about a second.
+# anything, and together they take a few seconds.
 run_the_root_suites() {
     local suite
 
     for suite in \
         cleanup_dev_test.sh \
         race_last_seat_test.sh \
+        smoke_failure_test.sh \
         smoke_refund_test.sh \
         stack_up_test.sh \
         stack_restart_test.sh \
         stack_status_test.sh \
+        test_integration_test.sh \
         lib/confirm_test.sh \
         lib/settings_test.sh \
         lib/stack_test.sh; do
@@ -139,7 +142,7 @@ run_the_root_suites() {
 
 # The one step that needs a real stack. It decides for itself whether to start
 # containers and whether to stop them, and this file only passes on the answer
-# to a question it cannot be asked from a pipe.
+# to a question a pipe cannot be asked, on the runs where it arises at all.
 #
 # --yes is what test_integration.sh calls that answer, which is the shared pair
 # in scripts/lib/confirm.sh. The name on this file's own surface says the action
