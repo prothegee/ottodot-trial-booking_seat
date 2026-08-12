@@ -14,11 +14,11 @@ list below reads in the same order as the history.
 - [x] `0002_seed.sql` covering every seed case, fake names and `example.test` addresses
 - [x] `internal/config/config.go`, every port and secret from configuration
 - [x] `internal/database/connection.go` with separate primary and replica pools
-- [x] `containers/postgresql/primary` config and init script
-- [x] `containers/postgresql/replica` init script
+- [x] `containers/postgres-primary` config and init script
+- [x] `containers/postgres-replica` init script
 - [x] `containers/redis/redis.conf`
 - [x] `containers/Containerfile.api` and `Containerfile.worker`
-- [x] `compose.yml` on the agreed ports, bind mounting `.data/` per container
+- [x] `compose.yml` on the agreed ports, bind mounting `containers/<service>/.data`
 - [x] `scripts/lib/confirm.sh` at the root, the guard and manifest and prompt
 - [x] root `scripts/stack_up.sh` and `scripts/stack_down.sh`
 - [x] `scripts/migrate.sh` and `scripts/seed.sh`
@@ -226,5 +226,5 @@ does not. Revisited as each remaining phase lands.
 Tracked at the root, not here. This stack contributes `scripts/test.sh` and
 `scripts/test_proof.sh`.
 
-- [ ] `scripts/test.sh`, the four fake tiers
-- [ ] `scripts/test_proof.sh`, containers tag, real database
+- [x] `scripts/test.sh`, the four fake tiers
+- [x] `scripts/test_proof.sh`, containers tag, real database
