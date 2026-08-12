@@ -114,7 +114,7 @@ what they returned.
 | static analysis | `go vet ./...` and `go vet -tags=containers ./...` | both exit 0 |
 | the four fast tiers | `cd backend && go test ./...` | 21 packages pass, nothing needs to be running |
 | the real database proof | `cd backend && go test -tags=containers ./...` | 21 packages pass against live Postgres |
-| the shell suites | the nine `*_test.sh` files | 112 cases pass, 0 fail, no container started |
+| the shell suites | the twelve `*_test.sh` files | 168 cases pass, 0 fail, no container started |
 | the client suite | `cd frontend && npm test` | 63 files, 469 tests, every one against a fake transport |
 | client types | `cd frontend && npm run check` | 475 files, 0 errors, 0 warnings |
 | the client build | `cd frontend && npm run build` | builds, and the container serves every route |
