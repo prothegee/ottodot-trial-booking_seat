@@ -10,7 +10,7 @@ import (
     "ottodot-trial-booking/backend/internal/payment"
 )
 
-// Simulation 2: payment failure never reaches the roster.
+// Test 2: payment failure never reaches the roster.
 //
 //	parent -> api: pay for booking
 //	api    -> provider: charge, seeded to decline
