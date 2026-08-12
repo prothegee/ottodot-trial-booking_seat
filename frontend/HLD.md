@@ -38,6 +38,9 @@ flowchart TD
     signout[lib/session/sign_out.ts] --> stores
     signout --> cache
     client -.->|reports| signout
+    routes --> request[lib/session/sign_out_request.ts]
+    request --> session
+    request --> signout
 ```
 
 | layer | owns | never does |
@@ -48,7 +51,8 @@ flowchart TD
 | `session/client.ts` | wiring the real transport to the real sign out | anything else, it is nine lines |
 | `api/client.ts` | every call, the refresh, the one retry, mapping failures | routing, storage, rendering |
 | `api/transport.ts` | the only call to fetch in the codebase | interpret a status |
-| `session/sign_out.ts` | what ending a session does | decide when it should happen |
+| `session/sign_out.ts` | what ending a session does on this device | decide when it should happen |
+| `session/sign_out_request.ts` | the parent asking: the api first, then that | anything the local half already owns |
 
 The separation between the last two is the one worth defending. The api client
 is the only place a 401 can be noticed, and the worst place to know about
@@ -60,15 +64,16 @@ routing. So it reports, and something else acts. See ADR-F006.
 
 | route | purpose | state |
 | :- | :- | :- |
-| `/sign-in` | mock sign in, seeded email, no password | built |
+| `/sign-in` | sign in with a seeded email and a password | built |
 | `/` | class list with subject, start time, and seats remaining | built |
 | `/book/[classId]` | pick a child, submit, receive a hold | built |
 | `/pay/[bookingId]` | mock payment, hold countdown, honeypot, fill timer, challenge | built |
 | `/booking/[bookingId]` | booking status in every terminal state | built |
+| `/bookings` | every booking on the account, the way back to one after the tab is closed | done |
 | `/roster/[classId]` | roster for an admin, hidden from a parent role | done |
 | `/status` | build identity and backend readiness | done |
 
-Every route is client rendered. Caddy hands the same document to any unknown
+Every route is client rendered. nginx hands the same document to any unknown
 path and the router takes it from there, which is why a reload on
 `/book/[classId]` works.
 
@@ -88,7 +93,14 @@ flowchart TD
     pay -->|settled and seat lost| refund[seat lost, refund on the way]
     pay -->|countdown reached zero| expired[hold expired, start again]
     list --> roster[roster view, admin role only]
+    header[header link, on every screen] --> mine[your bookings, every one on the account]
+    mine --> ok
+    mine --> failed
 ```
+
+The header link is the only entry that does not come from the step before it.
+Every other arrow hands over an identifier the next screen needs, which is why
+closing the tab used to end the journey for good. See ADR-F043.
 
 Four of those outcomes are failures, and three of them contradict what the
 previous screen showed. That is the shape of this application.
@@ -138,8 +150,8 @@ sequenceDiagram
     participant UI as this client
     participant API as Go api
 
-    P->>UI: sign in with a seeded email
-    UI->>API: POST /api/v1/auth/login
+    P->>UI: sign in with a seeded email and the password
+    UI->>API: POST /api/v1/auth/login, email and password
     API-->>UI: 204 with two Set-Cookie headers
     UI->>API: GET /api/v1/auth/me
     API-->>UI: parent id, display name, children
@@ -288,7 +300,7 @@ which is the only thing that failure gives anybody.
 | error text | rendered from the typed code. Server prose is never pasted into the page |
 | urls | ids only. No email and no name, ever, in a path or a query |
 | telemetry | route names and typed codes only. No identifiers, no free text |
-| console | no logging in a production build, so nothing leaks into a screen recording |
+| console | no logging in a production build, so nothing leaks onto a shared screen |
 | version footer | version and commit only |
 
 <br>
