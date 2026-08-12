@@ -4,6 +4,7 @@ import (
     "context"
     "errors"
     "fmt"
+    "net"
     "net/http"
 
     "ottodot-trial-booking/backend/internal/config"
@@ -41,14 +42,27 @@ func newListener(settings config.ApiSettings, handler http.Handler) *http.Server
     }
 }
 
-// serve starts the listener and reports a failure that is not the ordinary
-// shutdown.
+// bindListener takes the port, and fails here rather than later.
+//
+// ListenAndServe binds and serves in one call, and that call belongs in a
+// goroutine, so a port already held is discovered after the line that says the
+// api is serving has already been written. The process then sits there answering
+// nothing while every check that matters reads as healthy.
+//
+// Binding first makes the failure arrive in the one place that can still refuse
+// to start, and makes "the api is serving" true when it is printed.
+func bindListener(listener *http.Server) (net.Listener, error) {
+    return net.Listen("tcp", listener.Addr)
+}
+
+// serve answers on an already bound socket and reports a failure that is not the
+// ordinary shutdown.
 //
 // http.ErrServerClosed is what Shutdown causes, so it is the success case here
 // rather than a failure. Logging it would put a line that reads like a problem
 // into every clean stop.
-func serve(listener *http.Server, logger *observability.Logger) {
-    if err := listener.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+func serve(listener *http.Server, socket net.Listener, logger *observability.Logger) {
+    if err := listener.Serve(socket); err != nil && !errors.Is(err, http.ErrServerClosed) {
         logger.Error("the listener stopped", observability.FieldReason, err.Error())
     }
 }
