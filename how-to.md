@@ -327,9 +327,9 @@ Green when no line in any of them reads `FAIL`, every backend package prints
 `ok`, and the frontend reports every test file passed. The proof tier is the one
 that needs a database, so it is the one that fails first when the stack is down.
 
-For one test rather than all of them, each stack has a `test-diagram.md`:
-`backend/test-diagram.md` and `frontend/test-diagram.md`. Every test file is
-listed there with what it proves, a diagram for each simulation, and the command
+For one test rather than all of them, each stack has a `tests-and-diagram.md`:
+`backend/tests-and-diagram.md` and `frontend/tests-and-diagram.md`. Every test file is
+listed there with what it proves, a diagram for each test, and the command
 that runs that file on its own.
 
 Or all of it that needs a real stack, in one command:
@@ -339,12 +339,12 @@ APP_ENV=development scripts/test_integration.sh
 ```
 
 That starts the containers, applies the schema, runs the proof tier, runs
-simulation 16, and stops the containers again. A stack already up is used and
+test 16, and stops the containers again. A stack already up is used and
 left up.
 
 One case in that reuse fails, and says why. The containers it starts itself get
 `FAULT_INJECTION_ENABLED`, but an api already running without it has no fault
-surface, so simulation 16 refuses and the run ends there. Either start it with
+surface, so test 16 refuses and the run ends there. Either start it with
 `FAULT_INJECTION_ENABLED=true scripts/stack_up.sh backend` first, or take the
 stack down and let this command start it.
 
@@ -401,8 +401,8 @@ came back. Neither reaches past a guard, so what they print is what a parent
 would get.
 
 ```sh
-scripts/race_last_seat.sh                       # the brief's scenario, simulation 6
-APP_ENV=development scripts/smoke_failure.sh    # break it on purpose, simulation 16
+scripts/race_last_seat.sh                       # the brief's scenario, test 6
+APP_ENV=development scripts/smoke_failure.sh    # break it on purpose, test 16
 ```
 
 `race_last_seat.sh` is the last-seat race. Two parents hold the same single
@@ -433,7 +433,7 @@ APP_ENV=development scripts/test_integration.sh
 ```
 
 That starts the containers, applies the schema, runs the proof tier against real
-Postgres, runs simulation 16, and stops the containers again. A stack that was
+Postgres, runs test 16, and stops the containers again. A stack that was
 already up is used and left up. It never prompts, and it refuses to run without
 `--yes` when there is no terminal, which is how continuous integration calls it.
 
@@ -574,7 +574,7 @@ locally, so a green run there means the same thing it means here.
 
 | workflow | when | jobs |
 | :- | :- | :- |
-| `pull-request-backend.yml` | a pull request to `main` or `main-stable` | formatting and the four fake tiers, the alert rules through `promtool`, then the proof tier and simulation 16 against real containers |
+| `pull-request-backend.yml` | a pull request to `main` | formatting and the four fake tiers, the alert rules through `promtool`, then the proof tier and test 16 against real containers |
 | `pull-request-frontend.yml` | the same | types, the four tiers, the static build, and the container image |
 | `deploy-simulation.yml` | a push to `main-stable` | builds both stacks from a clean checkout, starts them, waits for each to report ready, and stops them |
 
