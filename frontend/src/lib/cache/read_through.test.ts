@@ -86,7 +86,7 @@ describe("reading through the cache", () => {
         expect(answer.result).toBe("stale");
         expect(answer.body).toEqual(firstList);
 
-        // The caller was answered without waiting for this. Simulation F13
+        // The caller was answered without waiting for this. Test 13
         // holds the response open to prove that ordering.
         await answer.revalidation;
 
