@@ -7,7 +7,7 @@ import (
     "ottodot-trial-booking/backend/internal/catalogue"
 )
 
-// Simulation 11: a conditional request served without a database read.
+// Test 11: a conditional request served without a database read.
 //
 // The goal is exact and it is measured rather than asserted: when the class list
 // has not changed, this service does no work. A repeat request costs one store
@@ -64,7 +64,7 @@ func TestSimulation11ConditionalRequestServedWithoutADatabaseRead(t *testing.T) 
                 recorder.Header().Get("ETag"))
         }
 
-        // The assertion the whole simulation exists for.
+        // The assertion the whole test exists for.
         if fixture.catalogue.Reads() != readsAfterFirst {
             t.Fatalf("a conditional request cost %d database reads",
                 fixture.catalogue.Reads()-readsAfterFirst)
