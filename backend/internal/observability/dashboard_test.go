@@ -296,8 +296,8 @@ func TestTheAlertRulesQueryMetricsThatExist(t *testing.T) {
             }
         }
 
-        if len(expressions) < 12 {
-            t.Fatalf("only %d rule expressions were found, and the plan calls for twelve alerts", len(expressions))
+        if len(expressions) < 13 {
+            t.Fatalf("only %d rule expressions were found, and the plan calls for thirteen alerts", len(expressions))
         }
 
         for _, expression := range expressions {
