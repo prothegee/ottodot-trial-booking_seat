@@ -222,3 +222,84 @@ func TestARouteThatDoesNotExist(t *testing.T) {
         }
     })
 }
+
+func TestTheWholeSurfaceAnswersABrowser(t *testing.T) {
+    // The middleware has its own cases in cors_test.go. These are about the
+    // wiring: a cors layer that exists and is not on the router is the bug it
+    // was written to fix, still there.
+
+    t.Run("integration: a read carries the headers a browser needs to hand over the answer", func(t *testing.T) {
+        fixture := newStage(t, stageOptions{})
+
+        recorder := fixture.send(t, request{
+            method: http.MethodGet,
+            path:   "/api/v1/classes",
+            parent: parentOne,
+            origin: frontendOrigin,
+        })
+
+        if recorder.Code != http.StatusOK {
+            t.Fatalf("expected 200, got %d", recorder.Code)
+        }
+
+        if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != frontendOrigin {
+            t.Fatalf("expected the origin to be echoed, got %q", got)
+        }
+
+        if got := recorder.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
+            t.Fatalf("expected credentials to be permitted, got %q", got)
+        }
+    })
+
+    t.Run("integration: the operations routes answer a browser too", func(t *testing.T) {
+        // The status screen reads /readyz, and it is served from the client
+        // like everything else.
+        fixture := newStage(t, stageOptions{})
+
+        recorder := fixture.send(t, request{
+            method: http.MethodGet,
+            path:   "/healthz",
+            origin: frontendOrigin,
+        })
+
+        if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != frontendOrigin {
+            t.Fatalf("expected the origin to be echoed, got %q", got)
+        }
+    })
+
+    t.Run("integration: a preflight for a write is answered without a cookie", func(t *testing.T) {
+        // A browser sends this before the booking POST, and it carries neither
+        // a cookie nor a body. Passing it down to the origin check would refuse
+        // the very request that asks whether the write is permitted.
+        fixture := newStage(t, stageOptions{})
+
+        recorder := fixture.send(t, request{
+            method: http.MethodOptions,
+            path:   "/api/v1/bookings",
+            origin: frontendOrigin,
+        })
+
+        if recorder.Code != http.StatusNoContent {
+            t.Fatalf("expected 204, got %d", recorder.Code)
+        }
+
+        if got := recorder.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(got, "POST") {
+            t.Fatalf("expected POST to be named, got %q", got)
+        }
+    })
+
+    t.Run("edge: another site gets no headers from any route", func(t *testing.T) {
+        fixture := newStage(t, stageOptions{})
+
+        recorder := fixture.send(t, request{
+            method: http.MethodGet,
+            path:   "/api/v1/classes",
+            parent: parentOne,
+            origin: "http://somewhere-else.example.test",
+        })
+
+        if got := recorder.Header().Get("Access-Control-Allow-Origin"); got != "" {
+            t.Fatalf("a foreign origin was permitted: %q", got)
+        }
+    })
+}
