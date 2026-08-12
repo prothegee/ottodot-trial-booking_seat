@@ -74,7 +74,7 @@ type stage struct {
     metrics  *observability.Metrics
 
     // logged is where every log line this stage wrote goes, so the leak
-    // simulation can read them rather than trusting that nothing was written.
+    // test can read them rather than trusting that nothing was written.
     logged *bytes.Buffer
 
     bookings  *booking.MemoryRepository
