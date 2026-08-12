@@ -60,7 +60,7 @@
         flex-direction: column;
         gap: 0.5rem;
         padding: 0.75rem;
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--line);
         border-radius: 0.5rem;
     }
 
@@ -79,11 +79,11 @@
 
     .grade {
         font-size: 0.8rem;
-        color: #6b7280;
+        color: var(--muted);
     }
 
     .empty {
         font-size: 0.9rem;
-        color: #6b7280;
+        color: var(--muted);
     }
 </style>
