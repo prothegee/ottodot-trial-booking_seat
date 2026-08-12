@@ -1,5 +1,4 @@
 [![frontend main](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-frontend.yml/badge.svg?branch=main)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-frontend.yml)
-[![frontend main-stable](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-frontend.yml/badge.svg?branch=main-stable)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-frontend.yml)
 
 # Frontend
 
@@ -11,9 +10,9 @@ serves the client with no reference to anything outside it, and it deliberately
 shares no network with the backend, because the api checks the Origin header on
 mutations and the browser has to send the real one.
 
-The badges report `pull-request-frontend.yml` on both protected branches. It runs
-the types, the four tiers, the static build, the shell suites for this stack's
-scripts, and the container image.
+The badge reports `pull-request-frontend.yml` on `main`. It runs the types, the
+four tiers, the static build, the shell suites for this stack's scripts, and the
+container image.
 
 <br>
 
@@ -94,7 +93,7 @@ frontend
 |   |   |___/telemetry                     (the closed vocabulary, the batching, the timing)
 |   |
 |   |___/routes
-|   |___/tests                             (setup, and the behaviour simulations)
+|   |___/tests                             (setup, and the behaviour tests)
 |
 |___.env.template                       (copied to .env, which is never committed)
 |___ADR.md
@@ -106,7 +105,7 @@ frontend
 |___package.json
 |___phase-track.md
 |___svelte.config.js
-|___test-diagram.md                     (every test, its diagram, and the command for it)
+|___tests-and-diagram.md                (every test, its diagram, and the command for it)
 |___vite.config.ts
 |___work-rules.md
 ```
@@ -289,6 +288,6 @@ Reports has the series names and their labels.
 | `HLD.md` | routes, stores, the api client's responsibilities, what the screen may assume |
 | `LLD.md` | the transport contract, error mapping, the refresh flow, store shapes |
 | `how-to.md` | install, dev server, point at an api, test, build, container |
-| `test-diagram.md` | every test file, what it proves, its diagram, and the command that runs it alone |
+| `tests-and-diagram.md` | every test file, what it proves, its diagram, and the command that runs it alone |
 | `phase-track.md` | the build checklist, ticked as tests pass |
 | `work-rules.md` | the ceiling on a delegated frontend run, restated from the root |
