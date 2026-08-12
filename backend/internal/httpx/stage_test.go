@@ -50,6 +50,13 @@ const (
 // frontendOrigin is the one origin this service serves in a test.
 const frontendOrigin = "http://127.0.0.1:9001"
 
+// stagePasswordHash is what every seeded account in this fixture stores.
+//
+// It is a fixed string rather than a fresh hash, because argon2 is deliberately
+// slow and this fixture is built once per test in the file.
+const stagePasswordHash = "$argon2id$v=19$m=65536,t=1,p=4$" +
+    "8HvgNB40ArlxEEpvrs6x2g$6BJSMpsmkP7ai0ihs7HAYUm6bO2rwxAfMvY9i0C6mZs"
+
 // jwtSecret is long enough for the signer to accept and is a throwaway.
 const jwtSecret = "test-only-signing-key-not-for-any-real-environment"
 
@@ -155,18 +162,18 @@ func newStage(t *testing.T, options stageOptions) *stage {
     rosterReader.AddClass(classOne, 1)
 
     fixture.directory = auth.NewMemoryDirectory()
-    fixture.directory.Add("alice.tan@example.test", auth.Parent{
+    fixture.directory.Add("alice.tan@example.test", stagePasswordHash, auth.Parent{
         ID: parentOne, DisplayName: "Alice Tan", Role: auth.RoleParent,
     }, []auth.Child{
         {ID: studentOne, FullName: "Adi Tan", GradeLevel: 4},
         {ID: studentTwo, FullName: "Bella Tan", GradeLevel: 6},
     })
-    fixture.directory.Add("budi.santoso@example.test", auth.Parent{
+    fixture.directory.Add("budi.santoso@example.test", stagePasswordHash, auth.Parent{
         ID: parentTwo, DisplayName: "Budi Santoso", Role: auth.RoleParent,
     }, []auth.Child{
         {ID: studentOther, FullName: "Citra Santoso", GradeLevel: 5},
     })
-    fixture.directory.Add("ops.admin@example.test", auth.Parent{
+    fixture.directory.Add("ops.admin@example.test", stagePasswordHash, auth.Parent{
         ID: adminParent, DisplayName: "Operations", Role: auth.RoleAdmin,
     }, nil)
 
@@ -232,7 +239,7 @@ func newStage(t *testing.T, options stageOptions) *stage {
     }
 
     guard, err := auth.NewGuard(fixture.signer, denylist, auth.GuardSettings{
-        FrontendOrigin: frontendOrigin,
+        AllowedOrigins: []string{frontendOrigin},
         Clock:          clock,
         Metrics:        fixture.metrics,
     })
@@ -301,12 +308,17 @@ func newStage(t *testing.T, options stageOptions) *stage {
         t.Fatalf("cannot build the student route: %v", err)
     }
 
-    bookingHandler, err := httpx.NewBookingHandler(checkoutService, bookingService, owner, botCheck, conditional)
+    classNames, err := httpx.NewClassNames(classService)
+    if err != nil {
+        t.Fatalf("cannot build the class names on a booking: %v", err)
+    }
+
+    bookingHandler, err := httpx.NewBookingHandler(checkoutService, bookingService, owner, botCheck, conditional, classNames)
     if err != nil {
         t.Fatalf("cannot build the booking routes: %v", err)
     }
 
-    paymentHandler, err := httpx.NewPaymentHandler(checkoutService, owner, botCheck, conditional, options.Development)
+    paymentHandler, err := httpx.NewPaymentHandler(checkoutService, owner, botCheck, conditional, classNames, options.Development)
     if err != nil {
         t.Fatalf("cannot build the payment route: %v", err)
     }
@@ -316,7 +328,7 @@ func newStage(t *testing.T, options stageOptions) *stage {
         t.Fatalf("cannot build the roster route: %v", err)
     }
 
-    adminHandler, err := httpx.NewAdminHandler(bookingService, fixture.jobs, clock)
+    adminHandler, err := httpx.NewAdminHandler(bookingService, fixture.jobs, classNames, clock)
     if err != nil {
         t.Fatalf("cannot build the admin routes: %v", err)
     }
@@ -546,6 +558,9 @@ type bookingWire struct {
     ID            string  `json:"id"`
     StudentID     string  `json:"student_id"`
     ClassID       string  `json:"class_id"`
+    ClassSubject  string  `json:"class_subject"`
+    ClassTitle    string  `json:"class_title"`
+    ClassStartsAt *string `json:"class_starts_at"`
     Status        string  `json:"status"`
     SeatNo        *int16  `json:"seat_no"`
     HoldExpiresAt *string `json:"hold_expires_at"`
