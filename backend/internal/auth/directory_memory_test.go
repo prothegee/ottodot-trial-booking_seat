@@ -30,16 +30,19 @@ func seededDirectory() *auth.MemoryDirectory {
 
     directory.Add(
         contractParentEmail,
+        seededPasswordHash,
         auth.Parent{ID: contractParentID, DisplayName: contractParentName, Role: auth.RoleParent},
         []auth.Child{{ID: contractChildID, FullName: contractChildName, GradeLevel: 5}})
 
     directory.Add(
         contractLonelyParentEmail,
+        seededPasswordHash,
         auth.Parent{ID: contractLonelyParentID, DisplayName: "Chandra Wijaya", Role: auth.RoleParent},
         nil)
 
     directory.Add(
         "ops.admin@example.test",
+        seededPasswordHash,
         auth.Parent{ID: adminParentID, DisplayName: "Ops Admin", Role: auth.RoleAdmin},
         nil)
 
@@ -60,12 +63,12 @@ func TestTheMemoryDirectoryHoldsNothingItShouldNot(t *testing.T) {
         // asserted because the change that would break it is somebody adding a
         // convenient field, and an email that is never loaded is an email that
         // can never be logged.
-        found, err := seededDirectory().ParentByEmail(context.Background(), contractParentEmail)
+        found, err := seededDirectory().CredentialByEmail(context.Background(), contractParentEmail)
         if err != nil {
             t.Fatalf("cannot look the parent up: %v", err)
         }
 
-        if found.DisplayName == contractParentEmail {
+        if found.Parent.DisplayName == contractParentEmail {
             t.Fatal("the display name is the email address")
         }
     })
@@ -77,6 +80,7 @@ func TestTheMemoryDirectoryHoldsNothingItShouldNot(t *testing.T) {
 
         directory.Add(
             contractParentEmail,
+            seededPasswordHash,
             auth.Parent{ID: contractParentID, DisplayName: contractParentName, Role: auth.RoleParent},
             children)
 
