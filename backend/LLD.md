@@ -1049,9 +1049,9 @@ batch is still recorded. ADR-049.
 | command | runs |
 | :- | :- |
 | `go test ./...` | unit, edge, integration, behaviour, all against fakes |
-| `go test -tags=containers ./...` | the same contract against real Postgres, plus the race simulations |
+| `go test -tags=containers ./...` | the same contract against real Postgres, plus the race tests |
 
-| simulation | tier | asserts |
+| test | tier | asserts |
 | :- | :- | :- |
 | 1, duplicate booking | behaviour, fake | one row for that child and class, the second attempt leaves nothing behind |
 | 2, payment failure | behaviour, fake | one failed attempt, no provider reference, no seat, the roster stays empty |
@@ -1070,6 +1070,6 @@ batch is still recorded. ADR-049.
 | 12, readiness reflects reality | behaviour, fake | a downed replica stays in rotation, a downed primary or Redis does not, liveness stays 200, and no body names a host |
 | read routing | proof, real | the primary is not in recovery, the replica is, and the replica refuses a write |
 
-Simulation 5 also proves that `uq_seat_taken` never fired: every loser ends in
+Test 5 also proves that `uq_seat_taken` never fired: every loser ends in
 `refund_required`, and a unique violation would have rolled its transaction back
 and left that booking in `pending_payment` instead.
