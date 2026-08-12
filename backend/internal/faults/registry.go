@@ -23,8 +23,8 @@ const (
 // The failures this package reports.
 var (
     // ErrUnknownPoint means the name is not one of the points above. It is a
-    // refusal rather than a silent no-op, so a typo in a recording script is
-    // found before the take rather than during it.
+    // refusal rather than a silent no-op, so a typo in a demonstration script
+    // is found before the run rather than during it.
     ErrUnknownPoint = errors.New("faults: no such injection point")
 
     // ErrInvalidRequest means the count or the lifetime was outside its bounds.
