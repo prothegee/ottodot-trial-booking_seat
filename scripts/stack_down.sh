@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------- #
 # class: safe
 #
-# Stops a stack and removes its containers. It never touches any .data/
+# Stops a stack and removes its containers. It never touches any data
 # directory, so the database survives. Removing data is what
 # scripts/cleanup_dev.sh is for, and that one prompts.
 #

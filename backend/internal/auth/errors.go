@@ -42,11 +42,14 @@ var (
     // can only happen if the randomness behind it repeated.
     ErrDuplicateToken = errors.New("auth: a refresh token already carries that hash")
 
-    // ErrNoSuchParent means the email is not one of the seeded accounts.
+    // ErrNoSuchParent means the email and password together match no account.
     //
-    // It never reaches a client as its own code. See FailureFor: the answer on
-    // the wire is the generic refusal, so this endpoint cannot be used to learn
-    // which addresses have accounts.
+    // The two ways to earn it, an address nobody holds and a password that does
+    // not match, are deliberately the same error. Telling them apart is telling
+    // a caller which addresses have accounts here.
+    //
+    // It never reaches a client as its own code either. See FailureFor: the
+    // answer on the wire is the generic refusal.
     ErrNoSuchParent = errors.New("auth: no parent carries that email")
 
     // ErrForbiddenRole means the identity is real and the route is not for it.

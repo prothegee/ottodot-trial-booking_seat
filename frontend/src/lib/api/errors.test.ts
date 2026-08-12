@@ -85,7 +85,7 @@ describe("what a parent reads", () => {
     });
 
     test("edge: no message names a class, a child, or an identifier", () => {
-        // These strings are on screen for the whole of a recorded walkthrough.
+        // These strings are on screen for the whole of a demonstration.
         for (const message of Object.values(messageForKind)) {
             expect(message).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}/);
             expect(message).not.toMatch(/@/);

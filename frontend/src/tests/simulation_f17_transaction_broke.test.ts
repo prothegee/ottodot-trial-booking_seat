@@ -18,9 +18,9 @@ import PayPage from "../routes/pay/[bookingId]/+page.svelte";
 import { trialPayment } from "$lib/booking/price";
 
 /**
- * Simulation F17: the backend transaction breaks mid-payment.
+ * Test 17: the backend transaction breaks mid-payment.
  *
- * The client half of backend simulation 15. The transport answers the payment
+ * The client half of backend test 15. The transport answers the payment
  * with 500 `internal_error`, which is what a parent sees when the confirm
  * transaction fails rather than losing a race.
  *
@@ -41,7 +41,7 @@ import { trialPayment } from "$lib/booking/price";
  * aged because nothing is known to have changed.
  *
  * The idempotency detail is the one worth stating. A declined payment is a
- * finished attempt and earns a fresh key, as in simulation F3. An
+ * finished attempt and earns a fresh key, as in test 3. An
  * `internal_error` is an attempt of unknown outcome, so the same key must go
  * back, or a retry risks charging twice.
  */
@@ -75,6 +75,9 @@ const heldBooking: Booking = {
     id: bookingId,
     student_id: studentId,
     class_id: classId,
+    class_subject: "science",
+    class_title: "Science Discovery",
+    class_starts_at: "2026-08-15T01:28:26.224983Z",
     status: "pending_payment",
     seat_no: null,
     hold_expires_at: new Date(now + 10 * 60 * 1000).toISOString(),
@@ -142,7 +145,7 @@ function newStage() {
     };
 }
 
-describe("simulation F17: the backend transaction broke mid-payment", () => {
+describe("test 17: the backend transaction broke mid-payment", () => {
     beforeEach(() => {
         sessionStorage.clear();
 
@@ -160,7 +163,7 @@ describe("simulation F17: the backend transaction broke mid-payment", () => {
     });
 
     test("behaviour: the retry carries the same key, so it cannot charge twice", async () => {
-        // The one assertion this whole simulation exists for. The first call
+        // The one assertion this whole test exists for. The first call
         // came back with no answer about what happened, so the second one has
         // to be the same attempt, not a new one.
         const stage = newStage();

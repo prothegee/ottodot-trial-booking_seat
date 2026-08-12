@@ -4,6 +4,7 @@ import (
     "context"
     "errors"
     "fmt"
+    "sync"
     "time"
 
     "ottodot-trial-booking/backend/internal/faults"
@@ -26,6 +27,16 @@ type Settings struct {
     // BatchSize caps how many jobs one poll takes. It exists so one worker
     // cannot lease the whole queue and then die holding it.
     BatchSize int
+
+    // Concurrency is how many of a claimed batch are worked on at once. One
+    // means the batch is worked through in order, which is what every test
+    // wants.
+    //
+    // It is separate from BatchSize because the two answer different questions:
+    // the batch is how much this process takes responsibility for, and this is
+    // how fast it gets through it. Claiming ten and running them one at a time
+    // still holds all ten leases for the whole run.
+    Concurrency int
 
     // MaxAttempts is where a failing job stops. Past it the job parks, stays in
     // the table, and waits for somebody to look at it.
@@ -68,6 +79,7 @@ func DefaultSettings() Settings {
         BatchSize:    10,
         MaxAttempts:  5,
         RetryBackoff: 30 * time.Second,
+        Concurrency:  1,
     }
 }
 
@@ -120,6 +132,13 @@ func NewRunner(jobs queue.Queue, handlers Registry, settings Settings) (*Runner,
         settings.Clock = time.Now
     }
 
+    // Zero is filled in rather than refused. It is what a caller that never
+    // heard of this setting hands in, and the answer to that is the behaviour
+    // this runner had before the setting existed.
+    if settings.Concurrency < 1 {
+        settings.Concurrency = 1
+    }
+
     return &Runner{
         queue:    jobs,
         handlers: handlers,
@@ -155,12 +174,43 @@ func (runner *Runner) RunOnce(ctx context.Context) (int, error) {
     }
 
     runner.counters.Claimed(len(leased))
-
-    for _, job := range leased {
-        runner.dispatch(ctx, job)
-    }
+    runner.dispatchBatch(ctx, leased)
 
     return len(leased), nil
+}
+
+// dispatchBatch works through one claimed batch, Concurrency jobs at a time.
+//
+// It returns only when every job in the batch is finished, which is what keeps
+// the lease, the poll loop, and the count of claimed jobs all describing the
+// same batch. Handing back early would leave jobs running against a lease the
+// next poll has already moved past.
+func (runner *Runner) dispatchBatch(ctx context.Context, leased []queue.Job) {
+    if runner.settings.Concurrency == 1 || len(leased) < 2 {
+        for _, job := range leased {
+            runner.dispatch(ctx, job)
+        }
+
+        return
+    }
+
+    slots := make(chan struct{}, runner.settings.Concurrency)
+
+    var running sync.WaitGroup
+
+    for _, job := range leased {
+        running.Add(1)
+        slots <- struct{}{}
+
+        go func() {
+            defer running.Done()
+            defer func() { <-slots }()
+
+            runner.dispatch(ctx, job)
+        }()
+    }
+
+    running.Wait()
 }
 
 // Run polls until the context is cancelled.
@@ -202,6 +252,15 @@ func (runner *Runner) Run(ctx context.Context) error {
 // a worker that is stuck, so there is no early return here without one or the
 // other.
 func (runner *Runner) dispatch(ctx context.Context, job queue.Job) {
+    started := time.Now()
+    outcome := JobFailed
+
+    // Registered before anything can fail below, and it reads the outcome at the
+    // moment it runs, so every path out of this method is timed exactly once.
+    // Failed is the value it starts at, because the one path that must never go
+    // uncounted is the one that ends badly.
+    defer func() { runner.counters.Timed(string(job.Kind), outcome, started) }()
+
     handler, found := runner.handlers[job.Kind]
     if !found {
         runner.handBack(ctx, job, fmt.Errorf("job %s: %w", job.ID, ErrHandlerMissing))
@@ -233,6 +292,8 @@ func (runner *Runner) dispatch(ctx context.Context, job queue.Job) {
 
         return
     }
+
+    outcome = JobCompleted
 
     runner.counters.Completed()
 }

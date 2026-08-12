@@ -9,7 +9,7 @@ import { booking } from "$lib/stores/booking";
 import PayPage from "../routes/pay/[bookingId]/+page.svelte";
 
 /**
- * Simulation F7: the honeypot and the fill timer.
+ * Test 7: the honeypot and the fill timer.
  *
  *     form mounts, timer starts
  *     fields filled
@@ -55,6 +55,9 @@ const heldBooking: Booking = {
     id: bookingId,
     student_id: studentId,
     class_id: classId,
+    class_subject: "science",
+    class_title: "Science Discovery",
+    class_starts_at: "2026-08-15T01:28:26.224983Z",
     status: "pending_payment",
     seat_no: null,
     hold_expires_at: new Date(now + 10 * 60 * 1000).toISOString(),
@@ -107,7 +110,7 @@ async function measureOneSubmission(holdOpenMs: number): Promise<number> {
     return measured;
 }
 
-describe("simulation F7: the honeypot and the fill timer", () => {
+describe("test 7: the honeypot and the fill timer", () => {
     beforeEach(() => {
         sessionStorage.clear();
 

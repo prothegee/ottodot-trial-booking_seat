@@ -92,7 +92,7 @@ would otherwise pass every fast test, and that is the failure this guards
 against.
 
 One more check, because a test that cannot fail proves nothing: the row lock was
-removed on purpose and the twenty-attempt simulation was re-run. It failed, with
+removed on purpose and the twenty-attempt test was re-run. It failed, with
 three confirmed seats instead of four. The lock was then restored and the suite
 re-run green.
 
@@ -206,10 +206,10 @@ reads a cookie.
 
 ## How The Work Was Sequenced
 
-The build is incremental and the order is deliberate. Phases run one after
-another and each closes before the next opens: foundation, then the booking
-core, then payment, and so on. Nothing was held back and delivered as one large
-change at the end.
+The build follows an incremental approach or waterfall methodology approach, and
+the order is deliberate. Phases run one after another and each closes before the
+next opens: foundation, then the booking core, then payment, and so on. Nothing
+was held back and delivered as one large change at the end.
 
 Each phase is its own branch and pull request, and inside a phase each file is
 its own commit. The reason is review: a one-file diff in build order can be read

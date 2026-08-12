@@ -99,7 +99,7 @@
     }
 
     .lead {
-        color: #6b7280;
+        color: var(--muted);
         font-size: 0.9rem;
     }
 
@@ -113,23 +113,23 @@
         padding: 0.5rem;
         font-size: 1rem;
         font-weight: 600;
-        color: #ffffff;
-        background: #1d4ed8;
+        color: var(--on-accent);
+        background: var(--accent);
         border: none;
         border-radius: 0.25rem;
         cursor: pointer;
     }
 
     button:disabled {
-        background: #9ca3af;
+        background: var(--muted-soft);
         cursor: not-allowed;
     }
 
     .failure {
         padding: 0.5rem 0.75rem;
         font-size: 0.9rem;
-        color: #b91c1c;
-        background: #fee2e2;
+        color: var(--danger);
+        background: var(--danger-surface);
         border-radius: 0.25rem;
     }
 

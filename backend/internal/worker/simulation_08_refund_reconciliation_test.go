@@ -12,7 +12,7 @@ import (
     "ottodot-trial-booking/backend/internal/worker"
 )
 
-// Simulation 8: refund reconciliation.
+// Test 8: refund reconciliation.
 //
 //	worker   -> queue: claim reconcile_refund
 //	queue    -> worker: the job row
@@ -37,7 +37,7 @@ const (
     refundPriceCent = 4500
 )
 
-// refundMoment is the instant the whole simulation runs at.
+// refundMoment is the instant the whole test runs at.
 var refundMoment = time.Date(2026, time.August, 11, 9, 0, 0, 0, time.UTC)
 
 // lastSeatStage is everything wired together: two parents, one seat, and both

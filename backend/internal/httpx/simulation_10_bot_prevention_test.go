@@ -10,7 +10,7 @@ import (
     "ottodot-trial-booking/backend/internal/httpx"
 )
 
-// Simulation 10: bot prevention layers.
+// Test 10: bot prevention layers.
 //
 // The question this answers is not "is there a rate limiter". It is whether a
 // booking request meets the layers in the right order, and whether each one

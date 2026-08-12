@@ -38,5 +38,9 @@ npm-debug.log*
 ##
 ## file: local environment
 ##
+## The template is committed and the real file is not. The exception has to be
+## spelled out, because .env.* would otherwise take the template with it.
+##
 .env
 .env.*
+!.env.template

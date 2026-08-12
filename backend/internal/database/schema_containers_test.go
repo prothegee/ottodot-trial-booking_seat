@@ -29,6 +29,12 @@ import (
 
 const uniqueViolation = "23505"
 
+// fixturePasswordHash is what the parents column requires: not null, and a
+// string the argon2id check accepts. Nothing in this file signs anybody in, so
+// the value only has to be well formed.
+const fixturePasswordHash = "$argon2id$v=19$m=65536,t=1,p=4$" +
+    "8HvgNB40ArlxEEpvrs6x2g$6BJSMpsmkP7ai0ihs7HAYUm6bO2rwxAfMvY9i0C6mZs"
+
 func primaryAddressFromEnvironment() string {
     if address := os.Getenv("DATABASE_PRIMARY_URL"); address != "" {
         return address
@@ -300,8 +306,9 @@ func seedOneParentAndClass(t *testing.T, connection *pgx.Conn) {
     t.Helper()
 
     mustExec(t, connection, `
-        insert into parents (id, email, full_name)
-        values ('0192a000-0000-7000-8000-0000000000a1', 'proof@example.test', 'Proof Parent')`)
+        insert into parents (id, email, full_name, password_hash)
+        values ('0192a000-0000-7000-8000-0000000000a1', 'proof@example.test', 'Proof Parent',
+                '`+fixturePasswordHash+`')`)
 
     mustExec(t, connection, `
         insert into students (id, parent_id, full_name, grade_level)

@@ -27,6 +27,12 @@ const (
     RosterPath    = "GET /api/v1/classes/{classId}/roster"
 
     CreateBookingPath = "POST /api/v1/bookings"
+
+    // ParentBookingsPath lists the bookings of whoever is signed in. It shares
+    // its address with the route above and differs only in the method, which is
+    // why the method is part of every value here.
+    ParentBookingsPath = "GET /api/v1/bookings"
+
     BookingPath       = "GET /api/v1/bookings/{bookingId}"
     CancelBookingPath = "DELETE /api/v1/bookings/{bookingId}"
     BookingEventsPath = "GET /api/v1/bookings/{bookingId}/events"

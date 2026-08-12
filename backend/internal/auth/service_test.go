@@ -108,7 +108,7 @@ func TestSigningIn(t *testing.T) {
     t.Run("integration: a seeded email is signed in with both tokens", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        issued, err := stage.service.LogIn(ctx, contractParentEmail)
+        issued, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -129,7 +129,7 @@ func TestSigningIn(t *testing.T) {
     t.Run("unit: the access token verifies against the signer that issued it", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        issued, err := stage.service.LogIn(ctx, contractParentEmail)
+        issued, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -142,7 +142,7 @@ func TestSigningIn(t *testing.T) {
     t.Run("unit: only the refresh token's hash is stored, never the token", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        issued, err := stage.service.LogIn(ctx, contractParentEmail)
+        issued, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -160,7 +160,7 @@ func TestSigningIn(t *testing.T) {
     t.Run("unit: the two expiries follow the configured lifetimes", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        issued, err := stage.service.LogIn(ctx, contractParentEmail)
+        issued, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -177,7 +177,7 @@ func TestSigningIn(t *testing.T) {
     t.Run("integration: an admin signs in carrying the admin role", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        issued, err := stage.service.LogIn(ctx, "ops.admin@example.test")
+        issued, err := stage.service.LogIn(ctx, "ops.admin@example.test", seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -190,12 +190,12 @@ func TestSigningIn(t *testing.T) {
     t.Run("edge: two sign ins start two families, so one device signing out leaves the other", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        phone, err := stage.service.LogIn(ctx, contractParentEmail)
+        phone, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in on the first device: %v", err)
         }
 
-        laptop, err := stage.service.LogIn(ctx, contractParentEmail)
+        laptop, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in on the second device: %v", err)
         }
@@ -218,7 +218,7 @@ func TestSigningIn(t *testing.T) {
     t.Run("edge: an address nobody has is refused and counted", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        if _, err := stage.service.LogIn(ctx, "nobody@example.test"); !errors.Is(err, auth.ErrNoSuchParent) {
+        if _, err := stage.service.LogIn(ctx, "nobody@example.test", seededPassword); !errors.Is(err, auth.ErrNoSuchParent) {
             t.Fatalf("expected an unknown address to be refused, got %v", err)
         }
 
@@ -230,8 +230,58 @@ func TestSigningIn(t *testing.T) {
     t.Run("edge: an empty address is refused before the directory is asked", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        if _, err := stage.service.LogIn(ctx, "   "); !errors.Is(err, auth.ErrInvalidRequest) {
+        if _, err := stage.service.LogIn(ctx, "   ", seededPassword); !errors.Is(err, auth.ErrInvalidRequest) {
             t.Fatalf("expected an empty address to be refused, got %v", err)
+        }
+    })
+
+    t.Run("behaviour: the right address with the wrong password is refused and counted", func(t *testing.T) {
+        stage := newServiceStage(t)
+
+        if _, err := stage.service.LogIn(ctx, contractParentEmail, "not-the-password"); !errors.Is(err, auth.ErrNoSuchParent) {
+            t.Fatalf("expected a wrong password to be refused, got %v", err)
+        }
+
+        if stage.service.Counters().Snapshot().LoginRefused != 1 {
+            t.Fatal("expected the refusal to be counted")
+        }
+    })
+
+    t.Run("edge: a wrong password and an unknown address are the same refusal", func(t *testing.T) {
+        // Any difference between the two is a way to find out which addresses
+        // have accounts here, one guess at a time.
+        stage := newServiceStage(t)
+
+        _, wrongPassword := stage.service.LogIn(ctx, contractParentEmail, "not-the-password")
+        _, unknownAddress := stage.service.LogIn(ctx, "nobody@example.test", seededPassword)
+
+        if wrongPassword.Error() != unknownAddress.Error() {
+            t.Fatalf("a wrong password reports %q and an unknown address reports %q",
+                wrongPassword, unknownAddress)
+        }
+    })
+
+    t.Run("edge: an empty password is refused before the directory is asked", func(t *testing.T) {
+        stage := newServiceStage(t)
+
+        if _, err := stage.service.LogIn(ctx, contractParentEmail, ""); !errors.Is(err, auth.ErrInvalidRequest) {
+            t.Fatalf("expected an empty password to be refused, got %v", err)
+        }
+    })
+
+    t.Run("edge: an account whose stored hash is unusable can never be signed in to", func(t *testing.T) {
+        // A half finished seed, or a row somebody edited by hand. Treating it
+        // as a match would be the worst possible reading of it.
+        stage := newServiceStage(t)
+
+        stage.directory.Add(
+            "broken@example.test",
+            "",
+            auth.Parent{ID: contractLonelyParentID, DisplayName: "Broken Row", Role: auth.RoleParent},
+            nil)
+
+        if _, err := stage.service.LogIn(ctx, "broken@example.test", seededPassword); !errors.Is(err, auth.ErrNoSuchParent) {
+            t.Fatalf("expected an account with no usable hash to be refused, got %v", err)
         }
     })
 }
@@ -242,7 +292,7 @@ func TestSigningOut(t *testing.T) {
     t.Run("behaviour: signing out withdraws the access token and ends the family", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        issued, err := stage.service.LogIn(ctx, contractParentEmail)
+        issued, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -280,7 +330,7 @@ func TestSigningOut(t *testing.T) {
         // entry protects nothing and only costs memory.
         stage := newServiceStage(t)
 
-        issued, err := stage.service.LogIn(ctx, contractParentEmail)
+        issued, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -307,7 +357,7 @@ func TestSigningOut(t *testing.T) {
         // cookie had already lapsed would leave them signed in.
         stage := newServiceStage(t)
 
-        issued, err := stage.service.LogIn(ctx, contractParentEmail)
+        issued, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -332,7 +382,7 @@ func TestSigningOut(t *testing.T) {
     t.Run("edge: a refresh token this service never issued is not a failure", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        issued, err := stage.service.LogIn(ctx, contractParentEmail)
+        issued, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -357,12 +407,12 @@ func TestSigningOut(t *testing.T) {
     t.Run("edge: one parent signing out leaves another parent signed in", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        leaving, err := stage.service.LogIn(ctx, contractParentEmail)
+        leaving, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign the first parent in: %v", err)
         }
 
-        staying, err := stage.service.LogIn(ctx, contractLonelyParentEmail)
+        staying, err := stage.service.LogIn(ctx, contractLonelyParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign the second parent in: %v", err)
         }

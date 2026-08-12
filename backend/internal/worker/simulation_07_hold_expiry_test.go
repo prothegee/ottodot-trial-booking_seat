@@ -10,7 +10,7 @@ import (
     "ottodot-trial-booking/backend/internal/worker"
 )
 
-// Simulation 7: hold expiry by the worker.
+// Test 7: hold expiry by the worker.
 //
 //	worker -> queue: claim expire_hold with for update skip locked
 //	queue  -> worker: the job row
@@ -226,7 +226,7 @@ func TestSimulation07HoldExpiryByTheWorker(t *testing.T) {
 }
 
 // newExpiryRunner wires a runner whose expiry handler is real and whose refund
-// handler is a stand-in, because this simulation is about one kind of job.
+// handler is a stand-in, because this test is about one kind of job.
 func newExpiryRunner(t *testing.T, jobs queue.Queue, bookingService *booking.Service, clock *clockAt) *worker.Runner {
     t.Helper()
 

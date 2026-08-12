@@ -43,7 +43,7 @@ func NewMemoryRepository() *MemoryRepository {
 // InjectFaults points this repository at a fault source.
 //
 // The fake carries the same two injection points the real one does, at the same
-// two moments. That is what lets the leak and rollback simulations run in the
+// two moments. That is what lets the leak and rollback tests run in the
 // fast tier in a second with nothing running, and still describe the same thing
 // the live stack does when the same point is armed over http.
 func (repository *MemoryRepository) InjectFaults(fault Fault) {
@@ -338,16 +338,51 @@ func (repository *MemoryRepository) Worklist(_ context.Context, request Worklist
         matched = append(matched, stored)
     }
 
-    // Newest first, and the identifier breaks a tie. Two bookings written in the
-    // same instant would otherwise come back in map order, which changes between
-    // runs and makes a paging screen jump.
-    sort.Slice(matched, func(first int, second int) bool {
-        if !matched[first].CreatedAt.Equal(matched[second].CreatedAt) {
-            return matched[first].CreatedAt.After(matched[second].CreatedAt)
+    sortNewestFirst(matched)
+
+    if len(matched) > request.Limit {
+        matched = matched[:request.Limit]
+    }
+
+    return matched, nil
+}
+
+// sortNewestFirst orders a list the way both list reads promise to.
+//
+// The identifier breaks a tie. Two bookings written in the same instant would
+// otherwise come back in map order, which changes between runs and makes a
+// paging screen jump. It is shared by the two list reads so they cannot drift
+// into two different orders.
+func sortNewestFirst(listed []Booking) {
+    sort.Slice(listed, func(first int, second int) bool {
+        if !listed[first].CreatedAt.Equal(listed[second].CreatedAt) {
+            return listed[first].CreatedAt.After(listed[second].CreatedAt)
         }
 
-        return matched[first].ID > matched[second].ID
+        return listed[first].ID > listed[second].ID
     })
+}
+
+// ParentBookings lists one parent's own bookings, newest first.
+func (repository *MemoryRepository) ParentBookings(_ context.Context, request ParentBookingsRequest) ([]Booking, error) {
+    if err := request.Validate(); err != nil {
+        return nil, err
+    }
+
+    repository.mutex.Lock()
+    defer repository.mutex.Unlock()
+
+    matched := make([]Booking, 0, len(repository.bookings))
+
+    for _, stored := range repository.bookings {
+        if repository.parents[stored.StudentID] != request.ParentID {
+            continue
+        }
+
+        matched = append(matched, stored)
+    }
+
+    sortNewestFirst(matched)
 
     if len(matched) > request.Limit {
         matched = matched[:request.Limit]

@@ -81,14 +81,14 @@
         align-items: center;
         gap: 0.25rem 0.5rem;
         padding: 0.5rem 0.75rem;
-        background: #f9fafb;
-        border: 1px solid #e5e7eb;
+        background: var(--page);
+        border: 1px solid var(--line);
         border-radius: 0.25rem;
     }
 
     .mark {
         font-size: 1.1rem;
-        color: #15803d;
+        color: var(--good-strong);
     }
 
     .label {
@@ -100,6 +100,6 @@
         grid-column: 2;
         margin: 0;
         font-size: 0.75rem;
-        color: #6b7280;
+        color: var(--muted);
     }
 </style>

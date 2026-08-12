@@ -1,19 +1,22 @@
 # ---------------------------------------------------------------------------- #
 # What Prometheus scrapes, and how often.
 #
-# Four targets, one per layer of the monitoring plan:
-#   api 9000        the process, and everything the service counts about itself
+# Four layers, across six jobs:
+#   api 9000        the process, and what the service counts about itself
 #   worker 9002     the process, and what the queue holds
 #   node_exporter   the host: cpu, memory, drive, and inodes
 #   cadvisor        each container: cpu, memory, drive, and restarts
 #
-# Five seconds is deliberate and it is faster than the usual fifteen. This stack
-# is demonstrated on camera, and a counter that takes fifteen seconds to appear
-# is a counter nobody is still looking at the panel for. The cost is more samples
-# for a stack that runs for an afternoon, which is nothing.
+# Five seconds rather than the usual fifteen, because this stack is demonstrated
+# live and a counter nobody waits for is a counter nobody sees.
 #
-# Every target is named by its compose service rather than by an address, so this
-# file works unchanged whatever the host publishes the ports as.
+# The api and the worker are scraped twice each, at the container and at this
+# machine, because backend/scripts/debug.sh runs one of them from source with its
+# container stopped. Only one of each pair answers at a time.
+#
+# Container targets are named by compose service, so this file does not care what
+# the host publishes. The source targets use host.containers.internal, which is a
+# container's name for the machine it runs on.
 # ---------------------------------------------------------------------------- #
 
 global:
@@ -35,10 +38,31 @@ scrape_configs:
             labels:
                 component: api
 
+    # The same api, from source on this machine. Both cannot be up at once, since
+    # debug.sh refuses to start while the container holds 9000.
+    #
+    # The component label matches the container target on purpose: the NotReady
+    # rule reads it, so a process that moved here still counts as answering. Under
+    # Docker on Linux the name does not resolve and this target stays down.
+    - job_name: api-source
+      metrics_path: /metrics
+      static_configs:
+          - targets: ["host.containers.internal:9000"]
+            labels:
+                component: api
+
     - job_name: worker
       metrics_path: /metrics
       static_configs:
           - targets: ["worker:9002"]
+            labels:
+                component: worker
+
+    # The worker from source, on the same terms as api-source above.
+    - job_name: worker-source
+      metrics_path: /metrics
+      static_configs:
+          - targets: ["host.containers.internal:9002"]
             labels:
                 component: worker
 
@@ -48,11 +72,10 @@ scrape_configs:
             labels:
                 component: host
 
-    # cAdvisor is the one target allowed to be absent. It reads a container
-    # runtime socket and is written against Docker, so under rootless Podman it
-    # needs a socket mounted where it expects one. When it will not start, layers
-    # one and two still cover cpu, memory, and drive, and the dashboard degrades
-    # from per container to host wide. how-to.md carries the exact command.
+    # cAdvisor is the one target allowed to be absent. It is written against
+    # Docker and needs a socket mounted where it expects one under rootless
+    # Podman. Without it the panels degrade from per container to host wide.
+    # how-to.md carries the command.
     - job_name: cadvisor
       static_configs:
           - targets: ["cadvisor:8080"]

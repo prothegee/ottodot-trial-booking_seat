@@ -7,9 +7,9 @@
 // The refresh token is opaque and has a row, and only as a sha256 hash. It
 // rotates on every use, and presenting a spent one revokes the entire chain.
 //
-// What is deliberately not here: passwords. Sign in is by seeded email, which
-// the brief asks for. The machinery around it is real, so a password or a
-// provider later touches one method.
+// Sign in takes an email and a password. The password is checked against an
+// argon2id hash in password.go and is held nowhere afterwards, not in a claim,
+// not in a log, and not on any struct that reaches a response.
 package auth
 
 import "time"
@@ -37,9 +37,9 @@ func IsKnownRole(role string) bool {
 // contract.
 //
 // A JWT payload is base64, not encryption. Anyone holding the token reads it,
-// including whoever picked it out of a shared screen recording. So there is no
-// email here, no name, no child, and no class: only what this service needs to
-// decide whether a request may proceed.
+// including whoever picked it out of a shared screen. So there is no email
+// here, no name, no child, and no class: only what this service needs to decide
+// whether a request may proceed.
 //
 // The struct is closed for the same reason. There is no map of extra claims to
 // pass something through, because a pass-through is how an email ends up in a

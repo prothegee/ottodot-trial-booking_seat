@@ -15,19 +15,27 @@
 #
 # Note:
 # - COMPOSE_COMMAND overrides the search when a machine needs something else,
-#   for example "nerdctl compose"
+#   for example "nerdctl compose". The runtime is read back out of it, so the
+#   two cannot disagree
+# - CONTAINER_RUNTIME overrides that reading on a machine where the runtime is
+#   not named after its compose
 # ---------------------------------------------------------------------------- #
 
 STACK_NAMES=("backend" "frontend")
 
 # Bind mount directories, per stack. The frontend holds no state, so it has
 # none. Paths are relative to the repository root.
+#
+# Each one sits inside the directory of the service that writes it, next to that
+# service's own configuration, rather than in a shared tree. One service's state
+# is then independent of every other: it can be removed on its own, and no single
+# path deletion can take all five.
 STACK_DATA_DIRECTORIES=(
-    "backend/.data/postgres-primary"
-    "backend/.data/postgres-replica"
-    "backend/.data/redis"
-    "backend/.data/prometheus"
-    "backend/.data/grafana"
+    "backend/containers/postgres-primary/.data"
+    "backend/containers/postgres-replica/.data"
+    "backend/containers/redis/.data"
+    "backend/containers/prometheus/.data"
+    "backend/containers/grafana/.data"
 )
 
 stack_repository_root() {
@@ -64,6 +72,90 @@ stack_resolve_compose() {
     return 1
 }
 
+# The container runtime a root script talks to directly, for the few things
+# compose has no answer for: waiting on a health check inside a container, or
+# removing one by name.
+#
+# It has to be the runtime compose itself used. A machine carrying both podman
+# and docker but no podman-compose starts the stack with docker compose, and a
+# podman exec then looks in a store that has never seen those containers, so
+# every call answers "no such container" until the wait gives up.
+#
+# The name comes from the compose command for that reason. Dropping a "-compose"
+# suffix turns podman-compose into podman and docker-compose into docker, and
+# "docker compose" already begins with the runtime's own name.
+#
+# Return:
+# - the command name on standard output
+# - exit 1 with a message when that runtime is not installed
+stack_container_runtime() {
+    local runtime
+
+    if [ -n "${CONTAINER_RUNTIME:-}" ]; then
+        printf '%s\n' "$CONTAINER_RUNTIME"
+
+        return 0
+    fi
+
+    stack_resolve_compose || return 1
+
+    runtime="${stack_compose_command[0]%-compose}"
+
+    if ! command -v "$runtime" >/dev/null 2>&1; then
+        printf "compose runs through '%s' and '%s' is not installed\n" \
+            "${stack_compose_command[*]}" "$runtime" >&2
+
+        return 1
+    fi
+
+    printf '%s\n' "$runtime"
+}
+
+# Points cAdvisor at a runtime socket this user can open, and at the image store
+# under it.
+#
+# The compose default is the system socket, which belongs to root. A rootless
+# podman answers on its own socket instead, so the default is refused with
+# "statfs /run/podman/podman.sock: permission denied" and cAdvisor never starts.
+# The first candidate that exists and is readable here is the right one, and a
+# value already in the environment is left alone.
+#
+# The socket the machine offers also says which store holds the images, so the
+# two are decided together rather than left to disagree.
+stack_export_container_socket() {
+    local candidate
+    local socket
+    local store
+
+    if [ -n "${CONTAINER_SOCKET:-}" ]; then
+        return 0
+    fi
+
+    for candidate in \
+        "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock|${HOME}/.local/share/containers" \
+        "/run/podman/podman.sock|/var/lib/containers" \
+        "/var/run/docker.sock|/var/lib/docker"; do
+        socket="${candidate%%|*}"
+        store="${candidate##*|}"
+
+        if [ ! -S "$socket" ] || [ ! -r "$socket" ]; then
+            continue
+        fi
+
+        CONTAINER_SOCKET="$socket"
+        export CONTAINER_SOCKET
+
+        if [ -z "${CONTAINER_STORAGE_DIR:-}" ]; then
+            CONTAINER_STORAGE_DIR="$store"
+            export CONTAINER_STORAGE_DIR
+        fi
+
+        return 0
+    done
+
+    return 0
+}
+
 # Runs a compose command against one stack's own file.
 #
 # Param:
@@ -77,6 +169,7 @@ stack_compose() {
 
     root="$(stack_repository_root)"
     stack_resolve_compose || return 1
+    stack_export_container_socket
 
     "${stack_compose_command[@]}" --file "$root/$stack/compose.yml" "$@"
 }

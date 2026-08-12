@@ -17,13 +17,18 @@ const (
 )
 
 // maximumBodyBytes caps what a request body may be. The only body any of these
-// routes reads is one email, so anything larger is either a mistake or someone
-// seeing how much memory a request can be made to hold.
+// routes reads is an email and a password, so anything larger is either a
+// mistake or someone seeing how much memory a request can be made to hold.
 const maximumBodyBytes = 4 * 1024
 
-// loginRequest is the sign in body. One field, because there is no password.
+// loginRequest is the sign in body.
+//
+// Neither field is ever logged, and neither reaches an error message. The
+// password in particular exists in this struct and nowhere else: it goes
+// straight to the service, which compares it and drops it.
 type loginRequest struct {
-    Email string `json:"email"`
+    Email    string `json:"email"`
+    Password string `json:"password"`
 }
 
 // sessionResponse is the answer to the session read.
@@ -93,19 +98,19 @@ func (handler *Handler) Register(mux *http.ServeMux) {
     mux.Handle(MePath, handler.guard.Authenticate(http.HandlerFunc(handler.me)))
 }
 
-// logIn signs a parent in by seeded email and writes both cookies.
+// logIn checks an email and password, then writes both cookies.
 func (handler *Handler) logIn(response http.ResponseWriter, request *http.Request) {
     var body loginRequest
 
     if err := decodeBody(request, &body); err != nil {
-        Deny(response, err)
+        Deny(response, request, err)
 
         return
     }
 
-    issued, err := handler.service.LogIn(request.Context(), body.Email)
+    issued, err := handler.service.LogIn(request.Context(), body.Email, body.Password)
     if err != nil {
-        Deny(response, err)
+        Deny(response, request, err)
 
         return
     }
@@ -126,7 +131,7 @@ func (handler *Handler) refresh(response http.ResponseWriter, request *http.Requ
     issued, err := handler.service.Refresh(request.Context(), presented)
     if err != nil {
         handler.cookies.Clear(response)
-        Deny(response, err)
+        Deny(response, request, err)
 
         return
     }
@@ -146,7 +151,7 @@ func (handler *Handler) refresh(response http.ResponseWriter, request *http.Requ
 func (handler *Handler) logOut(response http.ResponseWriter, request *http.Request) {
     identity, carried := IdentityFrom(request.Context())
     if !carried {
-        Deny(response, ErrNotAuthenticated)
+        Deny(response, request, ErrNotAuthenticated)
 
         return
     }
@@ -160,7 +165,7 @@ func (handler *Handler) logOut(response http.ResponseWriter, request *http.Reque
     handler.cookies.Clear(response)
 
     if err != nil {
-        Deny(response, err)
+        Deny(response, request, err)
 
         return
     }
@@ -172,14 +177,14 @@ func (handler *Handler) logOut(response http.ResponseWriter, request *http.Reque
 func (handler *Handler) me(response http.ResponseWriter, request *http.Request) {
     identity, carried := IdentityFrom(request.Context())
     if !carried {
-        Deny(response, ErrNotAuthenticated)
+        Deny(response, request, ErrNotAuthenticated)
 
         return
     }
 
     account, err := handler.service.Account(request.Context(), identity.ParentID)
     if err != nil {
-        Deny(response, err)
+        Deny(response, request, err)
 
         return
     }
@@ -213,9 +218,9 @@ func sessionFrom(account Account) sessionResponse {
 
 // decodeBody reads one json body, capped and strict.
 //
-// Unknown fields are refused rather than ignored. A client sending `password`
-// to a service that has none should be told, not quietly signed in as if the
-// field had been checked.
+// Unknown fields are refused rather than ignored. A client sending a field this
+// service does not read should be told, not answered as if the value had been
+// taken into account.
 func decodeBody(request *http.Request, into any) error {
     decoder := json.NewDecoder(io.LimitReader(request.Body, maximumBodyBytes))
     decoder.DisallowUnknownFields()

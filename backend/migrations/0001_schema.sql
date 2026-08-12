@@ -20,14 +20,20 @@ create type payment_status as enum (
     'failed'
 );
 
+-- password_hash holds an argon2id string and never a password. The check is on
+-- the shape rather than on the length: a row holding something that is not a
+-- hash at all is the one mistake that could quietly sign everybody in, and it is
+-- cheaper to refuse it here than to find it in a log.
 create table parents (
-    id          uuid        primary key,
-    email       text        not null unique,
-    full_name   text        not null,
-    role        text        not null default 'parent',
-    created_at  timestamptz not null default now(),
+    id            uuid        primary key,
+    email         text        not null unique,
+    full_name     text        not null,
+    password_hash text        not null,
+    role          text        not null default 'parent',
+    created_at    timestamptz not null default now(),
 
-    constraint parents_role_allowed check (role in ('parent', 'admin'))
+    constraint parents_role_allowed check (role in ('parent', 'admin')),
+    constraint parents_password_hashed check (password_hash like '$argon2id$%')
 );
 
 create table students (

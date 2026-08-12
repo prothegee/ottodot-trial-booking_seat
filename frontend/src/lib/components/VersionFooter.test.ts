@@ -22,7 +22,7 @@ describe("VersionFooter", () => {
     });
 
     test("edge: a long commit is shortened to seven characters", () => {
-        // A full hash pushes the footer wide enough to wrap on a recording,
+        // A full hash pushes the footer wide enough to wrap on a narrow screen,
         // which is the one place this text has to stay readable.
         render(VersionFooter);
 
@@ -33,8 +33,8 @@ describe("VersionFooter", () => {
     });
 
     test("edge: the footer carries nothing but version and commit", () => {
-        // The sensitive data rule for this surface: it is on screen for the
-        // whole walkthrough, so nothing that identifies a person may reach it.
+        // The sensitive data rule for this surface: it is on screen the whole
+        // time, so nothing that identifies a person may reach it.
         render(VersionFooter);
 
         const rendered = screen.getByTestId("version-footer").textContent ?? "";

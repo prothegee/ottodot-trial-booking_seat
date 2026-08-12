@@ -17,7 +17,7 @@ type BuildFunc func(ctx context.Context) (any, error)
 //
 // The goal it exists for is exact: when the data has not changed, this service
 // does no work. A repeat class list costs one store read and zero database
-// queries, and the simulation asserts that by counting calls on the reader.
+// queries, and the test asserts that by counting calls on the reader.
 //
 // Nothing that decides anything passes through here. Only the class list and one
 // class are cacheable, and both are advisory by construction, so a stale copy

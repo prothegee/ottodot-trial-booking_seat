@@ -15,7 +15,7 @@ list below reads in the same order as the history.
 - [x] dev server and preview both on 9001
 - [x] `+layout.svelte` shell with `VersionFooter.svelte`
 - [x] `containers/Containerfile` building static assets
-- [x] `containers/caddy/Caddyfile` serving on 9001
+- [x] `containers/nginx/nginx.conf` serving on 9001
 - [x] `compose.yml`, this stack alone, starting without the other one
 - [x] `scripts/dev.sh`, `scripts/test.sh`, `scripts/build.sh`
 - [x] `scripts/clean.sh`, sourcing the root `scripts/lib/confirm.sh`, prompts before removing anything
@@ -36,8 +36,8 @@ list below reads in the same order as the history.
 - [x] `/sign-in` route calling `POST /api/v1/auth/login` then `GET /api/v1/auth/me`
 - [x] unit and edge tests: error mapping, unknown code fallback, single flight, one retry
 - [x] edge test: the auth store holds no email and no token
-- [x] simulation F9: silent refresh, single flight
-- [x] simulation F10: hard sign out on a reused token
+- [x] test 9: silent refresh, single flight
+- [x] test 10: hard sign out on a reused token
 
 ## Phase 3: internal cache
 
@@ -46,9 +46,9 @@ list below reads in the same order as the history.
 - [x] `If-None-Match` and 304 handling in the api client
 - [x] invalidation hooks on every mutation and on sign out
 - [x] unit and edge tests: freshness boundaries, key collisions, invalidation, clear on sign out
-- [x] simulation F12: fresh cache sends no request at all
-- [x] simulation F13: stale cache revalidates to 304
-- [x] simulation F14: mutation invalidates the cache
+- [x] test 12: fresh cache sends no request at all
+- [x] test 13: stale cache revalidates to 304
+- [x] test 14: mutation invalidates the cache
 
 The store was split further as it was built: `key.ts` for what may be held,
 `session_mirror.ts` for the copy that survives a reload, `read_through.ts` for
@@ -61,11 +61,11 @@ the read path, and `mutation.ts` for the write path that owns its invalidation.
 - [x] `/book/[classId]` with `ChildPicker.svelte`
 - [x] `lib/stores/booking.ts`
 - [x] edge test: zero seats renders as full
-- [x] simulation F1: happy path booking
-- [x] simulation F2: stale seat count, class full at hold time
-- [x] simulation F4: duplicate booking
+- [x] test 1: happy path booking
+- [x] test 2: stale seat count, class full at hold time
+- [x] test 4: duplicate booking
 
-Landed alongside them, because none of the three simulations can be written
+Landed alongside them, because none of the three tests can be written
 without either: `lib/api/idempotency.ts`, which mints one key per attempt, and
 the wire types for a class and a booking, which are the contract phase 6 of the
 backend has to serve.
@@ -78,11 +78,11 @@ backend has to serve.
 - [x] unit and edge tests: countdown maths including a past deadline
 - [x] `internal_error` handling: retry offered, same idempotency key resent, request id rendered
 - [x] edge test: a decline earns a fresh idempotency key, an `internal_error` reuses the original
-- [x] simulation F3: payment declined
-- [x] simulation F5: seat lost after paying
-- [x] simulation F6: hold countdown reaching zero
-- [x] simulation F8: double submit guard
-- [x] simulation F17: the backend transaction breaks mid-payment
+- [x] test 3: payment declined
+- [x] test 5: seat lost after paying
+- [x] test 6: hold countdown reaching zero
+- [x] test 8: double submit guard
+- [x] test 17: the backend transaction breaks mid-payment
 
 Landed alongside them, because none of the screens work without either:
 `lib/booking/countdown.ts`, the countdown as arithmetic rather than as state in
@@ -101,7 +101,7 @@ to mint a key or mint one it should not have, ADR-F021.
 - [x] mock captcha widget
 - [x] idempotency key lifecycle in the api client
 - [x] edge test: a new attempt after a decline gets a fresh key
-- [x] simulation F7: honeypot and fill timer
+- [x] test 7: honeypot and fill timer
 
 Landed alongside them: `lib/booking/bot_signals.ts`, the measurement as
 arithmetic rather than as state in a component, and `BotSignals` in
@@ -131,9 +131,9 @@ a slow person on a bad connection for no reason. ADR-F026.
 - [x] `backend/containers/grafana/dashboards/frontend.json` panels agreed with the backend metric names
 - [x] the fault code row on that dashboard: `internal_error` and `dependency_unavailable` split from the auth and booking groups
 - [x] edge test: a failed telemetry post never surfaces to the parent
-- [x] simulation F11: roster view
-- [x] simulation F15: status route reflects backend readiness
-- [x] simulation F16: nothing sensitive is held by the client
+- [x] test 11: roster view
+- [x] test 15: status route reflects backend readiness
+- [x] test 16: nothing sensitive is held by the client
 
 Landed alongside them, because none of the three works without them:
 `lib/telemetry/event.ts`, the closed vocabulary both sides check, ADR-F032.
@@ -175,6 +175,6 @@ does not. Revisited as each remaining phase lands.
 
 Only if time remains after everything above is green.
 
-- [ ] layout and spacing pass
-- [ ] readable states for every error case
-- [ ] responsive check at a phone width
+- [x] layout and spacing pass
+- [x] readable states for every error case
+- [x] responsive check at a phone width

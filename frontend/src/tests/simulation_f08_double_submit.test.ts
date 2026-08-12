@@ -14,7 +14,7 @@ import PayPage from "../routes/pay/[bookingId]/+page.svelte";
 import { trialPayment } from "$lib/booking/price";
 
 /**
- * Simulation F8: the parent clicks submit twice.
+ * Test 8: the parent clicks submit twice.
  *
  *     parent -> client: click submit
  *     client -> api: pay with key K
@@ -27,7 +27,7 @@ import { trialPayment } from "$lib/booking/price";
  * disabled for the whole in-flight window, and the key would have made a leaked
  * second call harmless anyway.
  *
- * The last part is why this is a simulation and not just a disabled attribute.
+ * The last part is why this is a test and not just a disabled attribute.
  * The control is the cheap layer. The idempotency key is the correct one, and
  * the case below proves it holds even when the control is bypassed entirely.
  */
@@ -60,6 +60,9 @@ const heldBooking: Booking = {
     id: bookingId,
     student_id: studentId,
     class_id: classId,
+    class_subject: "science",
+    class_title: "Science Discovery",
+    class_starts_at: "2026-08-15T01:28:26.224983Z",
     status: "pending_payment",
     seat_no: null,
     hold_expires_at: new Date(now + 10 * 60 * 1000).toISOString(),
@@ -67,7 +70,7 @@ const heldBooking: Booking = {
 
 const confirmedBooking: Booking = { ...heldBooking, status: "confirmed", seat_no: 2, hold_expires_at: null };
 
-describe("simulation F8: the submit control is clicked twice", () => {
+describe("test 8: the submit control is clicked twice", () => {
     beforeEach(() => {
         sessionStorage.clear();
 

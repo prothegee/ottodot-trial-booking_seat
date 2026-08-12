@@ -29,9 +29,15 @@ import (
 )
 
 // scratchPoolSize has to cover the widest race in this package, which is the
-// twenty parallel confirms of simulation 5. A pool smaller than the fan-out
+// twenty parallel confirms of test 5. A pool smaller than the fan-out
 // would queue the goroutines and quietly weaken the proof.
 const scratchPoolSize = 25
+
+// fixturePasswordHash is what the parents column requires: not null, and a
+// string the argon2id check accepts. Nothing in this package signs anybody in,
+// so the value only has to be well formed.
+const fixturePasswordHash = "$argon2id$v=19$m=65536,t=1,p=4$" +
+    "8HvgNB40ArlxEEpvrs6x2g$6BJSMpsmkP7ai0ihs7HAYUm6bO2rwxAfMvY9i0C6mZs"
 
 // primaryAddress is where the proof tier connects. Deciding reads and every
 // write go to the primary, never the replica.
@@ -142,10 +148,11 @@ func (fixture *postgresFixture) AddStudent(t *testing.T, studentID string, paren
     // The address is obviously fake and the domain is reserved for testing, so
     // nothing here can ever reach a real inbox.
     _, err := fixture.pool.Exec(context.Background(), `
-        insert into parents (id, email, full_name, role)
-        values ($1, $2, $3, 'parent')
+        insert into parents (id, email, full_name, password_hash, role)
+        values ($1, $2, $3, $4, 'parent')
         on conflict (id) do nothing`,
-        parentID, "parent-"+parentID+"@example.test", "Test Parent")
+        parentID, "parent-"+parentID+"@example.test", "Test Parent",
+        fixturePasswordHash)
     if err != nil {
         t.Fatalf("cannot seed the parent: %v", err)
     }
@@ -170,6 +177,13 @@ func TestThePostgresRepositoryHonoursTheDeclineAndWorklistContract(t *testing.T)
     // enum accepts and the filtered worklist has to cast the same way the
     // unfiltered one does. Neither can be shown against a map.
     runDeclineAndWorklistContract(t, newPostgresFixture)
+}
+
+func TestThePostgresRepositoryHonoursTheParentBookingsContract(t *testing.T) {
+    // The run that matters here: the fake reads a map of children and the sql
+    // reads the students table. A join written the wrong way round would list
+    // every parent's bookings, and a map cannot show that.
+    runParentBookingsContract(t, newPostgresFixture)
 }
 
 func TestAMalformedIdentifierIsRefusedRatherThanSearchedFor(t *testing.T) {

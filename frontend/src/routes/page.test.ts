@@ -8,7 +8,7 @@ import ClassListPage from "./+page.svelte";
 
 // The reader is replaced so this test is about the screen and the store, not
 // about the network. The cache itself is covered by its own tests and by the
-// simulations.
+// tests.
 vi.mock("$lib/session/cached_api", () => ({
     classReader: { read: vi.fn() },
     classMutator: { send: vi.fn() },

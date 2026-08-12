@@ -57,7 +57,7 @@ const kindByCode: Readonly<Record<string, ApiErrorKind>> = {
  * What a parent reads for each kind.
  *
  * None of these names a class, a child, or an identifier, so any of them can be
- * shown on a screen that is being recorded.
+ * shown on a shared screen.
  */
 export const messageForKind: Readonly<Record<ApiErrorKind, string>> = {
     SignedOut: "your session ended, sign in again",

@@ -80,19 +80,16 @@ func NewListenerHandler(counters *Counters, readDepth DepthReader, exposition ht
 
         depth, err := readDepth(ctx)
         if err != nil {
-            // A scrape that cannot read the queue must fail rather than
-            // publish zeroes. Zeroes would read as a healthy empty queue, which
-            // is the opposite of what is happening.
-            http.Error(writer, "the queue depth could not be read", http.StatusServiceUnavailable)
-
-            return
+            // Only this gauge is unknown. Every other number here is a count
+            // this process holds itself and is still true, so the scrape answers
+            // rather than throwing all of it away over one unreachable queue.
+            counters.DepthUnknown()
+        } else {
+            // Read at scrape time rather than tracked as jobs move, because the
+            // queue is the only thing that knows it, and published just before
+            // the registry renders so the answer carries what was just read.
+            counters.Depth(depth.Ready, depth.Claimed, depth.Parked)
         }
-
-        // The depth is a gauge read at scrape time rather than a count tracked
-        // as jobs move, because the queue is the only thing that knows it. It is
-        // published into the registry just before the registry is rendered, so
-        // the number in the answer is the number that was just read.
-        counters.Depth(depth.Ready, depth.Claimed, depth.Parked)
 
         exposition.ServeHTTP(writer, request)
     }))

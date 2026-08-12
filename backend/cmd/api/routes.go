@@ -9,6 +9,7 @@ import (
     "ottodot-trial-booking/backend/internal/config"
     "ottodot-trial-booking/backend/internal/httpx"
     "ottodot-trial-booking/backend/internal/observability"
+    "ottodot-trial-booking/backend/internal/operations"
 )
 
 // buildSurface assembles the whole api out of the halves the other files built.
@@ -21,12 +22,13 @@ import (
 // deps - *dependencies (the open stores)
 // watch - bootstrap.Observability (the registry, the metrics, and the logger)
 // settings - config.Config (everything the wiring reads)
+// identity - operations.Identity (the build, resolved once by the caller)
 //
 // Return:
 //   - the handler, ready to serve
 //   - the booking service, which the gauge sampler reads the refund backlog from
 //   - an error naming the piece that could not be built
-func buildSurface(deps *dependencies, watch bootstrap.Observability, settings config.Config) (http.Handler, *booking.Service, error) {
+func buildSurface(deps *dependencies, watch bootstrap.Observability, settings config.Config, identity operations.Identity) (http.Handler, *booking.Service, error) {
     signedIn, err := buildSession(deps, watch, settings)
     if err != nil {
         return nil, nil, err
@@ -47,7 +49,7 @@ func buildSurface(deps *dependencies, watch bootstrap.Observability, settings co
         return nil, nil, err
     }
 
-    operationsHandler, err := buildOperations(deps)
+    operationsHandler, err := buildOperations(deps, identity)
     if err != nil {
         return nil, nil, err
     }
@@ -65,6 +67,11 @@ func buildSurface(deps *dependencies, watch bootstrap.Observability, settings co
     handlers.Faults = buildFaults(settings, watch, decided, guarded)
     handlers.Recovery = func(requestID string, err error) {
         watch.Logger.Error("a handler panicked",
+            observability.FieldRequestID, requestID,
+            observability.FieldReason, err.Error())
+    }
+    handlers.Failures = func(requestID string, err error) {
+        watch.Logger.Error("a request was answered with an internal error",
             observability.FieldRequestID, requestID,
             observability.FieldReason, err.Error())
     }
@@ -102,12 +109,20 @@ func buildHandlers(
         return httpx.Routes{}, fmt.Errorf("the student route: %w", err)
     }
 
-    bookingHandler, err := httpx.NewBookingHandler(decided.checkout, decided.bookings, guarded.owner, guarded.botCheck, guarded.conditional)
+    // What a booking was for, read from the same catalogue the class list is
+    // served from. It goes to the replica, because a class description decides
+    // nothing and a booking that could not name its class is still answered.
+    classNames, err := httpx.NewClassNames(reads.classes)
+    if err != nil {
+        return httpx.Routes{}, fmt.Errorf("the class names on a booking: %w", err)
+    }
+
+    bookingHandler, err := httpx.NewBookingHandler(decided.checkout, decided.bookings, guarded.owner, guarded.botCheck, guarded.conditional, classNames)
     if err != nil {
         return httpx.Routes{}, fmt.Errorf("the booking routes: %w", err)
     }
 
-    paymentHandler, err := httpx.NewPaymentHandler(decided.checkout, guarded.owner, guarded.botCheck, guarded.conditional, settings.IsDevelopment())
+    paymentHandler, err := httpx.NewPaymentHandler(decided.checkout, guarded.owner, guarded.botCheck, guarded.conditional, classNames, settings.IsDevelopment())
     if err != nil {
         return httpx.Routes{}, fmt.Errorf("the payment route: %w", err)
     }
@@ -117,7 +132,7 @@ func buildHandlers(
         return httpx.Routes{}, fmt.Errorf("the roster route: %w", err)
     }
 
-    adminHandler, err := httpx.NewAdminHandler(decided.bookings, decided.jobs, nil)
+    adminHandler, err := httpx.NewAdminHandler(decided.bookings, decided.jobs, classNames, nil)
     if err != nil {
         return httpx.Routes{}, fmt.Errorf("the admin routes: %w", err)
     }

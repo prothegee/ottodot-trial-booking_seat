@@ -120,13 +120,14 @@ func seedAccounts(t *testing.T, pool *pgxpool.Pool) {
     ctx := context.Background()
 
     if _, err := pool.Exec(ctx, `
-        insert into parents (id, email, full_name, role) values
-            ($1, $2, $3, 'parent'),
-            ($4, $5, $6, 'parent'),
-            ($7, $8, $9, 'admin')`,
+        insert into parents (id, email, full_name, password_hash, role) values
+            ($1, $2, $3, $10, 'parent'),
+            ($4, $5, $6, $10, 'parent'),
+            ($7, $8, $9, $10, 'admin')`,
         contractParentID, contractParentEmail, contractParentName,
         contractLonelyParentID, contractLonelyParentEmail, "Chandra Wijaya",
-        adminParentID, "ops.admin@example.test", "Ops Admin"); err != nil {
+        adminParentID, "ops.admin@example.test", "Ops Admin",
+        seededPasswordHash); err != nil {
         t.Fatalf("cannot seed the parents: %v", err)
     }
 

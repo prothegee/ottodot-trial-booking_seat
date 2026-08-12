@@ -11,7 +11,7 @@ import (
     "ottodot-trial-booking/backend/internal/auth"
 )
 
-// Simulation 13: refresh rotation and reuse detection.
+// Test 13: refresh rotation and reuse detection.
 //
 //	sequenceDiagram
 //	    participant UI as Client
@@ -39,7 +39,7 @@ func TestSimulation13RefreshRotationAndReuseDetection(t *testing.T) {
         stage := newServiceStage(t)
         ctx := context.Background()
 
-        signedIn, err := stage.service.LogIn(ctx, contractParentEmail)
+        signedIn, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -66,7 +66,7 @@ func TestSimulation13RefreshRotationAndReuseDetection(t *testing.T) {
         stage := newServiceStage(t)
         ctx := context.Background()
 
-        signedIn, err := stage.service.LogIn(ctx, contractParentEmail)
+        signedIn, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -101,7 +101,7 @@ func TestSimulation13RefreshRotationAndReuseDetection(t *testing.T) {
         stage := newServiceStage(t)
         ctx := context.Background()
 
-        signedIn, err := stage.service.LogIn(ctx, contractParentEmail)
+        signedIn, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -126,7 +126,7 @@ func TestSimulation13RefreshRotationAndReuseDetection(t *testing.T) {
         stage := newServiceStage(t)
         ctx := context.Background()
 
-        signedIn, err := stage.service.LogIn(ctx, contractParentEmail)
+        signedIn, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }
@@ -209,7 +209,7 @@ func TestSimulation13RefreshRotationAndReuseDetection(t *testing.T) {
         stage := newServiceStage(t)
         ctx := context.Background()
 
-        signedIn, err := stage.service.LogIn(ctx, contractParentEmail)
+        signedIn, err := stage.service.LogIn(ctx, contractParentEmail, seededPassword)
         if err != nil {
             t.Fatalf("cannot sign in: %v", err)
         }

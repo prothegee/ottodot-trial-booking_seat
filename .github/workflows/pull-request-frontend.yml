@@ -1,0 +1,136 @@
+# ---------------------------------------------------------------------------- #
+# What has to be green before client work reaches main.
+#
+# Three jobs. The tiers run against the fake transport and need nothing running,
+# the shell suites check this stack's own scripts without starting a thing, and
+# the image job proves the Containerfile still builds, which is the only part of
+# the client a reviewer runs without npm.
+#
+# The path filter is a job rather than a trigger, for the same reason it is in
+# the backend workflow: a check that never appears blocks a merge forever once
+# it is marked required, and a job skipped by an `if` reports as passed.
+#
+# The filter covers scripts/ as well as frontend/, because build.sh sources
+# scripts/lib/settings.sh. A change to a shared library can break this stack, so
+# skipping this workflow for it would report a pass nobody checked.
+#
+# This workflow never invokes Go and the backend workflow never invokes npm. The
+# two stacks share no toolchain and no build, only those root libraries.
+# ---------------------------------------------------------------------------- #
+
+name: pull request frontend
+
+on:
+    pull_request:
+        branches:
+            - main
+            # - main-stable
+
+concurrency:
+    group: frontend-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+jobs:
+    changes:
+        name: what changed
+        runs-on: ubuntu-latest
+        outputs:
+            frontend: ${{ steps.filter.outputs.frontend }}
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - id: filter
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+              run: |
+                  set -euo pipefail
+
+                  changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+
+                  printf 'files changed:\n%s\n' "$changed"
+
+                  if printf '%s\n' "$changed" | grep --quiet --extended-regexp '^(frontend/|scripts/|\.github/workflows/pull-request-frontend\.yml$)'; then
+                      printf 'frontend=true\n' >> "$GITHUB_OUTPUT"
+                  else
+                      printf 'frontend=false\n' >> "$GITHUB_OUTPUT"
+                  fi
+
+    test:
+        name: types, tiers, and build
+        needs: changes
+        if: needs.changes.outputs.frontend == 'true'
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: frontend
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: npm
+                  cache-dependency-path: frontend/package-lock.json
+
+            # ci rather than install: it installs exactly what the lock file
+            # says and fails when the two disagree, which is what a pull request
+            # wants to hear about.
+            - name: install
+              run: npm ci
+
+            - name: types
+              run: npm run types
+
+            # svelte-check and the four tiers, the same script a developer runs.
+            - name: the four tiers
+              run: scripts/test.sh
+
+            - name: static build
+              run: scripts/build.sh
+
+    scripts:
+        name: shell suites
+        needs: changes
+        if: needs.changes.outputs.frontend == 'true'
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            # Both are class: safe: no dev server starts and nothing is deleted.
+            # The shared libraries under scripts/lib are tested once, in the
+            # backend workflow, rather than twice here for the same result.
+            - name: this stack's scripts
+              run: |
+                  set -euo pipefail
+
+                  frontend/scripts/clean_test.sh
+                  frontend/scripts/debug_test.sh
+
+    image:
+        name: container image
+        needs: changes
+        if: needs.changes.outputs.frontend == 'true'
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            # No registry, no push, and no cache. The question this answers is
+            # narrow: does the Containerfile still describe something that
+            # builds.
+            - name: build the image
+              run: |
+                  set -euo pipefail
+
+                  docker build \
+                      --file frontend/containers/Containerfile \
+                      --build-arg API_BASE_URL=http://127.0.0.1:9000 \
+                      --build-arg BUILD_VERSION=pull-request \
+                      --build-arg BUILD_COMMIT="${GITHUB_SHA::7}" \
+                      --tag ottodot-frontend:pull-request \
+                      frontend

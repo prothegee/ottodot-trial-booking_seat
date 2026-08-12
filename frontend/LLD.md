@@ -242,6 +242,7 @@ Two callers read that same pipeline differently:
 | :- | :- | :- |
 | `request<T>(outgoing)` | the body alone | every call that asked no conditional question |
 | `conditionalGet<T>(path, etag)` | `{ notModified, body, etag }` | the cache, which has to tell a 304 from a 200 |
+| `whoIsSignedIn()` | the session, or `null` | the page load, where nobody signed in is an ordinary answer |
 
 `conditionalGet` sends the stored tag as `if-none-match`, verbatim. An empty tag
 sends no header at all, because an empty `If-None-Match` is a different question.
@@ -253,6 +254,7 @@ Three rules fall out of that shape:
 | :- | :- |
 | the refresh call itself does not go through this path | otherwise a failed refresh would report the sign out twice, once from the coordinator and once from the pipeline |
 | `login` does not go through this path | a wrong email cannot be fixed by refreshing anything |
+| `whoIsSignedIn` refreshes but never reports | it runs on every page load, including screens that need no session. A first visit answered "nobody" would send somebody reading `/status` to the sign-in form. A refresh that fails is still reported, by the coordinator, because that one is news |
 | there is no second retry | if the call is still unauthorised after the refresh, the session is over. The `allowRefresh` flag is not a counter, it is a single chance by construction |
 
 <br>
@@ -502,6 +504,37 @@ A failure never clears the booking. A declined payment leaves the parent holding
 a booking they can pay for again, and throwing it away would send them back to
 the class list while their hold is still standing.
 
+### bookings.ts
+
+```ts
+interface BookingsState {
+    bookings: Booking[];
+    loading: boolean;
+    loaded: boolean;
+    failure: string;
+}
+```
+
+The parent's own bookings, read from `GET /api/v1/bookings` through the api
+client rather than the cached reader. Whose list it is comes from the token, so
+`load()` takes no argument and there is no identifier to get wrong.
+
+`loaded` is the whole reason this state has four fields instead of three. An
+empty list and a list not asked for yet both hold zero bookings, and only one of
+them means "you have not booked anything". Without it the empty state flashes on
+the way in.
+
+A failed read leaves `bookings` alone. The parent was looking at something, and
+emptying the screen on a dropped connection reads as "your bookings are gone",
+which is the fear this screen exists to answer. That is the opposite of
+`roster.ts` below, and for the opposite reason: nothing here belongs to another
+family. ADR-F043.
+
+It is separate from `booking.ts` above because the two answer different
+questions. That one owns the booking in flight, with the attempt key and the
+countdown. This one owns a list somebody is looking at, which has no attempt and
+nothing to retry.
+
 ### roster.ts
 
 ```ts
@@ -542,7 +575,7 @@ interface StatusState {
 
 The only thing in this client that polls. The timer starts after the first read
 rather than before it, so a slow first answer cannot be overlapped by the second,
-and simulation F15 asserts that the requests stop after the screen unmounts.
+and test 15 asserts that the requests stop after the screen unmounts.
 ADR-F035.
 
 A 503 from `/readyz` is a successful read of a real answer rather than a failure.
@@ -558,11 +591,19 @@ carries the parsed body.
 | :- | :- | :- |
 | `VersionFooter.svelte` | none | the build identity, on every page |
 | `ClassCard.svelte` | `trialClass` | one class, and either a way in or the reason there is none |
+| `PasswordField.svelte` | `id`, `value` (bound), `name`, `autocomplete`, `required`, `testId` | one input whose type changes, and the control that changes it |
 | `ChildPicker.svelte` | `childrenOnAccount`, `selected` (bound), `disabled` | radio group, one child preselected when there is only one |
 | `HoldCountdown.svelte` | `deadline`, `onExpire`, `now` | ticks once a second, reports zero once |
 | `PaymentForm.svelte` | `amountCents`, `currency`, `submitting`, `closed`, `retryOf`, `onSubmit` | one field, and nobody can see or reach it |
 | `CaptchaWidget.svelte` | `onToken` | a mock in the shape a real provider's widget has |
-| `BookingStatus.svelte` | `booking` | a headline and guidance for every status the enum can hold |
+| `BookingStatus.svelte` | `booking`, `children` | a headline and guidance for every status the enum can hold, and wherever the controls go |
+| `BookingActions.svelte` | `booking`, `showOpen`, `showPay`, `onCancelled` | the controls on a booking card: open it, pay for it, give it up |
+
+`PasswordField` reads its type rather than binding it, because Svelte refuses
+`bind:value` on an input whose type changes, and writes the value back from the
+input event instead. That keeps it one element rather than two swapped by a
+block, so revealing the password does not move the caret or take the focus away.
+It opens hidden and does not remember being revealed. See ADR-F042.
 
 `ChildPicker` names its list `childrenOnAccount` rather than `children`, which
 Svelte reserves for the content a parent component passes in. Two meanings
@@ -572,6 +613,12 @@ behind one word in a component file is a bug waiting for somebody in a hurry.
 left, every seat confirmed, and the negative that arrives only if capacity were
 lowered under confirmed bookings. A full class shows no link at all rather than
 a disabled one. See ADR-F019.
+
+Everything a reader can act on sits in one block at the end of that card, and
+that block takes `margin-top: auto`. The grid stretches every card in a row to
+the tallest one but does not decide where the spare height goes, so without this
+a class whose date wrapped onto two lines put its button lower than the card
+beside it. See ADR-F041.
 
 `HoldCountdown` holds a tick counter and nothing else. Every render works the
 remainder out from the deadline and the clock, so a suspended tab shows the
@@ -592,6 +639,37 @@ call.
 on the enum rather than on wording. Its two tables cover all six statuses: a
 missing case would leave a parent staring at their own booking with nothing to
 read.
+
+The card opens with the class, in the same three lines the class list uses:
+subject, title, and when it starts. A card that opened with "Your place is
+confirmed" and never named the class left a parent with a reference and a seat
+number and no way to tell one of their bookings from another. The title is the
+card's `h2`, so the status below reads as what happened to it.
+
+The api leaves all three class fields empty when it could not read the class,
+because that read decides nothing and does not fail the booking. The block is
+left out entirely rather than rendered with an empty heading, and the status
+becomes the heading instead, so the card is never one a screen reader cannot
+summarise.
+
+It renders its `children` snippet inside the card. The controls were a line of
+links underneath it, which reads as a footnote about the booking rather than as
+something to do with it. What those controls are is not the card's business, only
+where they go.
+
+`BookingActions` is what fills that snippet on both booking screens. Every
+control in it is a `button`, since each one either moves the booking or moves the
+parent, and a control that looks like body text is read as a footnote.
+
+The cancel is offered only for `pending_payment`. The api allows the transition
+from `confirmed` too, and sends none of the money back when it does, so the
+control there would be a button that quietly costs a parent the fee. It takes two
+presses, and the question is asked in the card rather than in a browser dialog,
+because the wording belongs to this client.
+
+A refused cancel keeps its own wording for one kind. The api answers a booking
+that already moved on with `invalid_request`, whose shared message talks about a
+form, and there is no form on a booking card.
 
 <br>
 
@@ -727,7 +805,7 @@ here without being added there is silently discarded rather than reported.
 
 | event kind | field | accepted values |
 | :- | :- | :- |
-| `page_load` | route | `/`, `/sign-in`, `/book/[classId]`, `/pay/[bookingId]`, `/booking/[bookingId]`, `/roster/[classId]`, `/status` |
+| `page_load` | route | `/`, `/sign-in`, `/book/[classId]`, `/pay/[bookingId]`, `/booking/[bookingId]`, `/bookings`, `/roster/[classId]`, `/status` |
 | `page_load` | seconds | a duration, dropped at zero or below and above 120 |
 | `funnel_step` | step | list, hold, pay, confirmed |
 | `cache_lookup` | result | fresh, stale, revalidated, miss |
@@ -758,20 +836,47 @@ else.**
 ## The Session Wiring
 
 ```
-lib/session/sign_out.ts     auth.signOut(reason), sessionStorage.clear(), goto("/sign-in")
-lib/session/client.ts       createApiClient({ transport: fetch transport, onSignOut: hardSignOut })
-lib/session/telemetry.ts    createEmitter({ post: api.request to /api/v1/telemetry })
+lib/session/sign_out.ts          auth.signOut(reason), classCache.clear(), sessionStorage.clear(), goto("/sign-in")
+lib/session/sign_out_request.ts  api.logout(), then that
+lib/session/restore.ts           api.whoIsSignedIn(), then auth.signIn(session)
+lib/session/client.ts            createApiClient({ transport: fetch transport, onSignOut: hardSignOut })
+lib/session/telemetry.ts         createEmitter({ post: api.request to /api/v1/telemetry })
 ```
+
+Two files for the two ways a session ends. `sign_out.ts` is the local half and is
+what runs when the api ended the session: an expired one, or a refresh token used
+twice. `sign_out_request.ts` is the parent pressing the control in the header, so
+it tells the api first and then runs the same local half.
+
+They are separate files because `client.ts` imports the local one, so the half
+that reaches for the client cannot live beside it. A logout that is refused or
+never answered does not stop the local half, because the screen in front of
+somebody who pressed sign out has to end up signed out either way. See ADR-F040.
 
 `reasonForCode` maps `token_reused` to its own reason and everything else to a
 plain ending. A reused refresh token is either a stale tab or somebody else
 holding a copy, and the parent is told rather than quietly returned to the form.
+A sign out the parent asked for records `requested`, which is the one reason the
+sign-in screen shows no notice for.
 
 `sessionStorage` is cleared wholesale. See ADR-F007.
 
 The sign out is fired and not awaited. The call that failed is already on its
 way back to its caller with the reason, and the navigation must not be something
 that caller waits for.
+
+`restore.ts` is the way back in. The session is two HttpOnly cookies this code
+cannot read, so every fresh tab starts with an empty auth store while the parent
+is still perfectly signed in: the header offered them no way to their bookings,
+and the sign-in screen offered them a form they had already filled in. The shell
+asks once on mount, and the sign-in screen sends anybody with a session to the
+class list.
+
+It asks `whoIsSignedIn` rather than `me`. A refusal there is the ordinary answer
+on a first visit, not an error, and `me` reports one as a session ending. That
+would bounce anybody reading `/status`, which needs no session at all, to the
+sign-in form. A session that genuinely ended is still reported by the client, and
+the notice it raises is left where it is.
 
 <br>
 
@@ -783,11 +888,24 @@ that caller waits for.
 | constant | from | default |
 | :- | :- | :- |
 | `__API_BASE_URL__` | `API_BASE_URL` | http://127.0.0.1:9000 |
-| `__BUILD_VERSION__` | `BUILD_VERSION` | dev |
-| `__BUILD_COMMIT__` | `BUILD_COMMIT` | unknown |
+| `__BUILD_VERSION__` | `BUILD_VERSION` | the version `package.json` declares, or `dev` if it states none |
+| `__BUILD_COMMIT__` | `BUILD_COMMIT` | the short commit git recorded, or `unknown` if git cannot answer |
 
 They are declared to TypeScript in `src/app.d.ts` inside `declare global`, which
 is required because that file has an `export` and would otherwise not be global.
+
+The two identity defaults are found by `src/lib/config/build_identity.ts`, which
+runs in Node while vite starts and is imported by `vite.config.ts` alone. A
+component importing it would pull `node:fs` into the bundle. It is the single
+place the fallback is decided: `scripts/build.sh` sets neither value, so a build
+made through the script and one made with `npm run build` name themselves the
+same way. See ADR-F037.
+
+`src/lib/config/api_base_url.ts` sits between the injected api address and the
+transport. It aligns the api host with the page host when both are loopback
+names, which is what makes signing in work from `localhost` as well as from
+`127.0.0.1`, and it is the only runtime adjustment made to any of the three
+constants. See ADR-F038.
 
 The dev server and preview both bind `127.0.0.1` explicitly. The default
 resolves `localhost`, which can land on the IPv6 address alone, and a reviewer
@@ -814,7 +932,8 @@ that says it is running.
 | `lib/stores/auth.test.ts` | unit, edge | what is held, and what is dropped |
 | `lib/stores/classes.test.ts` | unit, edge, integration | the path read, the tier reported, a failure leaving the list alone |
 | `lib/stores/booking.test.ts` | unit, edge, integration | one key across both calls, a fresh key per attempt, a duplicate carrying its booking |
-| `lib/components/ClassCard.test.ts` | unit, edge | zero seats, capacity taken, a negative, and one seat left |
+| `lib/components/ClassCard.test.ts` | unit, edge | zero seats, capacity taken, a negative, one seat left, and the actions being the last block in the card |
+| `lib/components/PasswordField.test.ts` | unit, behaviour, edge, integration | hidden to begin with, revealed and hidden again, the typed value surviving both, and a control that does not submit the form |
 | `lib/components/ChildPicker.test.ts` | unit, edge | every child offered, one preselected, none on an empty account |
 | `lib/session/sign_out.test.ts` | unit, integration | store cleared, cache cleared, storage cleared, stores reset, navigation requested |
 | `routes/sign-in/page.test.ts` | integration, behaviour | the screen, including the notice after a reused token |
@@ -835,16 +954,27 @@ that says it is running.
 | `tests/simulation_f07_honeypot_and_fill_timer.test.ts` | behaviour | the field is hidden, unreachable, and empty, and the elapsed time is measured rather than fixed |
 | `lib/telemetry/emitter.test.ts` | unit, edge | batching, a swallowed failure, no retry, the cap, and an idle emitter scheduling nothing |
 | `lib/telemetry/page_load.test.ts` | unit, edge | the gap rather than the mount, one report per screen, and a pattern rather than a path |
+| `lib/stores/bookings.test.ts` | unit, edge, behaviour | an empty answer told apart from one never asked for, and a failed read leaving the list alone |
+| `routes/bookings/page.test.ts` | integration, behaviour, edge | a pending payment and a completed one told apart, and the empty state never standing in for a failure |
 | `lib/stores/roster.test.ts` | unit, edge, behaviour | a refusal for the role told apart from any other failure, and a failed read clearing the names |
 | `lib/stores/status.test.ts` | unit, edge, behaviour | polling that stops, a 503 read as an answer, and degraded distinguished from unavailable |
 | `lib/components/ReadinessDot.test.ts` | unit, edge, behaviour | the three states, the fourth for no answer, and the state readable without the colour |
 | `tests/simulation_f11_roster_view.test.ts` | behaviour | confirmed only, seats in order, never cached, and the api refusing a parent |
 | `tests/simulation_f15_status_route.test.ts` | behaviour | green, amber, red, grey, and the polling stopping on the way out |
 | `tests/simulation_f16_nothing_held.test.ts` | behaviour | four surfaces scanned, and no code path reading a cookie |
+| `lib/config/build_identity.test.ts` | unit, edge, behaviour | the manifest version, the short commit, and what each answers where neither exists |
+| `lib/config/api_base_url.test.ts` | unit, edge, behaviour | the loopback pair aligned both ways, and a real address left alone |
+| `lib/session/sign_out_request.test.ts` | integration, behaviour, edge | the api told first, nothing left behind, and a refused logout still clearing this device |
+| `routes/layout.test.ts` | unit, integration, edge | the header shell, the control shown only to somebody signed in, a second press ignored, and the session asked for once on mount |
+| `lib/session/restore.test.ts` | integration, behaviour, edge | a tab with cookies getting its parent back, and a first visit never told a session ended |
+| `lib/booking/cancel_request.test.ts` | integration, behaviour, edge | the delete the api registered, the seat count dropped, and a refusal reaching the caller |
+| `lib/components/BookingActions.test.ts` | unit, integration, behaviour, edge | buttons rather than links, only a hold cancellable, two presses to cancel, and a second press ignored |
+| `lib/components/BookingStatus.test.ts` | unit, integration, behaviour, edge | all six statuses, the seat shown only when won, the class named as the heading, and the block left out when it could not be read |
+| `routes/booking/[bookingId]/page.test.ts` | integration, behaviour, edge | the status read from the api, a hold given up, and the booking read again afterwards |
 
 The error mapping table is written out by hand in its test rather than read from
 the implementation. A test that asks the mapping what it maps and then agrees
 with the answer proves nothing.
 
-Behaviour simulations live in `src/tests/`, one file per simulation, named after
+Behaviour tests live in `src/tests/`, one file per test, named after
 it. Everything else sits beside the code it covers.

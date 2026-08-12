@@ -129,15 +129,15 @@
     .note {
         margin: 0;
         font-size: 0.9rem;
-        color: #6b7280;
+        color: var(--muted);
     }
 
     .failure {
         margin: 0;
         padding: 0.5rem 0.75rem;
         font-size: 0.9rem;
-        color: #b91c1c;
-        background: #fee2e2;
+        color: var(--danger);
+        background: var(--danger-surface);
         border-radius: 0.25rem;
     }
 
@@ -150,7 +150,7 @@
     td {
         padding: 0.35rem 0.75rem 0.35rem 0;
         text-align: left;
-        border-bottom: 1px solid #e5e7eb;
+        border-bottom: 1px solid var(--line);
     }
 
     .build {
@@ -162,7 +162,7 @@
     }
 
     .build dt {
-        color: #6b7280;
+        color: var(--muted);
     }
 
     .build dd {

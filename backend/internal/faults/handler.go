@@ -22,7 +22,7 @@ const (
 // armBody is what a caller posts to arm a point.
 //
 // The lifetime arrives in seconds rather than as a duration string, so the
-// request can be written with curl in a recording without anybody having to
+// request can be written with curl on the spot without anybody having to
 // remember a format.
 type armBody struct {
     Point        string `json:"point"`
@@ -105,8 +105,8 @@ func (handler *Handler) arm(response http.ResponseWriter, request *http.Request)
     switch {
     case errors.Is(err, ErrUnknownPoint):
         // The list of real points goes back with the refusal. A typo in a
-        // recording script should be fixable from the answer rather than from
-        // the source.
+        // demonstration script should be fixable from the answer rather than
+        // from the source.
         writeJSON(response, http.StatusBadRequest, listBody{Armed: handler.registry.List(), Points: Points()})
 
         return

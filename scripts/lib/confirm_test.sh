@@ -16,6 +16,7 @@
 # Return:
 # - 0: every case passed
 # - 1: at least one case failed, each one printed
+# - 2: a flag was passed, and this file takes none
 # ---------------------------------------------------------------------------- #
 
 set -uo pipefail
@@ -199,7 +200,34 @@ run_manifest_case() {
     fi
 }
 
+# This file takes no flags of its own. The call below ends in the guard at the
+# top of main, before a single case runs, so it costs one process and cannot
+# recurse.
+run_self_cases() {
+    local code
+
+    printf 'self cases\n'
+
+    "${BASH_SOURCE[0]}" --dry-run >/dev/null 2>&1 </dev/null
+    code="$?"
+
+    if [ "$code" = "2" ]; then
+        report_pass "a flag passed to this file refuses"
+    else
+        report_fail "a flag passed to this file refuses: expected exit 2, got $code"
+    fi
+}
+
 main() {
+    # Every case sets its own conditions, so a flag typed at this file would run
+    # everything and print the same report, which reads as though the flag did
+    # something.
+    if [ "$#" -gt 0 ]; then
+        printf "refused: unknown flag '%s', this file takes no flags\\n" "$1" >&2
+
+        return 2
+    fi
+
     # The work directory has to sit inside the repository, because the guard
     # under test refuses any path outside it. .tmp is gitignored at the root.
     mkdir -p "$repository_root/.tmp"
@@ -211,6 +239,7 @@ main() {
     run_prompt_cases
     run_target_cases
     run_manifest_case
+    run_self_cases
 
     printf '\n%s passed, %s failed\n' "$passed" "$failed"
 

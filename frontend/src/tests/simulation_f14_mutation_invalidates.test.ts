@@ -8,7 +8,7 @@ import { createCachedReader } from "$lib/cache/read_through";
 import { createCacheStore } from "$lib/cache/store";
 
 /**
- * Simulation F14: a mutation invalidates the cache.
+ * Test 14: a mutation invalidates the cache.
  *
  *     payment confirmed -> the class list entry goes cold
  *     the parent returns to the list -> a blocking GET with If-None-Match
@@ -36,7 +36,7 @@ function clientSide(transport: ReturnType<typeof createFakeTransport>, now: () =
     };
 }
 
-describe("simulation F14: a mutation invalidates the cache", () => {
+describe("test 14: a mutation invalidates the cache", () => {
     beforeEach(() => {
         sessionStorage.clear();
     });

@@ -9,7 +9,7 @@ import { auth } from "$lib/stores/auth";
 import type { Session } from "$lib/api/types";
 
 /**
- * Simulation F10: hard sign out on a reused token.
+ * Test 10: hard sign out on a reused token.
  *
  *     client -> transport: a call
  *     transport -> client: 401 token_expired
@@ -35,7 +35,7 @@ const seededSession: Session = {
     children: [{ id: "0192a000-0000-7000-8000-000000000011", full_name: "Mira Tan", grade_level: 5 }],
 };
 
-describe("simulation F10: hard sign out on a reused token", () => {
+describe("test 10: hard sign out on a reused token", () => {
     beforeEach(() => {
         vi.mocked(goto).mockClear();
         sessionStorage.clear();

@@ -15,6 +15,7 @@
 # Return:
 # - 0: every case passed
 # - 1: at least one case failed
+# - 2: a flag was passed, and this file takes none
 # ---------------------------------------------------------------------------- #
 
 set -uo pipefail
@@ -79,6 +80,17 @@ run_interactive() {
 }
 
 main() {
+    local self_code
+
+    # Every case sets its own conditions, so a flag typed at this file would run
+    # everything and print the same report, which reads as though the flag did
+    # something.
+    if [ "$#" -gt 0 ]; then
+        printf "refused: unknown flag '%s', this file takes no flags\\n" "$1" >&2
+
+        return 2
+    fi
+
     if ! state_is_intact; then
         printf 'skipped: node_modules is not present, run npm install first\n'
 
@@ -104,6 +116,21 @@ main() {
         check "n declines" 1 "$(APP_ENV=development run_interactive 'n')"
     else
         printf 'prompt cases skipped: the "script" command is needed to attach a pseudo terminal\n'
+    fi
+
+    printf 'self cases\n'
+
+    # The call below ends in the guard at the top of main, before a single case
+    # runs, so it costs one process and cannot recurse.
+    "${BASH_SOURCE[0]}" --dry-run >/dev/null 2>&1 </dev/null
+    self_code="$?"
+
+    if [ "$self_code" = "2" ]; then
+        printf '  pass: a flag passed to this file refuses\n'
+        passed=$((passed + 1))
+    else
+        printf '  FAIL: a flag passed to this file refuses: expected exit 2, got %s\n' "$self_code" >&2
+        failed=$((failed + 1))
     fi
 
     printf '\n%s passed, %s failed\n' "$passed" "$failed"

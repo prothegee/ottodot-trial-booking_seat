@@ -7,24 +7,32 @@
 # stack be lifted out and deployed on its own.
 #
 # Brought up on its own with:
-#   podman compose --file backend/compose.yml up --detach
+#   docker compose --file backend/compose.yml up --detach
+#
+# On a machine with podman-docker installed, the docker command is podman
+# answering to the docker name, and this file runs the same way through it.
 #
 # Or together with the other stack through scripts/stack_up.sh, which is the
 # only place allowed to act across both.
 #
-# State lives in bind mounts under backend/.data/, one directory per container,
-# so a wipe is one visible path and a named volume never hides anything.
+# State lives in containers/<service>/.data, so a volume belongs to the one
+# container that writes it and removing one cannot take another's with it. The
+# dot is required: this tree is inside the Go module, and go build ./... walks
+# every directory without one.
 #
-# Every container mounts the parent of its data directory rather than the data
-# directory itself, and creates the real one inside as its own user. That is
-# what keeps this file working under rootful Docker and rootless Podman, where a
-# container user maps to a different host user in each case. Postgres 18 already
-# expects that shape: its declared volume is /var/lib/postgresql while the real
-# data directory is a version stamped path inside it, so PGDATA is left at the
-# image default here rather than overridden.
+# Each container mounts the parent of its data directory and creates the real one
+# inside as its own user, which is what keeps this file working under both
+# rootful Docker and rootless Podman. Postgres 18 expects that shape already, so
+# PGDATA is left at the image default.
 #
-# Passwords here are development defaults. Every one of them reads from the
-# environment first, and how-to.md says plainly that this posture is local only.
+# Passwords here are development defaults, read from the environment first.
+#
+# config.json is deliberately not mounted: it names addresses on this machine,
+# and a container reaches postgres and redis by service name. So containers are
+# configured here and config.json configures a process run from source. The
+# settings that must match, the signing key, the origin list, the worker count,
+# and BUILD_VERSION, are named in both. build_identity_test.go fails when
+# BUILD_VERSION drifts from the template.
 # ---------------------------------------------------------------------------- #
 
 name: ottodot-backend
@@ -47,10 +55,10 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - ./.data/postgres-primary:/var/lib/postgresql
-      - ./containers/postgresql/primary/postgresql.conf:/etc/ottodot/postgresql/postgresql.conf:ro
-      - ./containers/postgresql/primary/pg_hba.conf:/etc/ottodot/postgresql/pg_hba.conf:ro
-      - ./containers/postgresql/primary/init-primary.sh:/docker-entrypoint-initdb.d/init-primary.sh:ro
+      - ./containers/postgres-primary/.data:/var/lib/postgresql
+      - ./containers/postgres-primary/postgresql.conf:/etc/ottodot/postgresql/postgresql.conf:ro
+      - ./containers/postgres-primary/pg_hba.conf:/etc/ottodot/postgresql/pg_hba.conf:ro
+      - ./containers/postgres-primary/init-primary.sh:/docker-entrypoint-initdb.d/init-primary.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready --username $${POSTGRES_USER} --dbname $${POSTGRES_DB}"]
       interval: 5s
@@ -77,8 +85,8 @@ services:
     ports:
       - "127.0.0.1:5433:5432"
     volumes:
-      - ./.data/postgres-replica:/var/lib/postgresql
-      - ./containers/postgresql/replica/init-replica.sh:/usr/local/bin/init-replica.sh:ro
+      - ./containers/postgres-replica/.data:/var/lib/postgresql
+      - ./containers/postgres-replica/init-replica.sh:/usr/local/bin/init-replica.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready --quiet"]
       interval: 5s
@@ -95,7 +103,7 @@ services:
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
-      - ./.data/redis:/data
+      - ./containers/redis/.data:/data
       - ./containers/redis/redis.conf:/etc/ottodot/redis.conf:ro
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -110,10 +118,10 @@ services:
       context: .
       dockerfile: containers/Containerfile.api
       args:
-        BUILD_VERSION: ${BUILD_VERSION:-dev}
-        BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
+        BUILD_VERSION: ${BUILD_VERSION:-0.1.0}
+        BUILD_COMMIT: ${BUILD_COMMIT:-}
         BUILD_TIME: ${BUILD_TIME:-}
-    image: ottodot-api:${BUILD_VERSION:-dev}
+    image: ottodot-api:${BUILD_VERSION:-0.1.0}
     container_name: ottodot-api
     restart: unless-stopped
     depends_on:
@@ -132,17 +140,23 @@ services:
       DATABASE_PRIMARY_URL: postgres://${POSTGRES_USER:-ottodot}:${POSTGRES_PASSWORD:-ottodot_development}@postgres-primary:5432/${POSTGRES_DB:-ottodot}?sslmode=disable
       DATABASE_REPLICA_URL: postgres://${POSTGRES_USER:-ottodot}:${POSTGRES_PASSWORD:-ottodot_development}@postgres-replica:5432/${POSTGRES_DB:-ottodot}?sslmode=disable
       REDIS_ADDRESS: redis:6379
-      # The frontend stack serves on 9001. It is named here because the origin
-      # check on every write compares against exactly this value.
-      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://127.0.0.1:9001}
+      # The frontend stack serves on 9001. Both spellings of the loopback
+      # address are listed because a browser treats them as different origins,
+      # and the origin check compares against exactly these values.
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://127.0.0.1:9001,http://localhost:9001}
       # A throwaway in development. Configuration refuses to start outside
       # development without a real one of at least 32 characters.
       JWT_SECRET: ${JWT_SECRET:-development-only-signing-key-not-for-any-real-environment}
       # False only here. Configuration refuses to start with it false anywhere
       # else, because the token cookies would travel in clear text.
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
-      BUILD_VERSION: ${BUILD_VERSION:-dev}
-      BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
+      # Off unless the shell that started this stack asked for it, which is what
+      # scripts/smoke_failure.sh needs and nothing else does. Configuration
+      # refuses to start the process with it true outside development, so the
+      # dangerous direction is a startup failure rather than a running service.
+      FAULT_INJECTION_ENABLED: ${FAULT_INJECTION_ENABLED:-false}
+      BUILD_VERSION: ${BUILD_VERSION:-0.1.0}
+      BUILD_COMMIT: ${BUILD_COMMIT:-}
     # The process binds every interface inside its own container, and this line
     # is where the loopback rule is enforced: the port is reachable from this
     # machine and from nowhere else.
@@ -156,9 +170,9 @@ services:
       context: .
       dockerfile: containers/Containerfile.worker
       args:
-        BUILD_VERSION: ${BUILD_VERSION:-dev}
-        BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
-    image: ottodot-worker:${BUILD_VERSION:-dev}
+        BUILD_VERSION: ${BUILD_VERSION:-0.1.0}
+        BUILD_COMMIT: ${BUILD_COMMIT:-}
+    image: ottodot-worker:${BUILD_VERSION:-0.1.0}
     container_name: ottodot-worker
     restart: unless-stopped
     depends_on:
@@ -175,6 +189,9 @@ services:
       REDIS_ADDRESS: redis:6379
       WORKER_METRICS_PORT: "9002"
       WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-5s}
+      # How many jobs this process works on at once. Zero means one per
+      # processor the container is allowed to use.
+      WORKER_COUNT: ${WORKER_COUNT:-0}
     # The process binds every interface inside its own container, and this line
     # is where the loopback rule is enforced: the port is reachable from this
     # machine and from nowhere else.
@@ -200,7 +217,7 @@ services:
     ports:
       - "127.0.0.1:9003:9090"
     volumes:
-      - ./.data/prometheus:/prometheus
+      - ./containers/prometheus/.data:/prometheus
       - ./containers/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./containers/prometheus/rules.yml:/etc/prometheus/rules.yml:ro
     healthcheck:
@@ -219,19 +236,18 @@ services:
       prometheus:
         condition: service_healthy
     environment:
-      # A local password on a loopback published port. Anonymous access is on so
-      # a reviewer sees the dashboards without a sign in, and it is read only.
+      # Every page asks for a sign in. The port is loopback only as well, so the
+      # password is the second lock rather than the only one.
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-ottodot_development}
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
     ports:
       - "127.0.0.1:9004:3000"
     volumes:
-      - ./.data/grafana:/var/lib/grafana
+      - ./containers/grafana/.data:/var/lib/grafana
       # The dashboards are files rather than rows in Grafana's own database, so
       # a panel change is a diff a reviewer can read.
       - ./containers/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -263,21 +279,35 @@ services:
     image: gcr.io/cadvisor/cadvisor:v0.52.1
     container_name: ottodot-cadvisor
     restart: unless-stopped
-    # The one service allowed to fail. It reads a container runtime socket and
-    # is written against Docker, so under rootless Podman it needs
-    # `podman system service` running with its socket where this expects one.
-    # how-to.md carries the exact command. When it will not start, layers one
-    # and two still cover cpu, memory, and drive, and the dashboard degrades
-    # from per container to host wide.
+    # The one service allowed to fail. It is written against Docker and reads a
+    # container runtime socket, so on a rootless machine it needs podman.socket
+    # running. scripts/lib/stack.sh finds that socket, backend/how-to.md carries
+    # the command that starts it. When it will not run, layers one and two still
+    # cover cpu, memory, and drive, and the dashboard degrades from per container
+    # to host wide.
     privileged: true
     ports:
       - "127.0.0.1:9006:8080"
+    # The host /var/run is not mounted whole. Doing that leaves the runtime no
+    # writable /run inside the container and it refuses to start. Only the one
+    # socket cAdvisor actually reads is handed in.
+    #
+    # At two paths, because cAdvisor looks for each runtime at a fixed one.
+    # Without the podman path a rootless container has no name for it to label a
+    # series with, and the panels select on that name.
+    #
+    # /sys/fs/cgroup is named on its own even though /sys is already mounted.
+    # Both runtimes give a container its own cgroup namespace, and the mount for
+    # it lands on top of /sys, so what the container reads there is one cgroup,
+    # its own. Naming the host path puts the whole tree back, and without it
+    # every per container panel is empty.
     volumes:
       - /:/rootfs:ro
-      - /var/run:/var/run:ro
       - /sys:/sys:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:ro
       - ${CONTAINER_STORAGE_DIR:-/var/lib/containers}:/var/lib/docker:ro
       - ${CONTAINER_SOCKET:-/run/podman/podman.sock}:/var/run/docker.sock:ro
+      - ${CONTAINER_SOCKET:-/run/podman/podman.sock}:/var/run/podman/podman.sock:ro
     networks:
       - ottodot-backend
 

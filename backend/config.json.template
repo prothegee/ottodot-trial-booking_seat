@@ -1,0 +1,48 @@
+{
+    "_note": [
+        "Copy this file to config.json. The scripts do it for you and say so when they do.",
+        "config.json is ignored by git. This template is the committed copy, so change both when a setting is added.",
+        "A value stated here wins over the environment variable of the same name. Delete a line to let the environment decide it.",
+        "Every value below is a development value. None of them is safe anywhere else.",
+        "ALLOWED_ORIGINS lists both spellings of the loopback address, because a browser treats them as different origins.",
+        "WORKER_COUNT is how many jobs one worker process runs at once. 0 means one per processor.",
+        "BUILD_VERSION is the one committed place the backend version number is written down. Raise it when the api changes.",
+        "BUILD_COMMIT is left empty on purpose. A commit written down here would be stale the moment it was written, and a build works its own out."
+    ],
+
+    "APP_ENV": "development",
+
+    "ALLOWED_ORIGINS": [
+        "http://127.0.0.1:9001",
+        "http://localhost:9001"
+    ],
+
+    "API_PORT": 9000,
+    "API_READ_TIMEOUT": "10s",
+    "API_WRITE_TIMEOUT": "15s",
+    "API_SHUTDOWN_TIMEOUT": "20s",
+
+    "WORKER_METRICS_PORT": 9002,
+    "WORKER_POLL_INTERVAL": "2s",
+    "WORKER_COUNT": 0,
+
+    "DATABASE_PRIMARY_URL": "postgres://ottodot:ottodot_development@127.0.0.1:5432/ottodot?sslmode=disable",
+    "DATABASE_REPLICA_URL": "postgres://ottodot:ottodot_development@127.0.0.1:5433/ottodot?sslmode=disable",
+    "DATABASE_MAX_CONNECTIONS": 10,
+    "DATABASE_CONNECT_TIMEOUT": "5s",
+
+    "REDIS_ADDRESS": "127.0.0.1:6379",
+    "REDIS_PASSWORD": "",
+    "REDIS_DATABASE": 0,
+
+    "JWT_SECRET": "development-only-signing-key-not-for-any-real-environment",
+    "ACCESS_TOKEN_TTL": "15m",
+    "REFRESH_TOKEN_TTL": "720h",
+    "COOKIE_DOMAIN": "",
+    "COOKIE_SECURE": false,
+
+    "FAULT_INJECTION_ENABLED": false,
+
+    "BUILD_VERSION": "0.1.0",
+    "BUILD_COMMIT": ""
+}

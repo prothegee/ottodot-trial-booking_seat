@@ -10,7 +10,7 @@ import (
 //
 // It owns two things and no more: refusing a read that names nothing, and
 // counting how many reads actually reached storage. The second is not
-// bookkeeping for its own sake, it is what the conditional request simulation
+// bookkeeping for its own sake, it is what the conditional request test
 // asserts against, because "the database was not touched" has to be provable
 // rather than asserted.
 type Service struct {

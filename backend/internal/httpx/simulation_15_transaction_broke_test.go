@@ -10,7 +10,7 @@ import (
 )
 
 /*
-Simulation 15: the core transaction fails and leaves nothing behind.
+Test 15: the core transaction fails and leaves nothing behind.
 
     confirm.before_commit armed, count 1
     the parent pays, the provider settles

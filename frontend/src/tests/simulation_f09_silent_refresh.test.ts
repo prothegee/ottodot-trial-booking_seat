@@ -5,7 +5,7 @@ import { createFakeTransport, errorBody } from "$lib/api/transport_fake";
 import type { ApiError } from "$lib/api/errors";
 
 /**
- * Simulation F9: silent refresh, single flight.
+ * Test 9: silent refresh, single flight.
  *
  *     client -> transport: three parallel calls
  *     transport -> client: 401 token_expired, three times
@@ -23,7 +23,7 @@ const classesPath = "/api/v1/classes";
 const studentsPath = "/api/v1/students";
 const bookingsPath = "/api/v1/bookings/0192a000-0000-7000-8000-000000000031";
 
-describe("simulation F9: silent refresh", () => {
+describe("test 9: silent refresh", () => {
     test("behaviour: three expired calls cause one refresh and three retries", async () => {
         // Every business call is refused the first time and answered the
         // second. If the client refreshed per caller, the count below would be

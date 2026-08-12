@@ -4,6 +4,8 @@ import (
     "encoding/json"
     "net/http"
     "strconv"
+
+    "ottodot-trial-booking/backend/internal/observability"
 )
 
 // The two cache policies this api uses on a successful read.
@@ -86,7 +88,27 @@ func WriteFailure(response http.ResponseWriter, request *http.Request, failure F
 
 // Deny answers one request with whatever that failure looks like on the wire.
 func Deny(response http.ResponseWriter, request *http.Request, err error) {
-    WriteFailure(response, request, FailureFor(err))
+    denyWith(response, request, FailureFor(err), err)
+}
+
+// denyWith answers a refusal whose shape was already decided, keeping the error
+// behind it for the log.
+//
+// It exists because a caller that adjusts the failure it is about to send still
+// holds the only copy of what actually went wrong, and dropping that on the way
+// out is how a 500 ends up with nothing but a request id.
+//
+// Param:
+// response - http.ResponseWriter (the response being written)
+// request - *http.Request (where the detail is recorded)
+// failure - Failure (what the client is told)
+// err - error (what actually failed, never sent)
+func denyWith(response http.ResponseWriter, request *http.Request, failure Failure, err error) {
+    if failure.Code == CodeInternalError {
+        observability.RecordFailureDetail(request.Context(), err)
+    }
+
+    WriteFailure(response, request, failure)
 }
 
 // writeJSON answers a read or a write that succeeded.

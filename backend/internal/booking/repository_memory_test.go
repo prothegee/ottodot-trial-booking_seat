@@ -38,6 +38,10 @@ func TestTheMemoryRepositoryHonoursTheDeclineAndWorklistContract(t *testing.T) {
     runDeclineAndWorklistContract(t, newMemoryFixture)
 }
 
+func TestTheMemoryRepositoryHonoursTheParentBookingsContract(t *testing.T) {
+    runParentBookingsContract(t, newMemoryFixture)
+}
+
 func TestTheMemoryRepositoryIsSafeToShare(t *testing.T) {
     t.Run("integration: parallel confirms on one seat produce exactly one winner", func(t *testing.T) {
         // This is the same shape as the real-database proof, and it is worth

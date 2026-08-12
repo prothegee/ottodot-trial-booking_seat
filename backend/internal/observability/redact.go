@@ -51,7 +51,7 @@ var headerInText = regexp.MustCompile(`(?i)\b(set-cookie|cookie|authorization)\b
 // Emails are the one piece of personal data in this service that has a shape, so
 // they are the one that can be caught after the fact. Names have no shape, which
 // is why the rule for those is that they are never handed to the logger in the
-// first place, and why the leak simulation checks for the seeded names by hand.
+// first place, and why the leak test checks for the seeded names by hand.
 var addressInText = regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`)
 
 // SensitiveField reports whether a field's value must be replaced.

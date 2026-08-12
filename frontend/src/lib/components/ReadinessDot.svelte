@@ -56,19 +56,19 @@
         width: 0.75rem;
         height: 0.75rem;
         border-radius: 50%;
-        background: #9ca3af;
+        background: var(--muted-soft);
     }
 
     .dot[data-tone="green"] {
-        background: #15803d;
+        background: var(--good-strong);
     }
 
     .dot[data-tone="amber"] {
-        background: #b45309;
+        background: var(--warn-strong);
     }
 
     .dot[data-tone="red"] {
-        background: #b91c1c;
+        background: var(--danger);
     }
 
     .label {

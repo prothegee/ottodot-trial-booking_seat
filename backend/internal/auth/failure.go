@@ -4,6 +4,8 @@ import (
     "encoding/json"
     "errors"
     "net/http"
+
+    "ottodot-trial-booking/backend/internal/observability"
 )
 
 // The error codes this package answers with.
@@ -108,6 +110,21 @@ func WriteFailure(response http.ResponseWriter, failure Failure) {
 }
 
 // Deny answers one request with whatever that failure looks like on the wire.
-func Deny(response http.ResponseWriter, err error) {
-    WriteFailure(response, FailureFor(err))
+//
+// The error behind an internal_error is recorded on the way out. Nothing about
+// it reaches the client, and without this the only trace of a failed sign in is
+// a status code.
+//
+// Param:
+// response - http.ResponseWriter (the response being written)
+// request - *http.Request (where the detail is recorded)
+// err - error (what actually failed)
+func Deny(response http.ResponseWriter, request *http.Request, err error) {
+    failure := FailureFor(err)
+
+    if failure.Code == CodeInternalError {
+        observability.RecordFailureDetail(request.Context(), err)
+    }
+
+    WriteFailure(response, failure)
 }

@@ -11,18 +11,20 @@ import (
 //
 // Param:
 // deps - *dependencies (the two pools and the Redis client, all three probed)
+// identity - operations.Identity (already resolved, so this route and the
+// startup log line cannot disagree about which build is running)
 //
 // Return:
 //   - the handler for the three unauthenticated routes
 //   - an error when there is nothing to probe, refused here rather than as a
 //     route that answers ready no matter what is broken
-func buildOperations(deps *dependencies) (*operations.Handler, error) {
+func buildOperations(deps *dependencies, identity operations.Identity) (*operations.Handler, error) {
     readiness, err := operations.NewReadiness(readinessChecks(deps))
     if err != nil {
         return nil, fmt.Errorf("readiness: %w", err)
     }
 
-    handler, err := operations.NewHandler(readiness, buildIdentity())
+    handler, err := operations.NewHandler(readiness, identity)
     if err != nil {
         return nil, fmt.Errorf("the operations routes: %w", err)
     }

@@ -269,8 +269,9 @@ sequenceDiagram
     participant PG as Postgres primary
     participant DL as Denylist
 
-    UI->>API: POST /api/v1/auth/login, seeded email
-    API->>PG: find the parent
+    UI->>API: POST /api/v1/auth/login, email and password
+    API->>PG: find the parent and read the stored hash
+    API->>API: verify the password against the hash, argon2id
     API->>PG: store the sha256 of a new refresh token, new family
     API-->>UI: HttpOnly cookies, access and refresh
 
@@ -326,9 +327,14 @@ one api instance is honoured by every other. A Redis that cannot be read is a
 refused request rather than an honoured token: a denylist that cannot say no
 must not say yes.
 
-**Sign in is mocked, deliberately.** A seeded email, no password, because the
-brief asks for no auth. Everything around it is real, so a password or a
-provider later replaces one method.
+**Sign in takes an email and a password.** The password is hashed with argon2id
+and the hash is what a row holds, so no password exists anywhere in this system.
+What is a development convenience is that the four seeded accounts share one
+password and it is written down in `how-to.md`, not how it is stored.
+
+An unknown address and a wrong password give the same refusal and cost the same
+time, so this route cannot be used to find out who has an account here. An
+identity provider later replaces one method.
 
 <br>
 
@@ -362,7 +368,7 @@ behind one office connection.
 
 **Each layer is cheaper than the one below it.** A signature check costs no
 database read, the ownership check costs one, the bucket costs one shared store
-read, and only then does anything reach a transaction. Simulation 10 walks every
+read, and only then does anything reach a transaction. Test 10 walks every
 branch and asserts that a refusal at each one leaves the repository untouched.
 
 **Where each thing lives.**
@@ -428,8 +434,16 @@ flowchart LR
     cadv[cAdvisor 9006] -->|per container| prom
     client[Svelte client 9001] -->|POST /api/v1/telemetry| api
     prom --> graf[Grafana 9004]
-    prom --> rules[twelve alert rules]
+    prom --> rules[thirteen alert rules]
 ```
+
+Layer one is scraped at two addresses rather than one. The api and the worker are
+each a pair of jobs sharing a `component` label: the compose service name for the
+containerised process, and `host.containers.internal` for the same process run
+from source by `scripts/debug.sh`. Only one of a pair can answer, because that
+script refuses to start while the container holds the port, so the panels fill in
+either way and no series is counted twice. The `NotReady` alert reads the
+component rather than one target for the same reason.
 
 Layer one costs nothing: the Prometheus client library's process and Go
 collectors give cpu, resident memory, file descriptors, goroutines, the heap, and

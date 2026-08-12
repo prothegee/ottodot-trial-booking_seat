@@ -382,6 +382,17 @@ serves `/readyz` and `/version` as well, from `internal/operations`, and the
 worker does not: readiness answers whether traffic should be sent somewhere, and
 nothing sends traffic here.
 
+**The build identity** behind `/version` is resolved once at startup, from four
+sources asked in order: the linker, then `BUILD_VERSION` and `BUILD_COMMIT` from
+configuration, then what the Go toolchain recorded and the running binary's own
+timestamp, then the word `unknown`. Empty is how each source says it has no
+answer, which is why every default is an empty string rather than a word.
+
+`internal/operations/build_source.go` owns the last two, and `cmd/api/build.go`
+owns the order. The worker resolves the same way and logs the result, because a
+stack whose two halves disagree about which build is running should be visible
+rather than hidden. See ADR-054.
+
 | metric | kind | reads |
 | :- | :- | :- |
 | `queue_depth{state="ready"}` | gauge | jobs due, unclaimed, with attempts left |
@@ -390,9 +401,15 @@ nothing sends traffic here.
 | `worker_jobs_claimed_total` | counter | jobs this process has taken |
 | `worker_jobs_completed_total` | counter | jobs it finished and removed |
 | `queue_job_failed_total` | counter | jobs it handed back |
+| `queue_depth_read_failed_total` | counter | scrapes that could not ask the queue |
 
-A scrape that cannot read the queue answers 503 rather than publishing zeroes,
-because zeroes read as a healthy empty queue and no alert would fire.
+A scrape that cannot read the queue publishes the depth as not-a-number rather
+than as zeroes, because zeroes read as a healthy empty queue. The scrape itself
+still answers: every other number above is a count this process holds and is
+still true, and failing the whole scrape over one gauge took the worker's target
+down and blanked every panel it feeds. `queue_depth_read_failed_total` is what
+the `QueueUnreadable` alert fires on, since a comparison against not-a-number is
+always false.
 
 <br>
 
@@ -728,10 +745,12 @@ backend
     |   |___response.go                    (the envelope, and the three cache policies)
     |   |___requestid.go                   (minted here, never read from the request)
     |   |___recover.go                     (a panic costs one request, not the process)
+    |   |___failure_detail.go              (the reason behind a 500, to the log and never to the client)
     |   |___botcheck.go                    (honeypot, fill timer, challenge)
     |   |___ratelimit.go                   (which bucket, and what an outage means)
     |   |___conditional.go                 (etag, 304, and invalidation)
     |   |___ownership.go                   (is this child, this booking, yours)
+    |   |___booking_class.go               (what a booking was for, read beside it and never inside it)
     |   |___counters.go                    (the local counts, and the metric sink)
     |   |___measure.go                     (the per route timer, by pattern never by path)
     |   |___middleware.go                  (the chain, in the order it is written)
@@ -747,7 +766,8 @@ backend
     |___/operations
     |   |___health.go                      (liveness, touches nothing)
     |   |___readiness.go                   (the probes, and what each failure means)
-    |   |___version.go                     (stamped at link time, never read from the environment)
+    |   |___version.go                     (what /version answers with)
+    |   |___build_source.go                (where an identity comes from when the linker did not stamp one)
     |   |___handler.go
     |
     |___/catalogue                         (the class list, from the replica)
@@ -767,6 +787,7 @@ backend
     |   |___metrics_frontend.go            (what the browser reports, and its closed lists)
     |   |___sink.go                        (so *Metrics fits the narrow interfaces)
     |   |___logger.go                      (the structured log, and its field vocabulary)
+    |   |___failure_detail.go              (carries that reason from the handler to the middleware)
     |   |___log_redaction.go               (the slog handler that scrubs every record)
     |   |___redact.go                      (the rules the handler applies)
     |   |___telemetry.go                   (a posted event to a metric, or dropped)
@@ -790,10 +811,11 @@ compile and would still answer, which is exactly why the order is written down:
 | :- | :- | :- |
 | 1 | request id | everything below can fail, and a failure with no id cannot be found |
 | 2 | panic recovery | a handler falling over costs one request rather than the process |
-| 3 | origin check, writes only | a cookie session means the browser attaches the token itself |
-| 4 | authenticate | the rate limit needs to know whose bucket to spend |
-| 5 | role, admin routes only | wraps authenticate, so the role cannot be checked without the token |
-| 6 | rate limit | last, so the bucket it spends is the right one |
+| 3 | failure report | a 500 says nothing to the client, so the reason has to be written down under that id |
+| 4 | origin check, writes only | a cookie session means the browser attaches the token itself |
+| 5 | authenticate | the rate limit needs to know whose bucket to spend |
+| 6 | role, admin routes only | wraps authenticate, so the role cannot be checked without the token |
+| 7 | rate limit | last, so the bucket it spends is the right one |
 
 **The failure envelope.** One shape, every route, so the client switches on a
 code and never parses prose.
@@ -815,6 +837,40 @@ Three fields are optional and are omitted rather than sent as null:
 | `retry_after_seconds` | `rate_limited` only | a client told to wait zero seconds retries into the same wall |
 | `request_id` | `internal_error` only | it is the whole of what that code tells anybody |
 | `booking_id` | `already_booked` only | it turns a duplicate notice into a link |
+
+The reason behind an `internal_error` never travels with it. It is recorded as
+the refusal is written and logged once the handler returns, as
+`a request was answered with an internal error` under that same `request_id`, so
+the client learns nothing and whoever has to fix it learns everything.
+
+**The booking body.** Every route that answers a booking answers the same shape,
+and it names the class it is for:
+
+| field | is | null when |
+| :- | :- | :- |
+| `class_subject` | the subject, as the class list sends it | never, empty instead |
+| `class_title` | the class name | never, empty instead |
+| `class_starts_at` | RFC 3339 | the class could not be read |
+| `seat_no` | the seat that was won | the booking owns none |
+| `hold_expires_at` | the deadline on the hold | the booking is not holding |
+
+The class is the only thing added beyond the booking itself. Nothing about the
+parent or the child is, because a name in a body is a name in every proxy log
+along the way, and the client already knows which child it asked for. The class
+is different: it is the same public description the class list already sends to
+anybody signed in, and without it a booking says nothing about what was booked.
+
+Capacity and seats remaining are deliberately left out. Both move, and a booking
+is a record of what happened rather than a second place to read a count from.
+
+`booking_class.go` reads it beside the booking and never inside the same query.
+Joining would put `trial_classes` inside the `select ... for update` the confirm
+transaction depends on, and the `returning` clauses a write answers with cannot
+join at all. Reading separately also means the class read is allowed to fail: it
+decides nothing, so a catalogue that cannot be reached leaves the three fields
+empty and the booking is still answered. The list path reads the whole catalogue
+once rather than one class per booking, which is fewer round trips and a bound
+that does not grow with the list.
 
 **Checkout, step by step.** `internal/checkout` is the only package that imports
 booking, payment, and queue. Everything in this list is a decision that belongs
@@ -845,7 +901,16 @@ Two rules hold everywhere below. Every label is a bounded enumeration, so no
 label ever holds a uuid, an email, or free text: ADR-042. Every series is created
 at zero when the process starts, so a counter that has not moved reads zero
 rather than being absent, which is the difference between a panel that says "no
-denials" and one that says nothing at all.
+denials" and one that says nothing at all. That covers the api error codes, the
+job kinds, the fault points, the funnel steps, the transaction names, the client
+routes, and every registered api route.
+
+One label on one metric is not a closed list and so cannot be created that way:
+the `status` on `http_request_duration_seconds`. Each route is created at `200`
+alone, because declaring a series for every code a route might answer would be
+guessing rather than declaring. A percentile is the other thing zero cannot fill,
+since there is no 95th of no requests, so the two panels carrying one draw an
+average beside it that is a number from the first scrape.
 
 ### Resources, in three layers
 
@@ -921,6 +986,7 @@ Everything that is neither a resource number nor a failure count.
 | `booking_duplicate_rejected_total` | counter | none |
 | `booking_hold_expired_total` | counter | none |
 | `queue_depth` | gauge | `state`: ready, claimed, parked |
+| `queue_depth_read_failed_total` | counter | none |
 | `queue_job_duration_seconds` | histogram | `kind`, `outcome` |
 | `worker_jobs_claimed_total` | counter | none |
 | `worker_jobs_completed_total` | counter | none |
@@ -983,9 +1049,9 @@ batch is still recorded. ADR-049.
 | command | runs |
 | :- | :- |
 | `go test ./...` | unit, edge, integration, behaviour, all against fakes |
-| `go test -tags=containers ./...` | the same contract against real Postgres, plus the race simulations |
+| `go test -tags=containers ./...` | the same contract against real Postgres, plus the race tests |
 
-| simulation | tier | asserts |
+| test | tier | asserts |
 | :- | :- | :- |
 | 1, duplicate booking | behaviour, fake | one row for that child and class, the second attempt leaves nothing behind |
 | 2, payment failure | behaviour, fake | one failed attempt, no provider reference, no seat, the roster stays empty |
@@ -1004,6 +1070,6 @@ batch is still recorded. ADR-049.
 | 12, readiness reflects reality | behaviour, fake | a downed replica stays in rotation, a downed primary or Redis does not, liveness stays 200, and no body names a host |
 | read routing | proof, real | the primary is not in recovery, the replica is, and the replica refuses a write |
 
-Simulation 5 also proves that `uq_seat_taken` never fired: every loser ends in
+Test 5 also proves that `uq_seat_taken` never fired: every loser ends in
 `refund_required`, and a unique violation would have rolled its transaction back
 and left that booking in `pending_payment` instead.

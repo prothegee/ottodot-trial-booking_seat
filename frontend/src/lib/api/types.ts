@@ -28,9 +28,16 @@ export interface Session {
     children: Child[];
 }
 
-/** The body of POST /api/v1/auth/login. Mock sign in, seeded email, no password. */
+/**
+ * The body of POST /api/v1/auth/login.
+ *
+ * The password is sent once and held nowhere. What comes back is a cookie the
+ * page cannot read, so there is no point in this client keeping either value
+ * after the call.
+ */
 export interface LoginRequest {
     email: string;
+    password: string;
 }
 
 /**
@@ -78,9 +85,31 @@ export interface Booking {
     id: string;
     student_id: string;
     class_id: string;
+
+    /**
+     * The class this booking is for, in the words the class list uses.
+     *
+     * The subject and the title are empty, and the start time is null, only
+     * when the api could not read the class. That read decides nothing, so it
+     * does not fail the booking, and a screen leaves the line out rather than
+     * rendering an empty heading.
+     */
+    class_subject: string;
+    class_title: string;
+    class_starts_at: string | null;
     status: BookingStatus;
     seat_no: number | null;
     hold_expires_at: string | null;
+}
+
+/**
+ * The answer to GET /api/v1/bookings.
+ *
+ * It is the signed-in parent's own bookings and nobody else's. The api decides
+ * that from the token, so there is no identifier to send and none to get wrong.
+ */
+export interface BookingList {
+    bookings: Booking[];
 }
 
 /**

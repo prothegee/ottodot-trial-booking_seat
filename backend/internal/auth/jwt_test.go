@@ -241,9 +241,8 @@ func TestSignAndVerify(t *testing.T) {
 func TestTheEncodedPayloadCarriesNothingSensitive(t *testing.T) {
     t.Run("edge: the payload holds the six agreed claims and nothing else", func(t *testing.T) {
         // A JWT payload is base64, not encryption. Anybody holding the token
-        // reads it, including whoever picks it out of a shared screen
-        // recording, so this asserts the exact key set rather than the absence
-        // of one field.
+        // reads it, including whoever picks it out of a shared screen, so this
+        // asserts the exact key set rather than the absence of one field.
         signer := newTestSigner(t)
 
         token, err := signer.Sign(liveClaims())

@@ -14,7 +14,7 @@ import { classListPath, createClassesStore } from "$lib/stores/classes";
 import { trialPayment } from "$lib/booking/price";
 
 /**
- * Simulation F5: the seat was lost after paying, the brief's scenario from the
+ * Test 5: the seat was lost after paying, the brief's scenario from the
  * parent's side.
  *
  *     parent A -> client: submit payment for the last seat
@@ -40,6 +40,9 @@ const heldBooking: Booking = {
     id: bookingId,
     student_id: studentId,
     class_id: classId,
+    class_subject: "science",
+    class_title: "Science Discovery",
+    class_starts_at: "2026-08-15T01:28:26.224983Z",
     status: "pending_payment",
     seat_no: null,
     hold_expires_at: "2026-08-11T09:10:00Z",
@@ -96,7 +99,7 @@ function newStage() {
     };
 }
 
-describe("simulation F5: the seat went to somebody else after the payment settled", () => {
+describe("test 5: the seat went to somebody else after the payment settled", () => {
     beforeEach(() => {
         sessionStorage.clear();
     });

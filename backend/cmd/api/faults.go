@@ -37,6 +37,11 @@ func buildFaults(settings config.Config, watch bootstrap.Observability, decided 
     // a deliberately broken stack for a healthy one.
     watch.Metrics.Application.FaultInjectionEnabled(settings.Faults.Enabled && settings.IsDevelopment())
 
+    // Published either way for the same reason, one line further: the panel beside
+    // the banner counts triggers per point, and with no point ever triggered it
+    // would have nothing to draw at all.
+    watch.Metrics.Application.DeclareFaultPoints(faults.Points())
+
     if !settings.Faults.Enabled || !settings.IsDevelopment() {
         return nil
     }

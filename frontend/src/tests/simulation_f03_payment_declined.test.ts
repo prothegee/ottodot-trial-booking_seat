@@ -13,7 +13,7 @@ import { classListPath, createClassesStore } from "$lib/stores/classes";
 import { trialPayment } from "$lib/booking/price";
 
 /**
- * Simulation F3: the payment was declined.
+ * Test 3: the payment was declined.
  *
  *     parent -> client: submit payment
  *     client -> api: pay
@@ -86,7 +86,7 @@ function newStage() {
     };
 }
 
-describe("simulation F3: the payment was declined", () => {
+describe("test 3: the payment was declined", () => {
     beforeEach(() => {
         sessionStorage.clear();
     });

@@ -20,24 +20,43 @@ DATABASE_CONTAINER="${DATABASE_CONTAINER:-ottodot-postgres-primary}"
 DATABASE_USER="${POSTGRES_USER:-ottodot}"
 DATABASE_NAME="${POSTGRES_DB:-ottodot}"
 
+# The runtime that has the primary container, not merely one that is installed.
+#
+# A machine carrying both podman and docker started the stack with whichever
+# compose it found, and the other one has never seen those containers. Asking it
+# gets "no such container" from every call, which reads as a database that is
+# not running rather than as the wrong question.
+#
+# Return:
+# - the command name on standard output
+# - exit 1 with a message when neither runtime is installed
 database_runtime() {
+    local candidate
+
     if [ -n "${CONTAINER_RUNTIME:-}" ]; then
         printf '%s\n' "$CONTAINER_RUNTIME"
 
         return 0
     fi
 
-    if command -v podman >/dev/null 2>&1; then
-        printf 'podman\n'
+    for candidate in podman docker; do
+        if command -v "$candidate" >/dev/null 2>&1 &&
+            "$candidate" container inspect "$DATABASE_CONTAINER" >/dev/null 2>&1; then
+            printf '%s\n' "$candidate"
 
-        return 0
-    fi
+            return 0
+        fi
+    done
 
-    if command -v docker >/dev/null 2>&1; then
-        printf 'docker\n'
+    # Neither has it, so the container is not there and every caller is about to
+    # say so. Name one that exists, so that message comes from a real command.
+    for candidate in podman docker; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            printf '%s\n' "$candidate"
 
-        return 0
-    fi
+            return 0
+        fi
+    done
 
     printf 'no container runtime found, install podman or docker\n' >&2
 

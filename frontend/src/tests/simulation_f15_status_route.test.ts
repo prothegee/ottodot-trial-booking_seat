@@ -8,7 +8,7 @@ import { readinessPath, status, versionPath } from "$lib/stores/status";
 import StatusPage from "../routes/status/+page.svelte";
 
 /**
- * Simulation F15: the status route reflects backend readiness.
+ * Test 15: the status route reflects backend readiness.
  *
  *     open /status
  *     GET /version and GET /readyz
@@ -62,7 +62,7 @@ function answerWith(readiness: Readiness | ApiError) {
     });
 }
 
-describe("simulation F15: the status route reflects backend readiness", () => {
+describe("test 15: the status route reflects backend readiness", () => {
     beforeEach(() => {
         vi.useFakeTimers();
         vi.mocked(api.request).mockReset();

@@ -174,42 +174,57 @@ func NewService(
 }
 
 // Counters is what this service has counted, for the metrics endpoint and for
-// the simulation that asserts reuse was noticed.
+// the test that asserts reuse was noticed.
 func (service *Service) Counters() *Counters {
     return service.counters
 }
 
-// LogIn signs a parent in by seeded email and starts a new token family.
+// LogIn checks an email and password, then starts a new token family.
 //
 // Note:
-//   - there is no password. That is the brief's cut, not an oversight, and it
-//     is the one method a real credential check would replace.
-//   - an unknown address is counted and refused. It never says whether the
-//     address exists, so this endpoint cannot be used to find out who has an
-//     account here.
+//   - an unknown address and a wrong password are the same refusal,
+//     ErrNoSuchParent, and they are counted the same way. Answering them
+//     differently would turn this route into a way to find out who has an
+//     account here, one address at a time.
+//   - the password is checked even when the address matched nothing. The work
+//     argon2 does is the reason: skipping it for an unknown address would make
+//     that case measurably faster to answer, and the timing alone would give
+//     back the very difference the shared error hides.
+//   - an account with no usable stored hash can never be signed in to. That is a
+//     half finished seed rather than a wrong password, and treating it as a
+//     match would be the worst possible reading of it.
 //
 // Param:
 // ctx - context.Context
 // email - string (the seeded address, matched case insensitively)
+// password - string (what the parent typed, compared with no trimming)
 //
 // Return:
 //   - both tokens and their expiries
-//   - ErrInvalidRequest when the address is empty
-//   - ErrNoSuchParent when it matches no account
-func (service *Service) LogIn(ctx context.Context, email string) (Issued, error) {
-    if normaliseEmail(email) == "" {
+//   - ErrInvalidRequest when the address or the password is empty
+//   - ErrNoSuchParent when the pair matches no account
+func (service *Service) LogIn(ctx context.Context, email string, password string) (Issued, error) {
+    if normaliseEmail(email) == "" || password == "" {
         return Issued{}, ErrInvalidRequest
     }
 
-    parent, err := service.directory.ParentByEmail(ctx, email)
+    credential, err := service.directory.CredentialByEmail(ctx, email)
     if err != nil {
         if errors.Is(err, ErrNoSuchParent) {
+            spendPasswordWork(password)
             service.counters.LoginRefused()
         }
 
         return Issued{}, err
     }
 
+    if err := VerifyPassword(credential.PasswordHash, password); err != nil {
+        service.counters.LoginRefused()
+
+        return Issued{}, ErrNoSuchParent
+    }
+
+    parent := credential.Parent
     now := service.settings.Clock()
 
     familyID, err := service.settings.NewID()

@@ -4,6 +4,7 @@ import (
     "context"
     "errors"
     "fmt"
+    "net"
     "net/http"
     "time"
 
@@ -68,10 +69,20 @@ func buildListener(runner *worker.Runner, pools *database.Pools, watch bootstrap
     return worker.NewListener(address, handler), nil
 }
 
-// serveMetrics starts the listener and reports a failure that is not the
-// ordinary shutdown.
-func serveMetrics(listener *http.Server, logger *observability.Logger) {
-    if err := listener.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+// bindListener takes the metrics port, and fails here rather than later.
+//
+// ListenAndServe binds and serves in one call, and that call belongs in a
+// goroutine, so a port already held is discovered after the worker has already
+// announced itself. The queue would still be consumed, but the scrape target
+// would answer nothing, which is the failure hardest to notice.
+func bindListener(listener *http.Server) (net.Listener, error) {
+    return net.Listen("tcp", listener.Addr)
+}
+
+// serveMetrics answers on an already bound socket and reports a failure that is
+// not the ordinary shutdown.
+func serveMetrics(listener *http.Server, socket net.Listener, logger *observability.Logger) {
+    if err := listener.Serve(socket); err != nil && !errors.Is(err, http.ErrServerClosed) {
         logger.Error("the metrics listener stopped", observability.FieldReason, err.Error())
     }
 }

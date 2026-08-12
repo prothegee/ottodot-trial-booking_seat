@@ -14,11 +14,11 @@ list below reads in the same order as the history.
 - [x] `0002_seed.sql` covering every seed case, fake names and `example.test` addresses
 - [x] `internal/config/config.go`, every port and secret from configuration
 - [x] `internal/database/connection.go` with separate primary and replica pools
-- [x] `containers/postgresql/primary` config and init script
-- [x] `containers/postgresql/replica` init script
+- [x] `containers/postgres-primary` config and init script
+- [x] `containers/postgres-replica` init script
 - [x] `containers/redis/redis.conf`
 - [x] `containers/Containerfile.api` and `Containerfile.worker`
-- [x] `compose.yml` on the agreed ports, bind mounting `.data/` per container
+- [x] `compose.yml` on the agreed ports, bind mounting `containers/<service>/.data`
 - [x] `scripts/lib/confirm.sh` at the root, the guard and manifest and prompt
 - [x] root `scripts/stack_up.sh` and `scripts/stack_down.sh`
 - [x] `scripts/migrate.sh` and `scripts/seed.sh`
@@ -40,10 +40,10 @@ list below reads in the same order as the history.
 - [x] `internal/booking/service.go`, hold and confirm and cancel
 - [x] unit and edge tests: transitions, seat picker, hold deadline, allowance, capacity
 - [x] contract suite pointable at either repository
-- [x] simulation 1: duplicate booking rejected
-- [x] simulation 3: capacity boundary at 3 confirmed
-- [x] simulation 4: parallel confirms on one free seat, proof tier
-- [x] simulation 5: parallel confirms on an empty 4-seat class, proof tier
+- [x] test 1: duplicate booking rejected
+- [x] test 3: capacity boundary at 3 confirmed
+- [x] test 4: parallel confirms on one free seat, proof tier
+- [x] test 5: parallel confirms on an empty 4-seat class, proof tier
 
 ## Phase 3: payment
 
@@ -56,12 +56,12 @@ list below reads in the same order as the history.
 - [x] `internal/payment/service.go`, validate then open then charge then settle
 - [x] edge tests: zero and negative amounts, malformed idempotency key
 - [x] contract suite pointable at either repository
-- [x] simulation 2: payment failure never reaches the roster
-- [x] simulation 9: idempotent payment replay
+- [x] test 2: payment failure never reaches the roster
+- [x] test 9: idempotent payment replay
 - [x] test: parallel calls with one key produce one row, proof tier
 
 The repository was not in the plan's list for this phase. It is here because
-simulations 2 and 9 assert persisted state, one `payment_attempts` row and the
+tests 2 and 9 assert persisted state, one `payment_attempts` row and the
 `uq_payment_idempotency` index holding, and neither can be shown without a
 storage seam. It follows the same shape the booking package uses: an interface,
 a fake, a Postgres implementation, and one contract suite pointed at both.
@@ -70,11 +70,11 @@ a fake, a Postgres implementation, and one contract suite pointed at both.
 
 - [x] `internal/queue/queue.go` interface, `queue_postgres.go`, `queue_memory.go`
 - [x] `cmd/worker/main.go` with its metrics listener on 9002
-- [x] simulation 7: hold expiry by the worker
-- [x] simulation 8: refund reconciliation
+- [x] test 7: hold expiry by the worker
+- [x] test 8: refund reconciliation
 - [x] test: two workers in parallel never claim the same job, proof tier
 
-Landed alongside them, because the two simulations cannot be written without
+Landed alongside them, because the two tests cannot be written without
 either: `booking.Expire` and its `ErrHoldStillLive` guard, `payment.Refund` with
 the idempotency key that stops a retried job refunding twice, `internal/worker`
 holding the runner and both handlers, and the worker service in `compose.yml`.
@@ -88,7 +88,7 @@ holding the runner and both handlers, and the worker service in `compose.yml`.
 - [x] auth endpoints: login, refresh, logout, me
 - [x] unit and edge tests: tampered signature, wrong algorithm, expired token, missing jti
 - [x] edge test: the encoded payload carries no email and no name
-- [x] simulation 13: refresh rotation and reuse detection
+- [x] test 13: refresh rotation and reuse detection
 - [x] test: one refresh token spent once under real parallelism, proof tier
 
 Landed alongside them, because none of the above works without them:
@@ -116,9 +116,9 @@ endpoint cannot be used to find out who has an account, ADR-032.
 - [x] admin queue and admin bookings endpoints, role gated
 - [x] `cmd/api/main.go` on port 9000
 - [x] unit tests: every typed error maps to its status and code, etag builder
-- [x] simulation 10: bot prevention layers
-- [x] simulation 11: conditional request served without a database read
-- [x] simulation 12: readiness reflects reality
+- [x] test 10: bot prevention layers
+- [x] test 11: conditional request served without a database read
+- [x] test 12: readiness reflects reality
 - [x] test: read routing sends deciding reads to the primary, proof tier
 
 Landed alongside them, because the routes above cannot be served without them:
@@ -162,7 +162,7 @@ cannot be asked which identifiers exist, ADR-038.
 - [x] fault call sites: confirm before commit, confirm lock wait, mock provider error, worker job error, Redis boundary
 - [x] `fault_injection_enabled` gauge and `fault_injected_total` counter
 - [x] `containers/prometheus/prometheus.yml` scraping 9000, 9002, 9005, 9006 every 5 seconds
-- [x] `containers/prometheus/rules.yml` with all twelve alerts
+- [x] `containers/prometheus/rules.yml` with all thirteen alerts
 - [x] `containers/prometheus/rules_test.yml`, promtool proof that `TransactionErrorSpike` and `RefundBacklog` fire
 - [x] `containers/grafana/provisioning` datasource and dashboard loaders
 - [x] `containers/grafana/dashboards/backend.json`, fault banner row, then resources, then failures
@@ -171,8 +171,8 @@ cannot be asked which identifiers exist, ADR-038.
 - [x] test: cpu, memory, and drive panels resolve from layer 1 and layer 2 alone
 - [x] test: the transaction failure panel queries `confirm_transaction_total{outcome="error"}` by exact name
 - [x] unit and edge: fault registry counting, ttl, unknown point, and all four guards
-- [x] simulation 14: nothing sensitive leaks
-- [x] simulation 15: the core transaction fails and leaves nothing behind
+- [x] test 14: nothing sensitive leaks
+- [x] test 15: the core transaction fails and leaves nothing behind
 
 Landed alongside them, because the metrics above cannot be published or read
 without them:
@@ -226,5 +226,5 @@ does not. Revisited as each remaining phase lands.
 Tracked at the root, not here. This stack contributes `scripts/test.sh` and
 `scripts/test_proof.sh`.
 
-- [ ] `scripts/test.sh`, the four fake tiers
-- [ ] `scripts/test_proof.sh`, containers tag, real database
+- [x] `scripts/test.sh`, the four fake tiers
+- [x] `scripts/test_proof.sh`, containers tag, real database

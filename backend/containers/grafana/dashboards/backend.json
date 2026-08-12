@@ -1,7 +1,7 @@
 {
     "uid": "ottodot-backend",
     "title": "Ottodot backend",
-    "description": "The Go api and worker: resources first, then the two failure groups the brief calls out, then traffic, bookings, and the infrastructure underneath.",
+    "description": "The Go api and worker: the two numbers somebody has to act on first, money owed to a parent and work that failed, then the injected faults and the transactions they break, then resources, containers, access failures, traffic, bookings, and the infrastructure underneath.",
     "tags": [
         "ottodot",
         "backend"
@@ -26,9 +26,9 @@
     },
     "panels": [
         {
-            "id": 1,
+            "id": 38,
             "type": "row",
-            "title": "Fault injection",
+            "title": "Owed and failed",
             "collapsed": false,
             "gridPos": {
                 "h": 1,
@@ -40,10 +40,88 @@
             "description": "Reads one while this stack can be broken on purpose. It is the first row so nobody mistakes a deliberately broken demonstration for a healthy service."
         },
         {
+            "id": 22,
+            "type": "stat",
+            "title": "Refunds owed",
+            "description": "Parents who have been charged and not yet refunded. The only number on this dashboard where the cost of ignoring it is somebody's money. It reads the api alone: both processes register the gauge and only the api samples the database for it, so without that the worker's permanent zero would sit beside the real count and read like a second answer.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 8,
+                "x": 0,
+                "y": 1
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "refund_pending_bookings{job=\"api\"}",
+                    "legendFormat": "pending",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 25,
+            "type": "timeseries",
+            "title": "Failed jobs",
+            "description": "Job attempts that did not finish, by kind. A job retries and then parks, so a rising line here precedes work stopping.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 16,
+                "x": 8,
+                "y": 1
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (kind) (rate(queue_job_failed_total[5m]))",
+                    "legendFormat": "{{kind}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 1,
+            "type": "row",
+            "title": "Fault injection",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 8
+            },
+            "panels": [],
+            "description": "Reads one while this stack can be broken on purpose. It is the first row so nobody mistakes a deliberately broken demonstration for a healthy service."
+        },
+        {
             "id": 2,
             "type": "stat",
             "title": "Fault injection enabled",
-            "description": "One while the development only injection surface is live. It is published even when the surface is off, so the panel says zero rather than nothing at all.",
+            "description": "One while the development only injection surface is live. It is published even when the surface is off, so the panel says zero rather than nothing at all. It reads the api alone, which is the process that serves the surface. The worker registers the same gauge and never sets it.",
             "datasource": {
                 "type": "prometheus",
                 "uid": "ottodot-prometheus"
@@ -52,12 +130,12 @@
                 "h": 4,
                 "w": 8,
                 "x": 0,
-                "y": 1
+                "y": 9
             },
             "targets": [
                 {
                     "refId": "A",
-                    "expr": "fault_injection_enabled",
+                    "expr": "fault_injection_enabled{job=\"api\"}",
                     "legendFormat": "armed",
                     "datasource": {
                         "type": "prometheus",
@@ -84,13 +162,155 @@
                 "h": 4,
                 "w": 16,
                 "x": 8,
-                "y": 1
+                "y": 9
             },
             "targets": [
                 {
                     "refId": "A",
                     "expr": "increase(fault_injected_total[5m])",
                     "legendFormat": "{{point}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 19,
+            "type": "row",
+            "title": "Transaction failures",
+            "collapsed": false,
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 13
+            },
+            "panels": [],
+            "description": "A rollback is not automatically a fault. A confirm that loses the race rolls back by design, which is why confirm outcomes are split three ways and only error means something broke."
+        },
+        {
+            "id": 20,
+            "type": "timeseries",
+            "title": "Confirm outcomes",
+            "description": "confirmed, seat_lost, and error. The middle one is correct behaviour and the last one is not, and no alert could tell them apart if they shared a series.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 6,
+                "x": 0,
+                "y": 14
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (outcome) (rate(confirm_transaction_total[5m]))",
+                    "legendFormat": "{{outcome}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 21,
+            "type": "timeseries",
+            "title": "Confirm errors",
+            "description": "The exact series TransactionErrorSpike fires on, queried by name, so the alert and the panel cannot drift apart.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 6,
+                "x": 6,
+                "y": 14
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "increase(confirm_transaction_total{outcome=\"error\"}[5m])",
+                    "legendFormat": "broken",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 23,
+            "type": "timeseries",
+            "title": "Payment outcomes",
+            "description": "settled, declined, and error. A decline is an answer and worked as designed. An error is no answer at all, which is the case where nobody knows whether money moved.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 6,
+                "x": 12,
+                "y": 14
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (outcome) (rate(payment_attempt_total[5m]))",
+                    "legendFormat": "{{outcome}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                }
+            ],
+            "fieldConfig": {
+                "defaults": {},
+                "overrides": []
+            },
+            "options": {}
+        },
+        {
+            "id": 24,
+            "type": "timeseries",
+            "title": "Database transactions",
+            "description": "Commits against rollbacks and conflicts, by transaction name.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "ottodot-prometheus"
+            },
+            "gridPos": {
+                "h": 7,
+                "w": 6,
+                "x": 18,
+                "y": 14
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (name, outcome) (rate(db_transaction_total[5m]))",
+                    "legendFormat": "{{name}} {{outcome}}",
                     "datasource": {
                         "type": "prometheus",
                         "uid": "ottodot-prometheus"
@@ -112,7 +332,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 5
+                "y": 21
             },
             "panels": [],
             "description": "Layer one is what each process knows about itself and layer two is what the host knows. Neither needs cAdvisor, so this row still draws when the container runtime socket is not available."
@@ -130,7 +350,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 0,
-                "y": 6
+                "y": 22
             },
             "targets": [
                 {
@@ -173,7 +393,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 8,
-                "y": 6
+                "y": 22
             },
             "targets": [
                 {
@@ -225,7 +445,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 16,
-                "y": 6
+                "y": 22
             },
             "targets": [
                 {
@@ -268,7 +488,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 0,
-                "y": 13
+                "y": 29
             },
             "targets": [
                 {
@@ -302,7 +522,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 8,
-                "y": 13
+                "y": 29
             },
             "targets": [
                 {
@@ -345,7 +565,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 16,
-                "y": 13
+                "y": 29
             },
             "targets": [
                 {
@@ -391,7 +611,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 20
+                "y": 36
             },
             "panels": [],
             "description": "Layer three, from cAdvisor. This is the row that goes blank when the container runtime socket is not available, and the two rows above are what still answer cpu, memory, and drive when it does."
@@ -409,7 +629,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 0,
-                "y": 21
+                "y": 37
             },
             "targets": [
                 {
@@ -443,7 +663,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 8,
-                "y": 21
+                "y": 37
             },
             "targets": [
                 {
@@ -477,7 +697,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 16,
-                "y": 21
+                "y": 37
             },
             "targets": [
                 {
@@ -516,7 +736,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 28
+                "y": 44
             },
             "panels": [],
             "description": "Called out in the brief as important, so they get a row rather than being buried in a status code chart."
@@ -534,7 +754,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 0,
-                "y": 29
+                "y": 45
             },
             "targets": [
                 {
@@ -566,7 +786,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 8,
-                "y": 29
+                "y": 45
             },
             "targets": [
                 {
@@ -607,7 +827,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 16,
-                "y": 29
+                "y": 45
             },
             "targets": [
                 {
@@ -645,212 +865,6 @@
             "options": {}
         },
         {
-            "id": 19,
-            "type": "row",
-            "title": "Transaction failures",
-            "collapsed": false,
-            "gridPos": {
-                "h": 1,
-                "w": 24,
-                "x": 0,
-                "y": 36
-            },
-            "panels": [],
-            "description": "A rollback is not automatically a fault. A confirm that loses the race rolls back by design, which is why confirm outcomes are split three ways and only error means something broke."
-        },
-        {
-            "id": 20,
-            "type": "timeseries",
-            "title": "Confirm outcomes",
-            "description": "confirmed, seat_lost, and error. The middle one is correct behaviour and the last one is not, and no alert could tell them apart if they shared a series.",
-            "datasource": {
-                "type": "prometheus",
-                "uid": "ottodot-prometheus"
-            },
-            "gridPos": {
-                "h": 7,
-                "w": 8,
-                "x": 0,
-                "y": 37
-            },
-            "targets": [
-                {
-                    "refId": "A",
-                    "expr": "sum by (outcome) (rate(confirm_transaction_total[5m]))",
-                    "legendFormat": "{{outcome}}",
-                    "datasource": {
-                        "type": "prometheus",
-                        "uid": "ottodot-prometheus"
-                    }
-                }
-            ],
-            "fieldConfig": {
-                "defaults": {},
-                "overrides": []
-            },
-            "options": {}
-        },
-        {
-            "id": 21,
-            "type": "timeseries",
-            "title": "Confirm errors",
-            "description": "The exact series TransactionErrorSpike fires on, queried by name, so the alert and the panel cannot drift apart.",
-            "datasource": {
-                "type": "prometheus",
-                "uid": "ottodot-prometheus"
-            },
-            "gridPos": {
-                "h": 7,
-                "w": 8,
-                "x": 8,
-                "y": 37
-            },
-            "targets": [
-                {
-                    "refId": "A",
-                    "expr": "increase(confirm_transaction_total{outcome=\"error\"}[5m])",
-                    "legendFormat": "broken",
-                    "datasource": {
-                        "type": "prometheus",
-                        "uid": "ottodot-prometheus"
-                    }
-                }
-            ],
-            "fieldConfig": {
-                "defaults": {},
-                "overrides": []
-            },
-            "options": {}
-        },
-        {
-            "id": 22,
-            "type": "stat",
-            "title": "Refunds owed",
-            "description": "Parents who have been charged and not yet refunded. The only number on this dashboard where the cost of ignoring it is somebody's money.",
-            "datasource": {
-                "type": "prometheus",
-                "uid": "ottodot-prometheus"
-            },
-            "gridPos": {
-                "h": 7,
-                "w": 8,
-                "x": 16,
-                "y": 37
-            },
-            "targets": [
-                {
-                    "refId": "A",
-                    "expr": "refund_pending_bookings",
-                    "legendFormat": "pending",
-                    "datasource": {
-                        "type": "prometheus",
-                        "uid": "ottodot-prometheus"
-                    }
-                }
-            ],
-            "fieldConfig": {
-                "defaults": {},
-                "overrides": []
-            },
-            "options": {}
-        },
-        {
-            "id": 23,
-            "type": "timeseries",
-            "title": "Payment outcomes",
-            "description": "settled, declined, and error. A decline is an answer and worked as designed. An error is no answer at all, which is the case where nobody knows whether money moved.",
-            "datasource": {
-                "type": "prometheus",
-                "uid": "ottodot-prometheus"
-            },
-            "gridPos": {
-                "h": 7,
-                "w": 8,
-                "x": 0,
-                "y": 44
-            },
-            "targets": [
-                {
-                    "refId": "A",
-                    "expr": "sum by (outcome) (rate(payment_attempt_total[5m]))",
-                    "legendFormat": "{{outcome}}",
-                    "datasource": {
-                        "type": "prometheus",
-                        "uid": "ottodot-prometheus"
-                    }
-                }
-            ],
-            "fieldConfig": {
-                "defaults": {},
-                "overrides": []
-            },
-            "options": {}
-        },
-        {
-            "id": 24,
-            "type": "timeseries",
-            "title": "Database transactions",
-            "description": "Commits against rollbacks and conflicts, by transaction name.",
-            "datasource": {
-                "type": "prometheus",
-                "uid": "ottodot-prometheus"
-            },
-            "gridPos": {
-                "h": 7,
-                "w": 8,
-                "x": 8,
-                "y": 44
-            },
-            "targets": [
-                {
-                    "refId": "A",
-                    "expr": "sum by (name, outcome) (rate(db_transaction_total[5m]))",
-                    "legendFormat": "{{name}} {{outcome}}",
-                    "datasource": {
-                        "type": "prometheus",
-                        "uid": "ottodot-prometheus"
-                    }
-                }
-            ],
-            "fieldConfig": {
-                "defaults": {},
-                "overrides": []
-            },
-            "options": {}
-        },
-        {
-            "id": 25,
-            "type": "timeseries",
-            "title": "Failed jobs",
-            "description": "Job attempts that did not finish, by kind. A job retries and then parks, so a rising line here precedes work stopping.",
-            "datasource": {
-                "type": "prometheus",
-                "uid": "ottodot-prometheus"
-            },
-            "gridPos": {
-                "h": 7,
-                "w": 8,
-                "x": 16,
-                "y": 44
-            },
-            "targets": [
-                {
-                    "refId": "A",
-                    "expr": "sum by (kind) (rate(queue_job_failed_total[5m]))",
-                    "legendFormat": "{{kind}}",
-                    "datasource": {
-                        "type": "prometheus",
-                        "uid": "ottodot-prometheus"
-                    }
-                }
-            ],
-            "fieldConfig": {
-                "defaults": {},
-                "overrides": []
-            },
-            "options": {}
-        },
-        {
             "id": 26,
             "type": "row",
             "title": "Traffic",
@@ -859,7 +873,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 51
+                "y": 52
             },
             "panels": []
         },
@@ -876,7 +890,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 0,
-                "y": 52
+                "y": 53
             },
             "targets": [
                 {
@@ -899,7 +913,7 @@
             "id": 28,
             "type": "timeseries",
             "title": "Latency",
-            "description": "Timed from outside the whole middleware chain, so the number covers everything a parent waits for rather than only the handler.",
+            "description": "Timed from outside the whole middleware chain, so the number covers everything a parent waits for rather than only the handler. The average is drawn beside the two percentiles because a percentile needs requests inside the window to be a number at all: on a stack nobody has used yet the two would read No data, which is what a broken exporter looks like too.",
             "datasource": {
                 "type": "prometheus",
                 "uid": "ottodot-prometheus"
@@ -908,7 +922,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 8,
-                "y": 52
+                "y": 53
             },
             "targets": [
                 {
@@ -924,6 +938,15 @@
                     "refId": "B",
                     "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))",
                     "legendFormat": "p50",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "C",
+                    "expr": "sum(rate(http_request_duration_seconds_sum[5m])) / clamp_min(sum(rate(http_request_duration_seconds_count[5m])), 1e-9)",
+                    "legendFormat": "average",
                     "datasource": {
                         "type": "prometheus",
                         "uid": "ottodot-prometheus"
@@ -951,7 +974,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 16,
-                "y": 52
+                "y": 53
             },
             "targets": [
                 {
@@ -988,7 +1011,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 59
+                "y": 60
             },
             "panels": []
         },
@@ -1005,7 +1028,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 0,
-                "y": 60
+                "y": 61
             },
             "targets": [
                 {
@@ -1046,7 +1069,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 8,
-                "y": 60
+                "y": 61
             },
             "targets": [
                 {
@@ -1087,7 +1110,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 16,
-                "y": 60
+                "y": 61
             },
             "targets": [
                 {
@@ -1115,7 +1138,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 67
+                "y": 68
             },
             "panels": []
         },
@@ -1123,7 +1146,7 @@
             "id": 35,
             "type": "timeseries",
             "title": "Queue depth",
-            "description": "Ready, claimed, and parked. Depth rising while job durations are flat is the worker being alive and not consuming, which is what QueueStalled fires on.",
+            "description": "Ready, claimed, and parked. Depth rising while job durations are flat is the worker being alive and not consuming, which is what QueueStalled fires on. Read failures is what the three depth series become when the queue cannot be asked at all: they are published as not-a-number rather than as a misleading zero, so the depth goes empty and this line is what says why.",
             "datasource": {
                 "type": "prometheus",
                 "uid": "ottodot-prometheus"
@@ -1132,13 +1155,22 @@
                 "h": 7,
                 "w": 8,
                 "x": 0,
-                "y": 68
+                "y": 69
             },
             "targets": [
                 {
                     "refId": "A",
                     "expr": "queue_depth",
                     "legendFormat": "{{state}}",
+                    "datasource": {
+                        "type": "prometheus",
+                        "uid": "ottodot-prometheus"
+                    }
+                },
+                {
+                    "refId": "B",
+                    "expr": "sum(rate(queue_depth_read_failed_total[5m]))",
+                    "legendFormat": "read failed",
                     "datasource": {
                         "type": "prometheus",
                         "uid": "ottodot-prometheus"
@@ -1164,7 +1196,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 8,
-                "y": 68
+                "y": 69
             },
             "targets": [
                 {
@@ -1225,7 +1257,7 @@
                 "h": 7,
                 "w": 8,
                 "x": 16,
-                "y": 68
+                "y": 69
             },
             "targets": [
                 {
@@ -1239,7 +1271,7 @@
                 },
                 {
                     "refId": "B",
-                    "expr": "replication_lag_bytes",
+                    "expr": "replication_lag_bytes{job=\"api\"}",
                     "legendFormat": "replication lag",
                     "datasource": {
                         "type": "prometheus",

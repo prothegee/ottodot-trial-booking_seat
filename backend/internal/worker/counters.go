@@ -12,7 +12,9 @@ type MetricSink interface {
     JobsClaimed(jobs int)
     JobsCompleted()
     QueueJobFailed(kind string)
+    QueueJobFinished(kind string, outcome string, seconds float64)
     QueueDepth(ready int, claimed int, parked int)
+    QueueDepthUnknown()
 }
 
 // Counters is what the worker knows about its own run.
@@ -83,6 +85,16 @@ func (counters *Counters) Failed(kind string) {
 func (counters *Counters) Depth(ready int, claimed int, parked int) {
     if counters.sink != nil {
         counters.sink.QueueDepth(ready, claimed, parked)
+    }
+}
+
+// DepthUnknown publishes that the queue could not be asked.
+//
+// It is the other half of Depth rather than a silence, because a gauge nobody
+// writes keeps its last value and goes on being read as current.
+func (counters *Counters) DepthUnknown() {
+    if counters.sink != nil {
+        counters.sink.QueueDepthUnknown()
     }
 }
 

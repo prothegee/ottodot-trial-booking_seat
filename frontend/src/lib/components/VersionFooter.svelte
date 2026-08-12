@@ -1,7 +1,7 @@
 <script lang="ts">
     import { buildIdentity } from "$lib/config/environment";
 
-    /** Enough of a commit to identify a build, short enough to read on video. */
+    /** Enough of a commit to identify a build, short enough to read at a glance. */
     const shortCommitLength = 7;
 
     const commit =
@@ -23,7 +23,7 @@
         justify-content: center;
         padding: 1rem;
         font-size: 0.8rem;
-        color: #6b7280;
-        border-top: 1px solid #e5e7eb;
+        color: var(--muted);
+        border-top: 1px solid var(--line);
     }
 </style>

@@ -17,7 +17,7 @@ import (
 // pools first would fail whatever job was in flight, and stopping the scrapes
 // first would leave the last minute of the worker's life invisible.
 func run() error {
-    settings, err := config.LoadFromEnvironment()
+    settings, err := config.LoadFromFile(config.DefaultFilePath)
     if err != nil {
         return fmt.Errorf("the configuration was refused: %w", err)
     }
@@ -46,11 +46,21 @@ func run() error {
         return err
     }
 
-    go serveMetrics(listener, watch.Logger)
+    // Before the worker announces itself. A metrics port already held means a
+    // second worker is running, and two consumers of one queue is worth refusing
+    // rather than reporting.
+    socket, err := bindListener(listener)
+    if err != nil {
+        return fmt.Errorf("the worker could not take its metrics port: %w", err)
+    }
+
+    go serveMetrics(listener, socket, watch.Logger)
+
+    version, commit := buildIdentity(settings.Build)
 
     watch.Logger.Info("the worker is consuming the queue",
-        "version", buildVersion,
-        "commit", buildCommit,
+        "version", version,
+        "commit", commit,
         "metrics_address", address)
 
     ctx, stop := bootstrap.ShutdownSignal()

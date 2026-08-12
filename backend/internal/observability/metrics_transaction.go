@@ -166,6 +166,50 @@ func (metrics *TransactionMetrics) QueueJobFailed(kind string) {
     metrics.jobFail.WithLabelValues(kind).Inc()
 }
 
+// DeclareJobKinds creates the failure series for every kind of job at zero.
+//
+// Note:
+//   - a counter with a label has no series until that label value is used once,
+//     so a service where no job has ever failed publishes nothing and the panel
+//     reads No data. A stack with a broken worker reads the same, which is the
+//     confusion this removes: after this, none failed is a flat line at zero
+//   - the list comes from the caller rather than from here, because the kinds
+//     belong to the queue and a second copy of them would drift
+//
+// Param:
+// kinds - []string (every job kind this service runs)
+func (metrics *TransactionMetrics) DeclareJobKinds(kinds []string) {
+    if metrics == nil {
+        return
+    }
+
+    for _, kind := range kinds {
+        metrics.jobFail.WithLabelValues(kind)
+    }
+}
+
+// DeclareTransactionNames creates every transaction series at zero.
+//
+// Note:
+//   - same reason as DeclareJobKinds: until a booking happens the panel has
+//     nothing to draw, and no traffic then looks exactly like no wiring
+//   - the outcomes are named here and the transaction names by the caller,
+//     because the outcomes belong to this metric and the names to the repository
+//
+// Param:
+// names - []string (every transaction this service opens)
+func (metrics *TransactionMetrics) DeclareTransactionNames(names []string) {
+    if metrics == nil {
+        return
+    }
+
+    for _, name := range names {
+        for _, outcome := range []string{OutcomeCommit, OutcomeRollback, OutcomeConflict} {
+            metrics.database.WithLabelValues(name, outcome)
+        }
+    }
+}
+
 // RefundPending publishes how many parents are owed money right now.
 //
 // It is a gauge read from the database rather than a counter incremented in

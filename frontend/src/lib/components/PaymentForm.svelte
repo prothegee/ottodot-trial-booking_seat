@@ -167,8 +167,8 @@
         flex-direction: column;
         gap: 0.75rem;
         padding: 1rem;
-        background: #ffffff;
-        border: 1px solid #e5e7eb;
+        background: var(--surface);
+        border: 1px solid var(--line);
         border-radius: 0.5rem;
     }
 
@@ -181,7 +181,7 @@
     .note {
         margin: 0;
         font-size: 0.85rem;
-        color: #6b7280;
+        color: var(--muted);
     }
 
     /*
@@ -202,15 +202,15 @@
         padding: 0.5rem;
         font-size: 1rem;
         font-weight: 600;
-        color: #ffffff;
-        background: #1d4ed8;
+        color: var(--on-accent);
+        background: var(--accent);
         border: none;
         border-radius: 0.25rem;
         cursor: pointer;
     }
 
     button:disabled {
-        background: #9ca3af;
+        background: var(--muted-soft);
         cursor: not-allowed;
     }
 </style>

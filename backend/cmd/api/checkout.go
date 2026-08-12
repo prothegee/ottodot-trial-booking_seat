@@ -39,6 +39,16 @@ type deciding struct {
 func buildCheckout(deps *dependencies, watch bootstrap.Observability) (deciding, error) {
     seats := booking.NewPostgresRepository(deps.pools.Primary())
 
+    // Every seat transaction is counted where it ends, so the panel reads
+    // commits against rollbacks rather than only the confirms the service layer
+    // times.
+    seats.CountTransactions(watch.Metrics)
+
+    // Declared once here rather than in both processes, because the panel sums
+    // over them and the api is the one always running. Without it the panel has
+    // nothing at all until the first booking of the day.
+    watch.Metrics.Transaction.DeclareTransactionNames(booking.TransactionNames())
+
     bookings, err := booking.NewService(seats, booking.DefaultSettings())
     if err != nil {
         return deciding{}, fmt.Errorf("the booking service: %w", err)

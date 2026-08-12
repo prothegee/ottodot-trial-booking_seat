@@ -10,7 +10,7 @@ import { booking } from "$lib/stores/booking";
 import PayPage from "../routes/pay/[bookingId]/+page.svelte";
 
 /**
- * Simulation F6: the hold countdown reaches zero.
+ * Test 6: the hold countdown reaches zero.
  *
  *     mount[payment screen mounts with a deadline] --> tick[countdown ticks]
  *     tick --> zero{deadline reached}
@@ -55,6 +55,9 @@ const heldBooking: Booking = {
     id: bookingId,
     student_id: "0192a000-0000-7000-8000-000000000011",
     class_id: "0192a000-0000-7000-8000-000000000021",
+    class_subject: "science",
+    class_title: "Science Discovery",
+    class_starts_at: "2026-08-15T01:28:26.224983Z",
     status: "pending_payment",
     seat_no: null,
     hold_expires_at: new Date(now + 60 * 1000).toISOString(),
@@ -63,7 +66,7 @@ const heldBooking: Booking = {
 /** What the api reports once the worker has swept the hold. */
 const expiredBooking: Booking = { ...heldBooking, status: "expired", hold_expires_at: null };
 
-describe("simulation F6: the hold countdown reaches zero", () => {
+describe("test 6: the hold countdown reaches zero", () => {
     beforeEach(() => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
         vi.setSystemTime(now);

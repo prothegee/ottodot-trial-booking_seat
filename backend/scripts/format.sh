@@ -61,7 +61,12 @@ while IFS= read -r -d '' source; do
     fi
 
     printf '%s\n' "$formatted" > "$source"
-done < <(find . -name '*.go' -not -path './.data/*' -print0)
+
+# containers/ is pruned rather than filtered out of the results. Filtering still
+# walks into it, and each service's data directory in there is written by a
+# container user this one cannot read, so the check printed a page of permission
+# errors before saying anything. No Go source lives under it either way.
+done < <(find . -path ./containers -prune -o -name '*.go' -print0)
 
 if [ "$check_only" -eq 1 ] && [ "$changed" -gt 0 ]; then
     printf '%d file(s) are not formatted, run scripts/format.sh\n' "$changed" >&2

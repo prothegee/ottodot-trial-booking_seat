@@ -26,7 +26,7 @@ func newHandlerStage(t *testing.T) *handlerStage {
     service := newServiceStage(t)
 
     guard, err := auth.NewGuard(service.signer, service.denylist, auth.GuardSettings{
-        FrontendOrigin: testOrigin,
+        AllowedOrigins: []string{testOrigin},
         Clock:          func() time.Time { return service.now },
     })
     if err != nil {
@@ -55,11 +55,19 @@ func (stage *handlerStage) call(request *http.Request) *httptest.ResponseRecorde
     return recorder
 }
 
-// signIn posts a login body and returns the response, cookies included.
+// signIn posts a login body with the right password and returns the response,
+// cookies included.
 func (stage *handlerStage) signIn(t *testing.T, email string) *httptest.ResponseRecorder {
     t.Helper()
 
-    body := strings.NewReader(`{"email":"` + email + `"}`)
+    return stage.attemptSignIn(t, email, seededPassword)
+}
+
+// attemptSignIn posts whatever pair the caller wants to try.
+func (stage *handlerStage) attemptSignIn(t *testing.T, email string, password string) *httptest.ResponseRecorder {
+    t.Helper()
+
+    body := strings.NewReader(`{"email":"` + email + `","password":"` + password + `"}`)
 
     request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", body)
     request.Header.Set("Origin", testOrigin)
@@ -130,11 +138,12 @@ func TestTheLoginRoute(t *testing.T) {
     })
 
     t.Run("edge: a body carrying a field this service has no use for is refused", func(t *testing.T) {
-        // A client sending a password to a service that has none should be
-        // told, not quietly signed in as if the field had been checked.
+        // A client sending a field this service does not read should be told,
+        // not answered as if the value had been taken into account.
         stage := newHandlerStage(t)
 
-        body := strings.NewReader(`{"email":"` + contractParentEmail + `","password":"anything"}`)
+        body := strings.NewReader(
+            `{"email":"` + contractParentEmail + `","password":"` + seededPassword + `","remember":true}`)
 
         request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", body)
         request.Header.Set("Origin", testOrigin)
@@ -144,10 +153,53 @@ func TestTheLoginRoute(t *testing.T) {
         }
     })
 
-    t.Run("edge: a sign in from another site is refused before anything is read", func(t *testing.T) {
+    t.Run("edge: the right email with the wrong password is refused, and says no more than that", func(t *testing.T) {
+        stage := newHandlerStage(t)
+
+        response := stage.attemptSignIn(t, contractParentEmail, "not-the-password")
+
+        if response.Code != http.StatusBadRequest {
+            t.Fatalf("expected 400, got %d", response.Code)
+        }
+
+        if len(response.Result().Cookies()) != 0 {
+            t.Fatal("a refused sign in was given cookies")
+        }
+
+        // The same answer an unknown address gets. Any difference here is a way
+        // to find out which addresses have accounts.
+        unknown := newHandlerStage(t).attemptSignIn(t, "nobody@example.test", seededPassword)
+
+        if response.Body.String() != unknown.Body.String() {
+            t.Fatalf("a wrong password answers %q and an unknown address answers %q, so the two can be told apart",
+                response.Body.String(), unknown.Body.String())
+        }
+    })
+
+    t.Run("edge: a sign in with no password at all is refused", func(t *testing.T) {
         stage := newHandlerStage(t)
 
         body := strings.NewReader(`{"email":"` + contractParentEmail + `"}`)
+
+        request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", body)
+        request.Header.Set("Origin", testOrigin)
+
+        response := stage.call(request)
+
+        if response.Code != http.StatusBadRequest {
+            t.Fatalf("expected 400, got %d", response.Code)
+        }
+
+        if len(response.Result().Cookies()) != 0 {
+            t.Fatal("a sign in with no password was given cookies")
+        }
+    })
+
+    t.Run("edge: a sign in from another site is refused before anything is read", func(t *testing.T) {
+        stage := newHandlerStage(t)
+
+        body := strings.NewReader(
+            `{"email":"` + contractParentEmail + `","password":"` + seededPassword + `"}`)
 
         request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", body)
         request.Header.Set("Origin", "http://somewhere-else.example.test")
@@ -398,7 +450,7 @@ func TestHandlerConstruction(t *testing.T) {
     t.Run("edge: a handler missing its service or its guard is refused rather than built", func(t *testing.T) {
         stage := newServiceStage(t)
 
-        guard, err := auth.NewGuard(stage.signer, stage.denylist, auth.GuardSettings{FrontendOrigin: testOrigin})
+        guard, err := auth.NewGuard(stage.signer, stage.denylist, auth.GuardSettings{AllowedOrigins: []string{testOrigin}})
         if err != nil {
             t.Fatalf("cannot build the guard: %v", err)
         }

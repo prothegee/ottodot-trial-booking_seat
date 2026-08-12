@@ -94,19 +94,79 @@ func TestTheWorkerAnswersOnItsMetricsPort(t *testing.T) {
         }
     })
 
-    t.Run("edge: a queue that cannot be read fails the scrape rather than reporting zeroes", func(t *testing.T) {
+    t.Run("edge: a queue that cannot be read reports no depth rather than zeroes", func(t *testing.T) {
         // Zeroes would read as a healthy empty queue, which is the opposite of
         // what is happening, and no alert would fire.
         handler, _ := newTestListener(t, queue.Depth{}, errQueueUnreachable)
 
+        body := call(handler, "/metrics").Body.String()
+
+        for _, expected := range []string{
+            `queue_depth{state="ready"} NaN`,
+            `queue_depth{state="claimed"} NaN`,
+            `queue_depth{state="parked"} NaN`,
+            "queue_depth_read_failed_total 1",
+        } {
+            if !strings.Contains(body, expected) {
+                t.Fatalf("expected %q in the scrape, got:\n%s", expected, body)
+            }
+        }
+    })
+
+    t.Run("edge: a queue that cannot be read still publishes everything else", func(t *testing.T) {
+        // Failing the whole scrape over the queue's one gauge threw away every
+        // count this process holds itself and took its target down, so a stack
+        // with no schema yet read exactly like a worker that was never built.
+        handler, counters := newTestListener(t, queue.Depth{}, errQueueUnreachable)
+
+        counters.Claimed(2)
+        counters.Completed()
+
         recorded := call(handler, "/metrics")
 
-        if recorded.Code != http.StatusServiceUnavailable {
-            t.Fatalf("expected 503, got %d", recorded.Code)
+        if recorded.Code != http.StatusOK {
+            t.Fatalf("expected 200, because the process and its counts are fine, got %d", recorded.Code)
         }
 
-        if strings.Contains(recorded.Body.String(), "queue_depth") {
-            t.Fatalf("a failed scrape must publish no series, got:\n%s", recorded.Body.String())
+        body := recorded.Body.String()
+
+        for _, expected := range []string{
+            "worker_jobs_claimed_total 2",
+            "worker_jobs_completed_total 1",
+        } {
+            if !strings.Contains(body, expected) {
+                t.Fatalf("expected %q in the scrape, got:\n%s", expected, body)
+            }
+        }
+    })
+
+    t.Run("behaviour: a queue that answers again replaces the missing reading", func(t *testing.T) {
+        // Not-a-number must not be sticky. An operator watching the panel come
+        // back is how they know the queue recovered.
+        registry := prometheus.NewRegistry()
+        counters := worker.NewCounters(observability.NewMetrics(registry))
+
+        answer := errQueueUnreachable
+
+        handler, err := worker.NewListenerHandler(counters, func(_ context.Context) (queue.Depth, error) {
+            return queue.Depth{Ready: 3}, answer
+        }, observability.Handler(registry))
+        if err != nil {
+            t.Fatalf("expected the listener to build, got: %v", err)
+        }
+
+        call(handler, "/metrics")
+
+        answer = nil
+
+        body := call(handler, "/metrics").Body.String()
+
+        if !strings.Contains(body, `queue_depth{state="ready"} 3`) {
+            t.Fatalf("expected the reading back, got:\n%s", body)
+        }
+
+        if !strings.Contains(body, "queue_depth_read_failed_total 1") {
+            t.Fatalf("expected the one earlier failure to stay counted, got:\n%s", body)
         }
     })
 

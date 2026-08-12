@@ -8,7 +8,7 @@ import { createCachedReader } from "$lib/cache/read_through";
 import { createCacheStore } from "$lib/cache/store";
 
 /**
- * Simulation F13: a stale cache revalidates to a 304.
+ * Test 13: a stale cache revalidates to a 304.
  *
  *     note over client: the entry is ten seconds old
  *     parent -> client: open the class list
@@ -36,7 +36,7 @@ function heldAnswer() {
     return { held, release: () => release() };
 }
 
-describe("simulation F13: a stale cache revalidates to a 304", () => {
+describe("test 13: a stale cache revalidates to a 304", () => {
     beforeEach(() => {
         sessionStorage.clear();
     });

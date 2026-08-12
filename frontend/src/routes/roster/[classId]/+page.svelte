@@ -63,24 +63,32 @@
                 api is what leaves them out, and this screen has no way to ask
                 for them.
             -->
-            <table data-testid="roster-table">
-                <thead>
-                    <tr>
-                        <th scope="col">Seat</th>
-                        <th scope="col">Student</th>
-                        <th scope="col">Confirmed</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {#each entries as entry (entry.student_id)}
-                        <tr data-testid="roster-row">
-                            <td data-testid="roster-seat">{entry.seat_no}</td>
-                            <td>{entry.student_name}</td>
-                            <td>{new Date(entry.confirmed_at).toLocaleString()}</td>
+            <!--
+                The wrapper is what keeps a phone usable. The confirmed column
+                holds a full local date and time, so on a narrow screen this
+                table is wider than the viewport, and without somewhere to
+                scroll it the whole page slides sideways instead.
+            -->
+            <div class="table-scroll">
+                <table data-testid="roster-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Seat</th>
+                            <th scope="col">Student</th>
+                            <th scope="col">Confirmed</th>
                         </tr>
-                    {/each}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        {#each entries as entry (entry.student_id)}
+                            <tr data-testid="roster-row">
+                                <td data-testid="roster-seat">{entry.seat_no}</td>
+                                <td>{entry.student_name}</td>
+                                <td>{new Date(entry.confirmed_at).toLocaleString()}</td>
+                            </tr>
+                        {/each}
+                    </tbody>
+                </table>
+            </div>
         {:else}
             <p class="note" data-testid="roster-empty">Nobody has confirmed a seat in this class yet.</p>
         {/if}
@@ -111,28 +119,33 @@
 
     .note {
         margin: 0;
-        color: #6b7280;
+        color: var(--muted);
     }
 
     .failure {
         margin: 0;
         padding: 0.5rem 0.75rem;
         font-size: 0.9rem;
-        color: #b91c1c;
-        background: #fee2e2;
+        color: var(--danger);
+        background: var(--danger-surface);
         border-radius: 0.25rem;
+    }
+
+    .table-scroll {
+        overflow-x: auto;
     }
 
     table {
         border-collapse: collapse;
         font-size: 0.9rem;
+        white-space: nowrap;
     }
 
     th,
     td {
         padding: 0.35rem 1rem 0.35rem 0;
         text-align: left;
-        border-bottom: 1px solid #e5e7eb;
+        border-bottom: 1px solid var(--line);
     }
 
     .back {

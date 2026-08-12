@@ -8,12 +8,15 @@
  */
 import { createApiClient } from "$lib/api/client";
 import { createFetchTransport } from "$lib/api/transport";
-import { apiBaseUrl } from "$lib/config/environment";
+import { apiBaseUrlForThisPage } from "$lib/config/api_base_url";
 import { hardSignOut, reasonForCode } from "$lib/session/sign_out";
 
 /** The application wide api client. */
 export const api = createApiClient({
-    transport: createFetchTransport(apiBaseUrl),
+    // The configured address, with its host aligned to the page's when both are
+    // loopback names. Without that, a reviewer who opens localhost:9001 signs in
+    // successfully and is refused by the very next call.
+    transport: createFetchTransport(apiBaseUrlForThisPage()),
     onSignOut: (failure) => {
         // Fire and forget on purpose. The call that failed is already on its
         // way back to its caller with the reason, and the navigation must not

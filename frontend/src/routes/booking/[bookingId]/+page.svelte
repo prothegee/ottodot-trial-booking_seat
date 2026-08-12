@@ -1,6 +1,7 @@
 <script lang="ts">
     import { page } from "$app/state";
 
+    import BookingActions from "$lib/components/BookingActions.svelte";
     import BookingStatus from "$lib/components/BookingStatus.svelte";
     import { booking } from "$lib/stores/booking";
 
@@ -15,20 +16,20 @@
 
     const held = $derived($booking.booking);
     const failure = $derived($booking.failure);
-
-    /** A booking still waiting on money has somewhere to go from here. */
-    const payable = $derived(held !== null && held.status === "pending_payment");
 </script>
 
 <section class="booking">
     <h1>Your booking</h1>
 
     {#if held !== null}
-        <BookingStatus booking={held} />
-
-        {#if payable}
-            <p class="onward"><a href="/pay/{bookingId}">Go to the payment screen</a></p>
-        {/if}
+        <BookingStatus booking={held}>
+            <!--
+                The booking is read again rather than taken from what the cancel
+                answered. This screen exists to say where a booking stands, and
+                the api is what decides that.
+            -->
+            <BookingActions booking={held} showPay onCancelled={() => booking.load(bookingId)} />
+        </BookingStatus>
     {:else if failure !== null}
         <p class="failure" role="alert" data-testid="booking-failure">{failure.message}</p>
     {:else}
@@ -53,21 +54,16 @@
 
     .loading {
         margin: 0;
-        color: #6b7280;
+        color: var(--muted);
     }
 
     .failure {
         margin: 0;
         padding: 0.5rem 0.75rem;
         font-size: 0.9rem;
-        color: #b91c1c;
-        background: #fee2e2;
+        color: var(--danger);
+        background: var(--danger-surface);
         border-radius: 0.25rem;
-    }
-
-    .onward {
-        margin: 0;
-        font-size: 0.9rem;
     }
 
     .back {

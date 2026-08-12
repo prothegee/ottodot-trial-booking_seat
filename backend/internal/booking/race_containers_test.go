@@ -4,7 +4,7 @@
 //
 // A fake repository proves the service calls the right things in the right
 // order. It cannot prove that SELECT ... FOR UPDATE serializes two
-// transactions, because there is no transaction. Simulations 4 and 5 run real
+// transactions, because there is no transaction. Tests 4 and 5 run real
 // parallel connections against real Postgres, which is the only way that claim
 // gets tested.
 //

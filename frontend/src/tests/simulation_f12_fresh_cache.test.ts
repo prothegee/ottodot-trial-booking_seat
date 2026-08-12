@@ -7,7 +7,7 @@ import { createCachedReader } from "$lib/cache/read_through";
 import { createCacheStore } from "$lib/cache/store";
 
 /**
- * Simulation F12: a fresh cache sends no request at all.
+ * Test 12: a fresh cache sends no request at all.
  *
  *     parent -> client: open the class list
  *     client -> transport: GET classes
@@ -31,7 +31,7 @@ const classList = {
     ],
 };
 
-describe("simulation F12: a fresh cache sends no request", () => {
+describe("test 12: a fresh cache sends no request", () => {
     beforeEach(() => {
         sessionStorage.clear();
     });
@@ -59,7 +59,7 @@ describe("simulation F12: a fresh cache sends no request", () => {
         expect(firstView.result).toBe("miss");
         expect(secondView.result).toBe("fresh");
 
-        // The whole point of the simulation. Not one call answered from cache,
+        // The whole point of the test. Not one call answered from cache,
         // one call in total, because the second view never reached the api.
         expect(transport.calls).toHaveLength(1);
 

@@ -18,7 +18,7 @@ export const apiBaseUrl: string = __API_BASE_URL__;
  * What the footer and the status route show.
  *
  * Version and commit only. Nothing here identifies a person, because this
- * string is on screen for the whole of a recorded walkthrough.
+ * string is on screen for the whole of a demonstration.
  */
 export const buildIdentity: BuildIdentity = {
     version: __BUILD_VERSION__,

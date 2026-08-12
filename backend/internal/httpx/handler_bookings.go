@@ -51,13 +51,27 @@ type eventListResponse struct {
     Events []eventResponse `json:"events"`
 }
 
-// BookingHandler serves the four booking routes.
+// bookingListResponse is the parent's own bookings.
+type bookingListResponse struct {
+    Bookings []bookingResponse `json:"bookings"`
+}
+
+// parentBookingsLimit caps the parent's own list.
+//
+// It is fixed rather than a query parameter. A family has a handful of bookings
+// and a screen that showed all of them either way, so a page size would be a
+// knob with nothing behind it and one more thing to validate. The cap is here so
+// the read cannot grow with an account that has been used for years.
+const parentBookingsLimit = 50
+
+// BookingHandler serves the five booking routes.
 type BookingHandler struct {
     checkout    *checkout.Service
     bookings    *booking.Service
     owner       *Owner
     botCheck    *BotCheck
     conditional *Conditional
+    classNames  *ClassNames
 }
 
 // NewBookingHandler wires the routes.
@@ -65,8 +79,8 @@ type BookingHandler struct {
 // Return:
 //   - the handler
 //   - booking.ErrInvalidRequest when a collaborator is missing
-func NewBookingHandler(checkoutService *checkout.Service, bookings *booking.Service, owner *Owner, botCheck *BotCheck, conditional *Conditional) (*BookingHandler, error) {
-    if checkoutService == nil || bookings == nil || owner == nil || botCheck == nil || conditional == nil {
+func NewBookingHandler(checkoutService *checkout.Service, bookings *booking.Service, owner *Owner, botCheck *BotCheck, conditional *Conditional, classNames *ClassNames) (*BookingHandler, error) {
+    if checkoutService == nil || bookings == nil || owner == nil || botCheck == nil || conditional == nil || classNames == nil {
         return nil, booking.ErrInvalidRequest
     }
 
@@ -76,13 +90,14 @@ func NewBookingHandler(checkoutService *checkout.Service, bookings *booking.Serv
         owner:       owner,
         botCheck:    botCheck,
         conditional: conditional,
+        classNames:  classNames,
     }, nil
 }
 
 // create asks for a place on the payment screen.
 //
-// The order of the checks is the order of cost, and it is the order simulation
-// 10 walks: who the caller is, then whether the child is theirs, then whether
+// The order of the checks is the order of cost, and it is the order test 10
+// walks: who the caller is, then whether the child is theirs, then whether
 // the submission looks like a person, and only then the transaction. Everything
 // above the transaction costs almost nothing, and the transaction is the thing
 // worth protecting.
@@ -136,7 +151,8 @@ func (handler *BookingHandler) create(response http.ResponseWriter, request *htt
 
     handler.conditional.Invalidate(request.Context(), cache.ClassListKey(), cache.ClassKey(body.ClassID))
 
-    writeJSON(response, http.StatusCreated, noStorePolicy, bookingFrom(granted.Booking))
+    writeJSON(response, http.StatusCreated, noStorePolicy,
+        bookingFrom(granted.Booking, handler.classNames.For(request.Context(), granted.Booking)))
 }
 
 // denyHold answers a refused hold, naming the existing booking when the reason
@@ -154,7 +170,7 @@ func (handler *BookingHandler) denyHold(response http.ResponseWriter, request *h
         }
     }
 
-    WriteFailure(response, request, failure)
+    denyWith(response, request, failure, err)
 }
 
 // read answers one booking's status.
@@ -175,7 +191,34 @@ func (handler *BookingHandler) read(response http.ResponseWriter, request *http.
         return
     }
 
-    writeJSON(response, http.StatusOK, noStorePolicy, bookingFrom(stored))
+    writeJSON(response, http.StatusOK, noStorePolicy,
+        bookingFrom(stored, handler.classNames.For(request.Context(), stored)))
+}
+
+// list answers the bookings belonging to whoever is signed in.
+//
+// It exists because every other way back to a booking is the address it was
+// created at, which a closed tab takes with it.
+//
+// The ownership check the other routes run is not skipped, it is not needed: the
+// parent is the query. Nothing is read from the request, so this route cannot be
+// asked about somebody else. Never cached, for the reason read gives above.
+func (handler *BookingHandler) list(response http.ResponseWriter, request *http.Request) {
+    identity, carried := identityOf(response, request)
+    if !carried {
+        return
+    }
+
+    listed, err := handler.bookings.ParentBookings(request.Context(), identity.ParentID, parentBookingsLimit)
+    if err != nil {
+        Deny(response, request, err)
+
+        return
+    }
+
+    writeJSON(response, http.StatusOK, noStorePolicy, bookingListResponse{
+        Bookings: bookingsFrom(listed, handler.classNames.ForAll(request.Context(), listed)),
+    })
 }
 
 // cancel withdraws a live hold and frees whatever it was holding.
@@ -201,7 +244,8 @@ func (handler *BookingHandler) cancel(response http.ResponseWriter, request *htt
 
     handler.conditional.Invalidate(request.Context(), cache.ClassListKey(), cache.ClassKey(stored.ClassID))
 
-    writeJSON(response, http.StatusOK, noStorePolicy, bookingFrom(withdrawn))
+    writeJSON(response, http.StatusOK, noStorePolicy,
+        bookingFrom(withdrawn, handler.classNames.For(request.Context(), withdrawn)))
 }
 
 // events answers the audit trail for one booking.

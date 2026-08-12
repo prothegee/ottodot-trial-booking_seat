@@ -29,6 +29,7 @@ type PaymentHandler struct {
     owner       *Owner
     botCheck    *BotCheck
     conditional *Conditional
+    classNames  *ClassNames
 
     // development relaxes the amount check to the two values the mock provider
     // reads as a decline and as an unreachable provider. It is false everywhere
@@ -43,13 +44,14 @@ type PaymentHandler struct {
 // owner - *Owner (whether this booking is the caller's)
 // botCheck - *BotCheck (the cooperative checks)
 // conditional - *Conditional (what to invalidate when a seat changes hands)
+// classNames - *ClassNames (what the booking it answers with was for)
 // development - bool (whether the two demonstration amounts are accepted)
 //
 // Return:
 //   - the handler
 //   - payment.ErrInvalidRequest when a collaborator is missing
-func NewPaymentHandler(checkoutService *checkout.Service, owner *Owner, botCheck *BotCheck, conditional *Conditional, development bool) (*PaymentHandler, error) {
-    if checkoutService == nil || owner == nil || botCheck == nil || conditional == nil {
+func NewPaymentHandler(checkoutService *checkout.Service, owner *Owner, botCheck *BotCheck, conditional *Conditional, classNames *ClassNames, development bool) (*PaymentHandler, error) {
+    if checkoutService == nil || owner == nil || botCheck == nil || conditional == nil || classNames == nil {
         return nil, payment.ErrInvalidRequest
     }
 
@@ -58,6 +60,7 @@ func NewPaymentHandler(checkoutService *checkout.Service, owner *Owner, botCheck
         owner:       owner,
         botCheck:    botCheck,
         conditional: conditional,
+        classNames:  classNames,
         development: development,
     }, nil
 }
@@ -129,7 +132,8 @@ func (handler *PaymentHandler) pay(response http.ResponseWriter, request *http.R
     // documents are invalidated before the answer goes out.
     handler.conditional.Invalidate(request.Context(), cache.ClassListKey(), cache.ClassKey(stored.ClassID))
 
-    writeJSON(response, http.StatusOK, noStorePolicy, bookingFrom(result.Booking))
+    writeJSON(response, http.StatusOK, noStorePolicy,
+        bookingFrom(result.Booking, handler.classNames.For(request.Context(), result.Booking)))
 }
 
 // denyPayment answers a checkout that did not end in a seat.

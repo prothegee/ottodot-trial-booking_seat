@@ -39,12 +39,22 @@ describe("the api client", () => {
             return { status: 200, body: seededSession };
         });
 
-        await api.login("ada@example.test");
+        await api.login("ada@example.test", "otto123");
         const session = await api.me();
 
         expect(session.display_name).toBe("Ada Tan");
         expect(transport.callsTo("POST", authPaths.login)).toHaveLength(1);
         expect(transport.callsTo("GET", authPaths.me)).toHaveLength(1);
+    });
+
+    test("integration: the sign in body carries both the email and the password", async () => {
+        const { api, transport } = clientOver(() => ({ status: 204 }));
+
+        await api.login("ada@example.test", "otto123");
+
+        const [sent] = transport.callsTo("POST", authPaths.login);
+
+        expect(sent.body).toEqual({ email: "ada@example.test", password: "otto123" });
     });
 
     test("unit: a 304 is a success carrying no body, never a failure", async () => {
@@ -205,11 +215,81 @@ describe("the api client", () => {
     });
 
     test("edge: a refused sign in is not treated as an expired session", async () => {
-        // A wrong email cannot be fixed by refreshing anything.
+        // A wrong email or a wrong password cannot be fixed by refreshing
+        // anything.
         const { api, transport } = clientOver(() => ({ status: 400, body: errorBody("invalid_request") }));
 
-        await expect(api.login("nobody@example.test")).rejects.toMatchObject({ kind: "InvalidRequest" });
+        await expect(api.login("nobody@example.test", "otto123")).rejects.toMatchObject({
+            kind: "InvalidRequest",
+        });
 
         expect(transport.callsTo("POST", authPaths.refresh)).toHaveLength(0);
+    });
+
+    test("integration: asking who is signed in answers the session when there is one", async () => {
+        const { api } = clientOver(() => ({ status: 200, body: seededSession }));
+
+        expect(await api.whoIsSignedIn()).toMatchObject({ display_name: "Ada Tan" });
+    });
+
+    test("behaviour: nobody signed in is an answer, not a session ending", async () => {
+        // This is asked on every page load, including the ones that need no
+        // session. Reporting a first visit as a sign out would send somebody
+        // reading `/status` to the sign-in screen.
+        const { api, signOuts } = clientOver(() => ({
+            status: 401,
+            body: errorBody("token_invalid"),
+        }));
+
+        expect(await api.whoIsSignedIn()).toBeNull();
+        expect(signOuts).toHaveLength(0);
+    });
+
+    test("behaviour: an access token that aged out is refreshed rather than reported", async () => {
+        // The reload case. The parent is still signed in, and only the short
+        // lived half of the session expired while the tab was closed.
+        let refreshed = false;
+
+        const { api, transport, signOuts } = clientOver((request) => {
+            if (request.path === authPaths.refresh) {
+                refreshed = true;
+
+                return { status: 204 };
+            }
+
+            if (refreshed) {
+                return { status: 200, body: seededSession };
+            }
+
+            return { status: 401, body: errorBody("token_expired") };
+        });
+
+        expect(await api.whoIsSignedIn()).toMatchObject({ display_name: "Ada Tan" });
+        expect(transport.callsTo("GET", authPaths.me)).toHaveLength(2);
+        expect(signOuts).toHaveLength(0);
+    });
+
+    test("edge: a refresh that fails is a session that really ended, and is reported", async () => {
+        const { api, signOuts } = clientOver((request) => {
+            if (request.path === authPaths.refresh) {
+                return { status: 401, body: errorBody("token_reused") };
+            }
+
+            return { status: 401, body: errorBody("token_expired") };
+        });
+
+        expect(await api.whoIsSignedIn()).toBeNull();
+        expect(signOuts).toHaveLength(1);
+        expect(signOuts[0].code).toBe("token_reused");
+    });
+
+    test("edge: an unreachable api answers nobody rather than throwing", async () => {
+        // It runs on mount. A rejection there would be an unhandled one, and the
+        // page would render with no header for a parent who is signed in.
+        const { api } = clientOver(() => {
+            throw new TypeError("network down");
+        });
+
+        expect(await api.whoIsSignedIn()).toBeNull();
     });
 });

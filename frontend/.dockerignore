@@ -1,0 +1,38 @@
+##
+## What never reaches the image build.
+##
+## The name is .dockerignore rather than .containerignore because both runtimes
+## read this one. Podman looks for .containerignore first and falls back to
+## this, and Docker reads only this.
+##
+
+##
+## file: local environment
+##
+## The build is driven by its build arguments, which is how compose points an
+## image at a different api. A .env copied in would win over those arguments,
+## because the file is the source that wins, and the image would be built for
+## whatever this machine happens to be pointed at.
+##
+.env
+.env.*
+
+##
+## directory: installed and generated
+##
+## node_modules in particular. The build installs its own from the lock file,
+## and copying the host's over the top replaces binaries built for one platform
+## with binaries built for another.
+##
+node_modules
+build
+.svelte-kit
+.dist
+.cache
+
+##
+## file: nothing the build reads
+##
+*.md
+.gitignore
+.dockerignore

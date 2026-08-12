@@ -40,9 +40,8 @@ const declineReason = "the provider declined this charge"
 // MockProvider is the provider every test and every demo runs against.
 //
 // It is deterministic on purpose. A provider that fails at random makes a
-// failing test a coin toss and makes a recorded demonstration a matter of luck,
-// so this one decides from the request alone and answers the same way every
-// time.
+// failing test a coin toss and makes a demonstration a matter of luck, so this
+// one decides from the request alone and answers the same way every time.
 type MockProvider struct {
     mutex  sync.Mutex
     forced map[string]Outcome
@@ -71,7 +70,7 @@ func NewMockProvider() *MockProvider {
 // one is armed from outside the process, over the guarded fault route, and it
 // applies to whichever charge happens to arrive next. That difference is the
 // whole reason both exist: a test knows which booking it is about to charge, and
-// somebody recording a demonstration does not.
+// somebody driving a demonstration does not.
 func (provider *MockProvider) InjectFaults(fault Fault) {
     provider.mutex.Lock()
     defer provider.mutex.Unlock()

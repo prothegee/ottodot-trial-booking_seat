@@ -9,8 +9,8 @@
 // Everything here is guarded four ways and off by default. The guards are in
 // `registry.go` and `handler.go` rather than in this file, and the reason the
 // surface exists at all rather than being a build tag is written up in the
-// backend's decision records: one binary and one command during a recording,
-// instead of a rebuild in the middle of it.
+// backend's decision records: one binary and one command during a
+// demonstration, instead of a rebuild in the middle of it.
 package faults
 
 // The points a fault can be injected at.

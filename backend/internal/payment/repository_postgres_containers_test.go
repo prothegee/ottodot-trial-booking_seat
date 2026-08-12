@@ -44,6 +44,12 @@ const (
     fixtureClass   = "0192d000-0000-7000-8000-000000000103"
 )
 
+// fixturePasswordHash is what the parents column requires: not null, and a
+// string the argon2id check accepts. Nothing in this package signs anybody in,
+// so the value only has to be well formed.
+const fixturePasswordHash = "$argon2id$v=19$m=65536,t=1,p=4$" +
+    "8HvgNB40ArlxEEpvrs6x2g$6BJSMpsmkP7ai0ihs7HAYUm6bO2rwxAfMvY9i0C6mZs"
+
 // primaryAddress is where the proof tier connects. Deciding reads and every
 // write go to the primary, never the replica.
 func primaryAddress() string {
@@ -142,9 +148,10 @@ func (fixture *postgresFixture) AddBooking(t *testing.T, bookingID string) {
         // The address is obviously fake and the domain is reserved for testing,
         // so nothing here can ever reach a real inbox.
         if _, err := fixture.pool.Exec(ctx, `
-            insert into parents (id, email, full_name, role)
-            values ($1, $2, $3, 'parent')`,
-            fixtureParent, "parent-"+fixtureParent+"@example.test", "Test Parent"); err != nil {
+            insert into parents (id, email, full_name, password_hash, role)
+            values ($1, $2, $3, $4, 'parent')`,
+            fixtureParent, "parent-"+fixtureParent+"@example.test", "Test Parent",
+            fixturePasswordHash); err != nil {
             t.Fatalf("cannot seed the parent: %v", err)
         }
 

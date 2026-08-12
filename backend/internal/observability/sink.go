@@ -84,6 +84,15 @@ func (metrics *Metrics) RequestObserved(route string, method string, status int,
     metrics.Application.RequestObserved(route, method, status, seconds)
 }
 
+// DeclareRoute forwards one registered route, so its series exists at zero.
+func (metrics *Metrics) DeclareRoute(route string, method string) {
+    if metrics == nil {
+        return
+    }
+
+    metrics.Application.DeclareRoute(route, method)
+}
+
 // NotModified forwards one conditional read answered with no body.
 func (metrics *Metrics) NotModified(route string) {
     if metrics == nil {
@@ -165,6 +174,15 @@ func (metrics *Metrics) QueueDepth(ready int, claimed int, parked int) {
     metrics.Application.QueueDepth(ready, claimed, parked)
 }
 
+// QueueDepthUnknown forwards that the queue could not be asked how deep it is.
+func (metrics *Metrics) QueueDepthUnknown() {
+    if metrics == nil {
+        return
+    }
+
+    metrics.Application.QueueDepthUnknown()
+}
+
 // JobsClaimed forwards jobs handed to a worker.
 func (metrics *Metrics) JobsClaimed(jobs int) {
     if metrics == nil {
@@ -190,6 +208,15 @@ func (metrics *Metrics) QueueJobFailed(kind string) {
     }
 
     metrics.Transaction.QueueJobFailed(kind)
+}
+
+// QueueJobFinished forwards one job attempt and how long it took.
+func (metrics *Metrics) QueueJobFinished(kind string, outcome string, seconds float64) {
+    if metrics == nil {
+        return
+    }
+
+    metrics.Application.QueueJob(kind, outcome, seconds)
 }
 
 // ConfirmTransaction forwards one seat confirmation attempt and its duration.
