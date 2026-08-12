@@ -12,7 +12,7 @@ import (
     "ottodot-trial-booking/backend/internal/operations"
 )
 
-// Simulation 12: readiness reflects reality.
+// Test 12: readiness reflects reality.
 //
 // The question this answers is not "does /readyz return 200". It is whether the
 // answer tracks what is actually broken, in both directions:
