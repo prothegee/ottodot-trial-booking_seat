@@ -3,6 +3,7 @@ package auth
 import (
     "context"
     "net/http"
+    "slices"
     "time"
 )
 
@@ -49,9 +50,12 @@ func IdentityFrom(ctx context.Context) (Identity, bool) {
 
 // GuardSettings is what the middleware needs to decide.
 type GuardSettings struct {
-    // FrontendOrigin is the one origin this service serves. A mutation from
-    // anywhere else is refused.
-    FrontendOrigin string
+    // AllowedOrigins is every origin this service serves its client from. A
+    // mutation from anywhere else is refused.
+    //
+    // It is a list because 127.0.0.1 and localhost are different origins to a
+    // browser, and both reach the same development stack.
+    AllowedOrigins []string
 
     // Clock is now. It defaults to time.Now.
     Clock func() time.Time
@@ -86,7 +90,7 @@ type Guard struct {
 //     here rather than at the first request that would have let everything
 //     through
 func NewGuard(signer *Signer, denylist Denylist, settings GuardSettings) (*Guard, error) {
-    if signer == nil || denylist == nil || settings.FrontendOrigin == "" {
+    if signer == nil || denylist == nil || len(settings.AllowedOrigins) == 0 {
         return nil, ErrInvalidRequest
     }
 
@@ -119,7 +123,7 @@ func (guard *Guard) Authenticate(next http.Handler) http.Handler {
     return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
         identity, err := guard.identify(request)
         if err != nil {
-            guard.refuse(response, err)
+            guard.refuse(response, request, err)
 
             return
         }
@@ -149,7 +153,7 @@ func (guard *Guard) RequireRole(role string, next http.Handler) http.Handler {
             // The refusal names no role and no route. A caller learning which
             // role would have worked is a caller learning what to go looking
             // for.
-            guard.refuse(response, ErrForbiddenRole)
+            guard.refuse(response, request, ErrForbiddenRole)
 
             return
         }
@@ -186,14 +190,39 @@ func (guard *Guard) CheckOrigin(next http.Handler) http.Handler {
             return
         }
 
-        if request.Header.Get("Origin") != guard.settings.FrontendOrigin {
-            guard.refuse(response, ErrOriginRefused)
+        if !guard.OriginIsAllowed(request.Header.Get("Origin")) {
+            guard.refuse(response, request, ErrOriginRefused)
 
             return
         }
 
         next.ServeHTTP(response, request)
     })
+}
+
+// OriginIsAllowed reports whether an Origin header names a place this service
+// serves its client from.
+//
+// It is exported because the cors layer has to answer the same question before
+// it will name an origin in a response header. Two copies of this rule that
+// could disagree would mean a browser being told a write is permitted and then
+// being refused when it makes one.
+//
+// An empty origin is never allowed. Every browser sends the header on a write,
+// so its absence means a caller that is not the browser this service serves.
+//
+// Param:
+// origin - string (the Origin header exactly as it arrived)
+//
+// Return:
+//   - true when the origin is one of the configured ones, matched exactly
+//   - false otherwise, including for an empty header
+func (guard *Guard) OriginIsAllowed(origin string) bool {
+    if origin == "" {
+        return false
+    }
+
+    return slices.Contains(guard.settings.AllowedOrigins, origin)
 }
 
 // refuse counts the denial and answers it, so the number and the answer can
@@ -203,12 +232,12 @@ func (guard *Guard) CheckOrigin(next http.Handler) http.Handler {
 // denial that is answered but not counted is a spike nobody sees, and the reason
 // label is what tells a broken client apart from somebody trying accounts one at
 // a time.
-func (guard *Guard) refuse(response http.ResponseWriter, reason error) {
+func (guard *Guard) refuse(response http.ResponseWriter, request *http.Request, reason error) {
     if guard.settings.Metrics != nil {
         guard.settings.Metrics.AccessDenied(denialReason(reason))
     }
 
-    Deny(response, reason)
+    Deny(response, request, reason)
 }
 
 // identify reads the access cookie and decides whether to believe it.
