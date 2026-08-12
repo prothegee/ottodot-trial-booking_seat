@@ -92,7 +92,7 @@ would otherwise pass every fast test, and that is the failure this guards
 against.
 
 One more check, because a test that cannot fail proves nothing: the row lock was
-removed on purpose and the twenty-attempt simulation was re-run. It failed, with
+removed on purpose and the twenty-attempt test was re-run. It failed, with
 three confirmed seats instead of four. The lock was then restored and the suite
 re-run green.
 
