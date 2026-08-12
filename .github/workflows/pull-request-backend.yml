@@ -98,6 +98,10 @@ jobs:
             # Every suite here is class: safe. None of them starts a container,
             # deletes anything, or needs a stack running, so they belong with the
             # fast tiers rather than with the proof job.
+            #
+            # The list is the same one scripts/test_all.sh runs, in the same
+            # order. A suite in one and not the other is a suite nobody notices
+            # going red.
             - name: the shared libraries and the root scripts
               run: |
                   set -euo pipefail
@@ -105,12 +109,19 @@ jobs:
                   scripts/lib/confirm_test.sh
                   scripts/lib/settings_test.sh
                   scripts/lib/stack_test.sh
+                  scripts/cleanup_dev_test.sh
+                  scripts/race_last_seat_test.sh
+                  scripts/smoke_refund_test.sh
                   scripts/stack_up_test.sh
                   scripts/stack_restart_test.sh
-                  scripts/cleanup_dev_test.sh
+                  scripts/stack_status_test.sh
 
             - name: this stack's scripts
-              run: backend/scripts/debug_test.sh
+              run: |
+                  set -euo pipefail
+
+                  backend/scripts/debug_test.sh
+                  backend/scripts/lib/database_test.sh
 
     rules:
         name: alert rules
