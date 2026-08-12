@@ -12,7 +12,7 @@
 # Every threshold is written for a stack that is being demonstrated rather than
 # one that has months of history behind it. The `for` windows are minutes rather
 # than tens of minutes for the same reason: an alert nobody can watch fire during
-# a recording is an alert nobody trusts.
+# a demonstration is an alert nobody trusts.
 # ---------------------------------------------------------------------------- #
 
 groups:
@@ -89,6 +89,18 @@ groups:
                 summary: "The queue is filling and no job is finishing"
                 description: "Jobs are waiting and the worker is not completing any. Hold expiry and refund reconciliation both stop when this is true."
 
+          # The worker cannot ask the queue how deep it is, so QueueStalled has
+          # nothing to fire on: its depth is published as not-a-number, and every
+          # comparison against that is false. This is the alert that covers it.
+          - alert: QueueUnreadable
+            expr: rate(queue_depth_read_failed_total[5m]) > 0
+            for: 5m
+            labels:
+                severity: critical
+            annotations:
+                summary: "The worker cannot read the queue"
+                description: "Every scrape is failing to ask the queue its depth. The usual cause is the schema never being applied, so start with backend/scripts/migrate.sh."
+
     - name: machine
       rules:
           # Postgres fills a volume long before anything else does, and a full
@@ -137,8 +149,13 @@ groups:
       rules:
           # A dependency is down. Readiness is what takes an instance out of
           # rotation, so this is the alert that says why.
+          #
+          # By component and not by target, because the api and the worker are
+          # each scraped twice, at the container and at this machine. Running one
+          # from source stops its container on purpose, so the max over the pair
+          # fires only when neither is answering.
           - alert: NotReady
-            expr: up{job=~"api|worker"} == 0
+            expr: max by (component) (up{component=~"api|worker"}) == 0
             for: 2m
             labels:
                 severity: critical
