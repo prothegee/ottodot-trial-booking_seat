@@ -424,6 +424,7 @@ npm run build                                   # the static bundle
 # 4) the guards on the scripts themselves
 cd ..
 APP_ENV=development backend/scripts/debug_test.sh
+backend/scripts/lib/database_test.sh
 frontend/scripts/debug_test.sh
 frontend/scripts/clean_test.sh
 scripts/cleanup_dev_test.sh
