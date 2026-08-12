@@ -28,16 +28,20 @@
 #   backend/scripts/migrate.sh
 #   backend/scripts/seed.sh
 #   scripts/race_last_seat.sh
+#   scripts/race_last_seat.sh --fresh-class
 #
 # Note:
-# - it is not repeatable on its own. The seat it races for is gone once
-#   somebody has it, so a second run needs scripts/seed_reset.sh first. It says
-#   so rather than failing halfway
+# - the seeded seat can be raced once. It is gone the moment somebody has it,
+#   so a second run needs a class of its own, and --fresh-class makes one:
+#   a throwaway class raced and then dropped, leaving the seeded rows untouched
+# - without the flag and with the seat gone, the offer is made rather than
+#   taken. A terminal is asked, and a pipe is refused with the flag to pass
 #
 # Return:
 # - 0: at most one parent was confirmed and every table agrees
 # - 1: an assertion failed, each one printed
-# - 2: the stack is not ready, or the seat has already been taken
+# - 2: the stack is not ready, the seat has gone and the offer was declined, or
+#      an unknown flag was passed
 # ---------------------------------------------------------------------------- #
 
 set -uo pipefail
@@ -48,8 +52,26 @@ backend_root="$repository_root/backend"
 source "$repository_root/scripts/lib/api.sh"
 source "$backend_root/scripts/lib/database.sh"
 
+use_a_fresh_class="no"
+
+for argument in "$@"; do
+    case "$argument" in
+        --fresh-class)
+            use_a_fresh_class="yes"
+            ;;
+        *)
+            printf "refused: unknown flag '%s', only --fresh-class is accepted\\n" "$argument" >&2
+
+            exit 2
+            ;;
+    esac
+done
+
 # The seeded race class: one seat, no confirmed booking, and an allowance that
 # admits both parents as holders. It exists in the seed for this script.
+#
+# A throwaway class replaces this when there is one, so everything below reads
+# whichever class this run is racing without knowing which it got.
 RACE_CLASS_ID="0192a000-0000-7000-8000-000000000025"
 
 # Parent A, who reaches the payment screen first and pays second.
@@ -71,7 +93,42 @@ booking_a=""
 booking_b=""
 failures=0
 
+# The throwaway class this run made, empty when it is racing the seeded one.
+fresh_class_id=""
+
+# Removes the throwaway class and everything the race wrote against it.
+#
+# job_queue goes first, so the worker stops seeing work whose rows are about to
+# leave. The rest is foreign key order: what points at a booking, then the
+# bookings, then the class. Nothing outside this class is named, so a seeded row
+# is never in reach.
+drop_the_fresh_class() {
+    if [ -z "$fresh_class_id" ]; then
+        return 0
+    fi
+
+    database_statement "
+        delete from job_queue
+        where payload->>'booking_id' in
+            (select id::text from bookings where class_id = '$fresh_class_id');
+
+        delete from booking_events
+        where booking_id in (select id from bookings where class_id = '$fresh_class_id');
+
+        delete from payment_attempts
+        where booking_id in (select id from bookings where class_id = '$fresh_class_id');
+
+        delete from bookings where class_id = '$fresh_class_id';
+
+        delete from trial_classes where id = '$fresh_class_id';
+    " >/dev/null 2>&1
+
+    printf '\ndropped the throwaway class %s\n' "$fresh_class_id"
+}
+
 cleanup() {
+    drop_the_fresh_class
+
     api_cleanup
 
     [ -n "$jar_a" ] && rm -f "$jar_a"
@@ -103,12 +160,46 @@ expect() {
     failures=$((failures + 1))
 }
 
-# Refuses before the first request when the seat this script races for is
-# already gone. Failing here is a message and a command. Failing halfway is a
-# half-finished demonstration nobody can read.
-require_free_seat() {
+# Makes the throwaway class this run races: one seat, and an allowance that
+# admits both parents as holders, which is the shape the seeded one has.
+#
+# It is an ordinary row in the ordinary table, not a temporary one. The api
+# holds its own connections and would never see a temporary table made here, so
+# the only class it can race is one that is really there. That is why dropping
+# it again is part of the run rather than an afterthought.
+make_a_fresh_class() {
+    fresh_class_id="$(database_scalar "
+        insert into trial_classes
+            (id, subject, title, starts_at, duration_minutes, capacity, hold_allowance)
+        values
+            (gen_random_uuid(), 'science', 'Throwaway Race Class',
+             now() + interval '7 days', 60, 1, 2)
+        returning id
+    ")"
+
+    if [ -z "$fresh_class_id" ]; then
+        refuse "the throwaway class could not be created"
+    fi
+
+    RACE_CLASS_ID="$fresh_class_id"
+
+    printf 'made the throwaway class %s, one seat, dropped on the way out\n' "$fresh_class_id"
+}
+
+# Settles which class this run races, before the first request.
+#
+# Deciding here is the point. Failing halfway is a half-finished demonstration
+# nobody can read, and being told at the start is a message and a command.
+choose_the_class() {
     local capacity
     local confirmed
+    local reply=""
+
+    if [ "$use_a_fresh_class" = "yes" ]; then
+        make_a_fresh_class
+
+        return 0
+    fi
 
     capacity="$(database_scalar "select capacity from trial_classes where id = '$RACE_CLASS_ID'")"
 
@@ -118,9 +209,25 @@ require_free_seat() {
 
     confirmed="$(database_scalar "select count(*) from bookings where class_id = '$RACE_CLASS_ID' and status = 'confirmed'")"
 
-    if [ "$confirmed" != "0" ]; then
-        refuse "the race class already has $confirmed confirmed booking(s), run scripts/seed_reset.sh to start again"
+    if [ "$confirmed" = "0" ]; then
+        return 0
     fi
+
+    printf 'the seeded race class already holds %s confirmed booking(s), so its\n' "$confirmed"
+    printf 'seat is gone and there is nothing left to race for.\n\n'
+
+    if [ ! -t 0 ]; then
+        refuse "nothing here can answer, pass --fresh-class to race a throwaway class instead"
+    fi
+
+    printf 'race a throwaway class instead? [y/N] '
+    read -r reply || reply=""
+
+    if [ "$reply" != "y" ]; then
+        refuse "declined, run scripts/seed_reset.sh to race the seeded class again"
+    fi
+
+    make_a_fresh_class
 }
 
 # Holds a seat and leaves the new booking id in hold_booking_id.
@@ -261,7 +368,7 @@ main() {
     api_require_running || exit 2
     database_require_running || exit 2
 
-    require_free_seat
+    choose_the_class
 
     jar_a="$(mktemp)"
     jar_b="$(mktemp)"
