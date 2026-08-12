@@ -19,10 +19,17 @@ flowchart TD
     types --> tiers["npm test<br/>unit, edge, integration, behaviour"]
     tiers --> fake["every call goes to the fake transport"]
     fake --> none["no api, no database, no browser, no containers"]
+
+    every["scripts/test_all.sh"] --> script
+    every --> bundle["scripts/build.sh<br/>the static bundle"]
+    every --> guards["scripts/debug_test.sh<br/>scripts/clean_test.sh"]
 ```
 
 Nothing in this stack needs the backend running. Every test drives a fake
 transport, so the whole suite passes on a machine with no Docker and no Go.
+
+`scripts/test_all.sh` is the one command for this stack: the two runs above,
+the bundle, and the guards on the scripts beside them.
 
 Type checking runs first on purpose. A suite that passes while the types are
 broken is reporting on a build nobody can ship.
@@ -96,6 +103,18 @@ sequenceDiagram
     Client->>Parent: confirmed, the seat number shown
 ```
 
+Reading it:
+
+1. The parent picks a class, picks a child, and submits.
+2. The client asks the api to create a booking, carrying an idempotency key.
+3. The api answers `pending_payment` with the hold deadline.
+4. The payment screen opens, and the countdown runs from that deadline.
+5. The parent submits the payment.
+6. The client pays, carrying the same key as the booking call.
+7. The api answers confirmed, with seat 2.
+8. The seat number is shown, and the class list is invalidated so the next view
+   of it is the count after this seat was taken.
+
 Proves: the countdown runs from the deadline the api returned, both calls carry
 the same idempotency key, the confirmed seat number is what the store ends up
 holding, and the booking invalidates the class list so the next view of it is
@@ -124,6 +143,18 @@ sequenceDiagram
     Client->>Parent: the class filled while you were choosing
 ```
 
+Reading it:
+
+1. The cached list on screen says one seat is left.
+2. The parent submits the booking.
+3. The client asks the api to create it.
+4. The api answers 409 `class_full`, because the seat went while the parent was
+   choosing.
+5. The client throws its own entry away and reads the class list again.
+6. The api answers with no seats left.
+7. The parent is told the class filled while they were choosing, which is the
+   real cause rather than a generic failure.
+
 Proves: the client never insists its own count was right. The entry is
 invalidated, the list is read again, and the message names the real cause. A
 cached count is a hint, the api is the only thing that decides.
@@ -148,6 +179,19 @@ sequenceDiagram
     Client->>Parent: declined, retry on the same booking
     Note over Client: the countdown keeps running, the booking is still pending_payment
 ```
+
+Reading it:
+
+1. The parent submits the payment.
+2. The client pays.
+3. The api answers 402 `payment_declined`, so no money moved.
+4. The parent is told it was declined, and offered a retry on the same booking.
+5. The countdown keeps running, because the booking is still `pending_payment`
+   and the hold was never touched.
+6. The cached class list is left alone, because a decline says nothing about
+   seat counts.
+7. A retry mints a fresh idempotency key, because the declined attempt is
+   finished and sending the same key back would replay the decline.
 
 Proves: the booking is not abandoned, the countdown continues, the retry reuses
 the booking while minting a fresh idempotency key, and the cached class list is
@@ -175,6 +219,15 @@ sequenceDiagram
     Client->>Parent: already booked, and a link to that booking
 ```
 
+Reading it:
+
+1. The parent books the same child into the same class again.
+2. The client asks the api to create the booking. It does not check first: a
+   check followed by a write is the bug this whole exercise is about.
+3. The api answers 409 `already_booked`, carrying the id of the booking that
+   already exists.
+4. The parent is told, and given a link that resolves to that booking.
+
 Proves: no second booking is attempted, and the link resolves to the booking
 the child already has. Nothing here checks first and then books, because a
 check followed by a write is the bug this whole exercise is about.
@@ -199,6 +252,18 @@ sequenceDiagram
     Client->>Parent: the seat was taken, the payment is being refunded
     Note over Client: no retry control, this one is terminal
 ```
+
+Reading it:
+
+1. Parent A submits the payment for the last seat.
+2. The client pays.
+3. The api answers 409 `seat_lost`: the money moved, and the seat went to
+   somebody else. A refund is already queued.
+4. The parent is told the seat was taken and that the payment is being refunded.
+5. No retry control is offered, because this one is terminal. There is nothing
+   left to pay for.
+6. The class list is sent to be read again, because a lost seat is proof the
+   cached count was wrong.
 
 Proves: `SeatLost` renders a terminal message with no retry control, reads
 differently from `PaymentDeclined`, and sends the class list to be read again,
@@ -226,6 +291,19 @@ flowchart TD
     check --> expired["expired, and an offer to start again"]
 ```
 
+Reading it:
+
+1. The payment screen mounts, carrying the deadline the api gave it.
+2. The countdown ticks.
+3. Each tick asks whether the deadline has been reached. While it has not, it
+   keeps ticking.
+4. At zero the payment control disables at once, without waiting for a round
+   trip, so there is never a live button on a hold that has gone.
+5. Only then does the screen ask the api for the real booking status, once
+   rather than once per tick.
+6. The api says expired, and the parent is offered a fresh start. The client
+   never declares that itself, because only the backend decides it.
+
 Proves: the control disables at zero without waiting for a round trip, the
 screen still confirms the real status with the api, and it asks once rather
 than once per tick. A hold that had already ended before the screen opened
@@ -249,6 +327,16 @@ flowchart TD
     submit --> payload["the payload carries the honeypot value and the elapsed milliseconds"]
     payload --> backend["the backend decides, the client blocks nobody"]
 ```
+
+Reading it:
+
+1. The form mounts, and a timer starts.
+2. The parent fills the fields in. The honeypot input is hidden from sight, from
+   the keyboard, and from the accessibility tree, so only a script fills it.
+3. The parent submits.
+4. The payload carries the honeypot value and the elapsed milliseconds, both
+   measured rather than assumed.
+5. The backend decides what that means. This client blocks nobody on its own.
 
 Proves: the honeypot input is present, hidden, empty by default, out of the
 accessibility tree and out of the keyboard order, the elapsed time is a real
@@ -278,6 +366,19 @@ sequenceDiagram
     Client->>Parent: the result, once
 ```
 
+Reading it:
+
+1. The parent clicks submit.
+2. The client pays with key K, and disables the control for as long as that call
+   is in flight.
+3. The parent clicks submit again straight away.
+4. Nothing is sent, because the control is disabled. The click never becomes a
+   second call.
+5. The api answers settled.
+6. The parent sees one result. Had a second call escaped, key K would have made
+   it harmless anyway: the control is the cheap layer, the key is the correct
+   one.
+
 Proves: exactly one call is recorded, the control is disabled for the whole
 in-flight window, and the idempotency key would have made a leaked second call
 harmless anyway. The control is the cheap layer, the key is the correct one.
@@ -302,6 +403,17 @@ sequenceDiagram
     Client->>API: retry all three originals
     API-->>Client: 200, 200, 200
 ```
+
+Reading it:
+
+1. The client has three calls in flight at once.
+2. All three come back 401 `token_expired`, because the access token aged out
+   between the page opening and these calls.
+3. The client refreshes once. The other two do not each start a refresh of their
+   own, which is what single flight means.
+4. The api returns new cookies.
+5. All three original calls are retried, once each.
+6. All three answer 200, and the parent never saw an interruption.
 
 Proves: exactly one refresh call, all three originals retried once each,
 nothing retried twice, and no sign out reported, so the parent sees no
@@ -328,6 +440,17 @@ sequenceDiagram
     Client->>Client: route to sign in, with a security notice
 ```
 
+Reading it:
+
+1. The client makes an ordinary call.
+2. The api answers 401 `token_expired`.
+3. The client refreshes, exactly as it would in F9.
+4. This time the api answers 401 `token_reused`: that refresh token had already
+   been spent, so the whole family was revoked.
+5. The client clears the auth store and the whole of `sessionStorage`. It does
+   not retry, because there is nothing left to retry with.
+6. It routes to sign in carrying the reason, so the screen can state why.
+
 Proves: no retry loop, the auth store and the whole of `sessionStorage`
 cleared, and the reason surviving so the sign-in screen can state it.
 
@@ -346,6 +469,18 @@ flowchart TD
     screen --> never["never written to the cache"]
     parent["a parent tries the same route"] --> refused["the api refuses the role"]
 ```
+
+Reading it:
+
+1. A teacher opens the roster for a class.
+2. The api answers with the confirmed students and their seat numbers.
+3. The screen renders confirmed bookings only, seats in order, with the capacity
+   and how many are used.
+4. Nothing here is written to the cache. This is the one screen that puts a
+   child's name next to a seat, so a cached copy would be the one place in the
+   browser where another family's name outlives the screen that showed it.
+5. A parent typing the same address is refused by the api on their role, not by
+   a hidden link.
 
 Proves: only `confirmed` bookings appear, seat numbers render in order, the
 roster is never cached, a parent is refused by the api rather than by a hidden
@@ -376,6 +511,15 @@ sequenceDiagram
     Note over API: no second call is recorded
 ```
 
+Reading it:
+
+1. The parent opens the class list.
+2. The client asks the api for the classes.
+3. The api answers 200 with a body and an ETag.
+4. The parent navigates away and comes back within five seconds.
+5. The list is served from memory, and the lookup reports itself as fresh.
+6. No second call is recorded at all. Not a cheap call, none.
+
 Proves: exactly one call, an identical rendered list, and the lookup reporting
 itself as fresh.
 
@@ -401,6 +545,17 @@ sequenceDiagram
     Note over Client: body kept, age refreshed, nothing repainted
 ```
 
+Reading it:
+
+1. The stored entry is ten seconds old, so it is stale rather than absent.
+2. The parent opens the class list.
+3. The stale list renders immediately, before any request has resolved.
+4. The client asks the api for the classes, carrying the stored tag as
+   `If-None-Match: "v41"`.
+5. The api answers 304 Not Modified.
+6. The body is kept, its age is refreshed, and nothing repaints, so subscribers
+   are not woken for an answer that changed nothing.
+
 Proves: the stale body is returned before the request resolves, the request
 carries the stored tag, the 304 does not replace the body, subscribers are not
 needlessly notified, and the entry is fresh again afterwards.
@@ -420,6 +575,19 @@ flowchart TD
     back --> blocking["a blocking GET, carrying the stored tag"]
     blocking --> fresh["200 with a new tag and the updated seat counts"]
 ```
+
+Reading it:
+
+1. The payment is confirmed, which is a seat leaving the class.
+2. At that moment the class list entry goes cold, rather than at the next read.
+3. The parent returns to the list.
+4. Because the entry is cold, the read blocks on a real GET, carrying the stored
+   tag.
+5. The api answers 200 with a new tag and the updated seat counts, so what the
+   parent sees is the count after their own booking.
+
+A mutation that failed changes none of this, because nothing is known to have
+changed.
 
 Proves: the entry stops being usable at the moment the mutation succeeds, the
 next read is not served from memory, and the new seat count is what the parent
@@ -446,6 +614,20 @@ flowchart TD
     red --> poll
     grey --> poll
 ```
+
+Reading it:
+
+1. The `/status` route opens.
+2. It asks the api two questions at once: `/version` for the build identity, and
+   `/readyz` for the dependencies.
+3. Everything answers ok, and the screen is green with every dependency listed.
+4. The replica is behind: amber, degraded. That costs a class list some accuracy
+   and costs nobody a seat, so it is not shown as an outage.
+5. The api answers 503: red, unready.
+6. Nothing answers at all: grey, and a different message from unready, because
+   unreachable and unready are different problems.
+7. Whichever of the four it landed on, the screen polls every fifteen seconds
+   while it is open, and stops the moment the route is left.
 
 Proves: the build identity renders from `/version`, each dependency renders its
 own row, amber reads differently from red, and the polling stops when the route
@@ -474,6 +656,15 @@ flowchart TD
     telemetry --> scan
     scan --> cookie["and watch document.cookie: no code path reads it"]
 ```
+
+Reading it:
+
+1. A full booking is driven through, signed in, all the way to confirmed.
+2. Four surfaces are then captured: every store, every `sessionStorage` entry,
+   every route visited, and every queued telemetry payload.
+3. All four are scanned for an email or a token.
+4. `document.cookie` is watched at the same time, so the claim is that no code
+   path reads it rather than that nobody wrote the line.
 
 Proves: the seeded email appears in no store, no storage entry, no url, and no
 telemetry payload, and a sign out leaves nothing of the previous parent behind.
@@ -505,6 +696,21 @@ sequenceDiagram
     API-->>Client: 200 confirmed
     Client->>Parent: confirmed, the seat number shown
 ```
+
+Reading it:
+
+1. The parent submits the payment.
+2. The client pays with idempotency key K.
+3. The api answers 500 `internal_error`, with a request id.
+4. The parent is told something broke and that the booking is untouched. The
+   message never says the seat was lost and never says the payment was
+   declined, because neither is known.
+5. The countdown keeps running and the cached list is left alone, for the same
+   reason: nothing is known to have changed.
+6. The parent retries.
+7. The client pays again with the same key K. An `internal_error` is an attempt
+   of unknown outcome, so a fresh key could charge twice.
+8. The api answers 200 confirmed, and the seat number is shown.
 
 The client half of backend test 15. Proves: the message never says the
 seat was lost and never says the payment was declined, the booking stays on
