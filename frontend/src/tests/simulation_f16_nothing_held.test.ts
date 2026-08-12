@@ -13,7 +13,7 @@ import { createEmitter } from "$lib/telemetry/emitter";
 import { apiErrorEvent, cacheEvent, funnelEvent, pageLoadEvent, type TelemetryBatch } from "$lib/telemetry/event";
 
 /**
- * Simulation F16: nothing sensitive is held by the client.
+ * Test 16: nothing sensitive is held by the client.
  *
  *     drive a full booking, sign in to confirmed
  *     capture every store, every sessionStorage entry, every route visited,
@@ -33,7 +33,7 @@ const classId = "0192a000-0000-7000-8000-000000000021";
 const studentId = "0192a000-0000-7000-8000-000000000011";
 const bookingId = "0192a000-0000-7000-8000-000000000031";
 
-/** The seeded account this simulation drives. None of it may end up held. */
+/** The seeded account this test drives. None of it may end up held. */
 const seeded = {
     email: "alice.tan@example.test",
     accessToken: "eyJhbGciOiJIUzI1NiJ9.abcdefghijklmnop.signature",
@@ -124,7 +124,7 @@ function dumpSessionStorage(): string {
     return entries.join("\n");
 }
 
-describe("simulation F16: nothing sensitive is held by the client", () => {
+describe("test 16: nothing sensitive is held by the client", () => {
     beforeEach(() => {
         sessionStorage.clear();
 
