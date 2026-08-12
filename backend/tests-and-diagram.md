@@ -5,7 +5,7 @@ file on its own. `how-to.md` has the whole-suite commands, this file is the
 index underneath them.
 
 Run everything from `backend/` unless a line says otherwise. The frontend has
-its own copy of this file at `frontend/test-diagram.md`.
+its own copy of this file at `frontend/tests-and-diagram.md`.
 
 <br>
 
@@ -20,8 +20,8 @@ flowchart TD
 
     up["../scripts/stack_up.sh backend"] --> proof["scripts/test_proof.sh<br/>go test -tags=containers ./..."]
     up --> seeded["migrate.sh then seed.sh"]
-    seeded --> race["../scripts/race_last_seat.sh<br/>simulation 6, over http"]
-    seeded --> broke["../scripts/smoke_failure.sh<br/>simulation 16, breaks a running api"]
+    seeded --> race["../scripts/race_last_seat.sh<br/>test 6, over http"]
+    seeded --> broke["../scripts/smoke_failure.sh<br/>test 16, breaks a running api"]
 
     all["../scripts/test_integration.sh"] --> up
     all --> proof
@@ -80,7 +80,7 @@ go test -tags=containers -run '^(TestSimulation04ParallelConfirmsOnOneFreeSeat)$
 
 <br>
 
-## The Simulations
+## The Tests
 
 Sixteen scenarios, numbered once and referred to by number everywhere else in
 this repository. Twelve are Go tests, two are proofs on real Postgres, and two
@@ -88,7 +88,7 @@ are scripts against a running stack.
 
 <br>
 
-### Simulation 1: duplicate booking
+### Test 1: duplicate booking
 
 ```mermaid
 sequenceDiagram
@@ -114,7 +114,7 @@ go test -v -run '^(TestSimulation01DuplicateBookingRejected)$' ./internal/bookin
 
 <br>
 
-### Simulation 2: payment failure never reaches the roster
+### Test 2: payment failure never reaches the roster
 
 ```mermaid
 sequenceDiagram
@@ -142,7 +142,7 @@ go test -v -run '^(TestSimulation02PaymentFailureNeverReachesTheRoster)$' ./inte
 
 <br>
 
-### Simulation 3: the capacity boundary
+### Test 3: the capacity boundary
 
 ```mermaid
 sequenceDiagram
@@ -171,7 +171,7 @@ go test -v -run '^(TestSimulation03CapacityBoundaryAtThreeConfirmed)$' ./interna
 
 <br>
 
-### Simulations 4 and 5: the race, on real Postgres
+### Tests 4 and 5: the race, on real Postgres
 
 ```mermaid
 sequenceDiagram
@@ -191,7 +191,7 @@ service calls the right things in the right order, and cannot prove that
 `SELECT ... FOR UPDATE` serializes two transactions, because there is no
 transaction to serialize.
 
-Simulation 4 is ten parents on one free seat. Simulation 5 is twenty parents on
+Test 4 is ten parents on one free seat. Test 5 is twenty parents on
 an empty four seat class, and also proves `uq_seat_taken` never fired: every
 loser ends in `refund_required`, and a unique violation would have rolled its
 transaction back and left that booking in `pending_payment` instead.
@@ -203,7 +203,7 @@ go test -v -tags=containers -run '^(TestSimulation04ParallelConfirmsOnOneFreeSea
 
 <br>
 
-### Simulation 6: the last seat, over http
+### Test 6: the last seat, over http
 
 ```mermaid
 sequenceDiagram
@@ -235,7 +235,7 @@ scripts/seed.sh
 
 <br>
 
-### Simulation 7: hold expiry by the worker
+### Test 7: hold expiry by the worker
 
 ```mermaid
 sequenceDiagram
@@ -262,7 +262,7 @@ go test -v -run '^(TestSimulation07HoldExpiryByTheWorker)$' ./internal/worker/
 
 <br>
 
-### Simulation 8: refund reconciliation
+### Test 8: refund reconciliation
 
 ```mermaid
 sequenceDiagram
@@ -283,7 +283,7 @@ sequenceDiagram
 Proves: the booking moves to `cancelled`, the refund reference is recorded, a
 replay of the same job refunds nothing more, and a provider that cannot be
 reached leaves the job for another attempt. The parent refunded here is the
-one from simulation 5: they paid for a seat that was gone by the time their
+one from test 5: they paid for a seat that was gone by the time their
 confirm ran.
 
 ```sh
@@ -292,7 +292,7 @@ go test -v -run '^(TestSimulation08RefundReconciliation)$' ./internal/worker/
 
 <br>
 
-### Simulation 9: idempotent payment replay
+### Test 9: idempotent payment replay
 
 ```mermaid
 sequenceDiagram
@@ -327,7 +327,7 @@ go test -v -tags=containers -run '^(TestOneKeyChargesOnceUnderRealConcurrency)$'
 
 <br>
 
-### Simulation 10: the bot prevention layers
+### Test 10: the bot prevention layers
 
 ```mermaid
 flowchart TD
@@ -351,7 +351,7 @@ go test -v -run '^(TestSimulation10BotPreventionLayers)$' ./internal/httpx/
 
 <br>
 
-### Simulation 11: a conditional request, served without a database read
+### Test 11: a conditional request, served without a database read
 
 ```mermaid
 sequenceDiagram
@@ -379,7 +379,7 @@ go test -v -run '^(TestSimulation11ConditionalRequestServedWithoutADatabaseRead)
 
 <br>
 
-### Simulation 12: readiness reflects reality
+### Test 12: readiness reflects reality
 
 ```mermaid
 flowchart TD
@@ -403,7 +403,7 @@ go test -v -run '^(TestSimulation12ReadinessReflectsReality)$' ./internal/operat
 
 <br>
 
-### Simulation 13: refresh rotation and reuse detection
+### Test 13: refresh rotation and reuse detection
 
 ```mermaid
 sequenceDiagram
@@ -440,7 +440,7 @@ go test -v -tags=containers -run '^(TestOneRefreshTokenIsSpentOnceUnderRealParal
 
 <br>
 
-### Simulation 14: nothing sensitive leaks
+### Test 14: nothing sensitive leaks
 
 ```mermaid
 flowchart TD
@@ -465,7 +465,7 @@ go test -v -run '^(TestSimulation14NothingSensitiveLeaks)$' ./internal/httpx/
 
 <br>
 
-### Simulation 15: the confirm transaction breaks
+### Test 15: the confirm transaction breaks
 
 ```mermaid
 sequenceDiagram
@@ -484,7 +484,7 @@ Proves the failure path itself: a broken transaction consumes no seat and
 leaves the booking holding, the parent is told a code and a request id and
 nothing else, and only the failed series moves while the two healthy outcomes
 stay where they were. The retry with the same key is then confirmed, which is
-the backend half of frontend simulation F17.
+the backend half of frontend test 17.
 
 ```sh
 go test -v -run '^(TestSimulation15TheCoreTransactionFails)$' ./internal/httpx/
@@ -492,7 +492,7 @@ go test -v -run '^(TestSimulation15TheCoreTransactionFails)$' ./internal/httpx/
 
 <br>
 
-### Simulation 16: the same break, on a running stack
+### Test 16: the same break, on a running stack
 
 ```mermaid
 sequenceDiagram
@@ -536,7 +536,7 @@ One line per file: the tiers its own cases declare, what it covers, and the
 command for that file alone. A file that runs a shared contract also runs that
 contract's tiers.
 
-The simulations above are not repeated here.
+The tests above are not repeated here.
 
 ### cmd
 
@@ -989,5 +989,5 @@ listed in the root `how-to.md` under Run Every Test.
 | :- | :- |
 | `how-to.md` | the whole-suite commands, and what to do when one refuses |
 | `HLD.md` | Test Boundaries, why the tiers are drawn where they are |
-| `LLD.md` | Test Tiers, the simulation table with what each asserts |
-| `phase-track.md` | which phase each simulation landed in |
+| `LLD.md` | Test Tiers, the test table with what each asserts |
+| `phase-track.md` | which phase each test landed in |
