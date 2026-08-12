@@ -13,9 +13,10 @@
 # any real environment, and it is named simulation so nobody reads a green tick
 # here as a service being live.
 #
-# It runs on main-stable only. That branch is what the second pull request gate
-# protects, so a push to it is the closest thing this repository has to a
-# release.
+# It runs on main-stable only. Pull requests are gated on main, and what reaches
+# main-stable after that is a core engineer's decision rather than a workflow's,
+# so a push to it is the closest thing this repository has to a release. This is
+# the check that runs once that decision has been made.
 # ---------------------------------------------------------------------------- #
 
 name: deploy simulation
