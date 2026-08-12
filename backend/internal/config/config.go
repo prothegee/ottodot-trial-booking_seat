@@ -1,5 +1,5 @@
-// Package config loads every setting this service needs from the environment
-// and refuses to start when one of them is wrong.
+// Package config loads every setting this service needs from a settings file
+// and the environment, and refuses to start when one of them is wrong.
 //
 // Two rules shape this file:
 //
@@ -9,6 +9,8 @@
 // Validation happens once, at startup, and reports every problem at the same
 // time. A service that dies on the first bad value costs one restart per
 // mistake.
+//
+// Where the values come from is file.go, and which source wins is stated there.
 package config
 
 import (
@@ -16,6 +18,7 @@ import (
     "fmt"
     "net/url"
     "os"
+    "runtime"
     "strconv"
     "strings"
     "time"
@@ -51,6 +54,23 @@ type ApiSettings struct {
 type WorkerSettings struct {
     MetricsPort  int
     PollInterval time.Duration
+
+    // Count is how many jobs this process works on at once. Zero means one per
+    // processor the machine offers, which is the setting a reviewer can leave
+    // alone on any machine.
+    Count int
+}
+
+// Concurrency is Count with zero resolved to the processor count.
+//
+// The resolution lives here rather than at the call site, so the worker asks one
+// question and nobody has to remember what zero meant.
+func (settings WorkerSettings) Concurrency() int {
+    if settings.Count > 0 {
+        return settings.Count
+    }
+
+    return runtime.NumCPU()
 }
 
 // DatabaseSettings holds both pools. Deciding reads go to the primary, advisory
@@ -87,8 +107,13 @@ type FaultSettings struct {
     Enabled bool
 }
 
-// BuildSettings holds the identity reported by the version endpoint and the
-// frontend footer.
+// BuildSettings is what this repository states about the build, for a process
+// whose binary was never stamped.
+//
+// A release binary is stamped by the linker and answers for itself, so these two
+// are what a run from source has instead: BUILD_VERSION in config.json is the one
+// committed place the backend version number is written down. Either may be left
+// empty, which means nobody stated it here and the next source is asked.
 type BuildSettings struct {
     Version string
     Commit  string
@@ -96,15 +121,21 @@ type BuildSettings struct {
 
 // Config is the whole settings surface, loaded once at startup.
 type Config struct {
-    AppEnv         string
-    FrontendOrigin string
-    Api            ApiSettings
-    Worker         WorkerSettings
-    Database       DatabaseSettings
-    Redis          RedisSettings
-    Auth           AuthSettings
-    Faults         FaultSettings
-    Build          BuildSettings
+    AppEnv string
+
+    // AllowedOrigins is every origin the client may be served from. It is a
+    // list rather than one value because a browser treats 127.0.0.1 and
+    // localhost as different origins, and a reviewer will reach for whichever
+    // of the two they happen to type.
+    AllowedOrigins []string
+
+    Api      ApiSettings
+    Worker   WorkerSettings
+    Database DatabaseSettings
+    Redis    RedisSettings
+    Auth     AuthSettings
+    Faults   FaultSettings
+    Build    BuildSettings
 }
 
 // IsDevelopment reports whether the development only guards are allowed to
@@ -133,7 +164,7 @@ func Load(lookup LookupFunc) (Config, error) {
 
     config := Config{
         AppEnv:         appEnv,
-        FrontendOrigin: stringValue(lookup, "FRONTEND_ORIGIN", "http://127.0.0.1:9001"),
+        AllowedOrigins: listValue(lookup, "ALLOWED_ORIGINS", DefaultAllowedOrigins()),
         Api: ApiSettings{
             Port:            intValue(lookup, "API_PORT", 9000, &problems),
             ReadTimeout:     durationValue(lookup, "API_READ_TIMEOUT", 10*time.Second, &problems),
@@ -143,6 +174,7 @@ func Load(lookup LookupFunc) (Config, error) {
         Worker: WorkerSettings{
             MetricsPort:  intValue(lookup, "WORKER_METRICS_PORT", 9002, &problems),
             PollInterval: durationValue(lookup, "WORKER_POLL_INTERVAL", 2*time.Second, &problems),
+            Count:        intValue(lookup, "WORKER_COUNT", 0, &problems),
         },
         Database: DatabaseSettings{
             PrimaryURL:     Secret(stringValue(lookup, "DATABASE_PRIMARY_URL", defaultDatabaseURL(5432))),
@@ -165,9 +197,13 @@ func Load(lookup LookupFunc) (Config, error) {
         Faults: FaultSettings{
             Enabled: boolValue(lookup, "FAULT_INJECTION_ENABLED", false, &problems),
         },
+        // Empty is the default rather than a word, because these two are the
+        // middle of a chain and not the end of it. A default of "dev" here would
+        // answer for a build the linker already named, and would stop the
+        // toolchain's own record from ever being asked.
         Build: BuildSettings{
-            Version: stringValue(lookup, "BUILD_VERSION", "dev"),
-            Commit:  stringValue(lookup, "BUILD_COMMIT", "unknown"),
+            Version: stringValue(lookup, "BUILD_VERSION", ""),
+            Commit:  stringValue(lookup, "BUILD_COMMIT", ""),
         },
     }
 
@@ -201,6 +237,16 @@ func (config Config) validate() []error {
             "API_PORT and WORKER_METRICS_PORT are both %d, they must differ", config.Api.Port))
     }
 
+    if config.Worker.Count < 0 {
+        problems = append(problems, fmt.Errorf(
+            "WORKER_COUNT is %d, it must be zero for one per processor or a positive number",
+            config.Worker.Count))
+    }
+
+    if config.Worker.PollInterval <= 0 {
+        problems = append(problems, errors.New("WORKER_POLL_INTERVAL must be greater than zero"))
+    }
+
     problems = append(problems, validateDatabaseURL("DATABASE_PRIMARY_URL", config.Database.PrimaryURL)...)
     problems = append(problems, validateDatabaseURL("DATABASE_REPLICA_URL", config.Database.ReplicaURL)...)
 
@@ -218,7 +264,7 @@ func (config Config) validate() []error {
     }
 
     problems = append(problems, config.validateAuth()...)
-    problems = append(problems, config.validateOrigin()...)
+    problems = append(problems, config.validateOrigins()...)
 
     // The whole point of the fault surface is that it cannot exist outside
     // development. A flag left on in a promoted environment stops the service
@@ -261,18 +307,46 @@ func (config Config) validateAuth() []error {
     return problems
 }
 
-func (config Config) validateOrigin() []error {
-    // One message for both failures. A caller does not care whether the parser
-    // gave up or the scheme was simply missing, only what a usable value looks
-    // like.
-    parsed, err := url.Parse(config.FrontendOrigin)
-    if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-        return []error{fmt.Errorf(
-            "FRONTEND_ORIGIN is %q, it needs a scheme and a host, for example http://127.0.0.1:9001",
-            config.FrontendOrigin)}
+func (config Config) validateOrigins() []error {
+    if len(config.AllowedOrigins) == 0 {
+        return []error{errors.New(
+            "ALLOWED_ORIGINS must name at least one origin, for example http://127.0.0.1:9001")}
     }
 
-    return nil
+    var problems []error
+
+    for _, origin := range config.AllowedOrigins {
+        // One message for both failures. A caller does not care whether the
+        // parser gave up or the scheme was simply missing, only what a usable
+        // value looks like.
+        parsed, err := url.Parse(origin)
+        if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+            problems = append(problems, fmt.Errorf(
+                "ALLOWED_ORIGINS holds %q, every entry needs a scheme and a host, for example http://127.0.0.1:9001",
+                origin))
+
+            continue
+        }
+
+        // A trailing path is silently ignored by a browser when it sends the
+        // Origin header, so an entry carrying one would never match anything
+        // and the refusal would look like a mystery.
+        if parsed.Path != "" {
+            problems = append(problems, fmt.Errorf(
+                "ALLOWED_ORIGINS holds %q, an origin is a scheme and a host with no path", origin))
+        }
+    }
+
+    return problems
+}
+
+// DefaultAllowedOrigins is where the client is served from during development.
+//
+// Both spellings of the loopback address are here on purpose. They are different
+// origins to a browser, and a reviewer who types the one this list left out
+// would watch every request fail for a reason nothing on screen explains.
+func DefaultAllowedOrigins() []string {
+    return []string{"http://127.0.0.1:9001", "http://localhost:9001"}
 }
 
 func validatePort(key string, port int) []error {
@@ -332,6 +406,38 @@ func stringValue(lookup LookupFunc, key string, fallback string) string {
     }
 
     return strings.TrimSpace(raw)
+}
+
+// listValue reads a comma separated setting.
+//
+// The separator is the same in both sources: a json array is joined with commas
+// before it ever reaches here, so a list written in the file and a list written
+// in the environment are parsed by this one function.
+func listValue(lookup LookupFunc, key string, fallback []string) []string {
+    raw, found := lookup(key)
+    if !found || strings.TrimSpace(raw) == "" {
+        return fallback
+    }
+
+    parts := strings.Split(raw, ",")
+    values := make([]string, 0, len(parts))
+
+    for _, part := range parts {
+        trimmed := strings.TrimSpace(part)
+        if trimmed == "" {
+            continue
+        }
+
+        values = append(values, trimmed)
+    }
+
+    // A value made only of separators states nothing, so it is treated the same
+    // way an empty one is rather than as an empty list nobody asked for.
+    if len(values) == 0 {
+        return fallback
+    }
+
+    return values
 }
 
 func intValue(lookup LookupFunc, key string, fallback int, problems *[]error) int {
