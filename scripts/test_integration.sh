@@ -3,7 +3,7 @@
 # class: automation
 #
 # Everything that needs a real stack, in one command: containers up, the proof
-# tier, simulation 16, containers down.
+# tier, test 16, containers down.
 #
 # It is the automation class, which is its own set of rules. It never prompts,
 # because a workflow has nobody to answer, and it refuses to run without --yes
@@ -24,7 +24,7 @@
 #
 # Note:
 # - FAULT_INJECTION_ENABLED is exported before the stack starts, because
-#   simulation 16 has nothing to arm without it. It is refused outside
+#   test 16 has nothing to arm without it. It is refused outside
 #   development by the api's own configuration, so this cannot travel
 #
 # Exit codes:
@@ -151,7 +151,7 @@ print_the_plan() {
     printf '  1. start the backend stack, unless it is already up\n'
     printf '  2. apply the migrations, and seed if the database is empty\n'
     printf '  3. run the proof tier: go test -tags=containers\n'
-    printf '  4. run simulation 16: scripts/smoke_failure.sh\n'
+    printf '  4. run test 16: scripts/smoke_failure.sh\n'
     printf '  5. stop the containers, if step 1 started them\n'
     printf '\ndry run, nothing was started.\n'
 }
@@ -174,13 +174,13 @@ main() {
     reached_the_work="yes"
 
     # Exported before the stack starts, so the api comes up with the surface
-    # simulation 16 needs. Compose reads it from this environment.
+    # test 16 needs. Compose reads it from this environment.
     export FAULT_INJECTION_ENABLED=true
 
     step "starting the stack" bring_up &&
         step "preparing the database" prepare_the_database &&
         step "the proof tier" "$backend_root/scripts/test_proof.sh" &&
-        step "simulation 16" "$repository_root/scripts/smoke_failure.sh" --yes
+        step "test 16" "$repository_root/scripts/smoke_failure.sh" --yes
 
     if [ -n "$failed_step" ]; then
         printf '\nfailed at: %s\n' "$failed_step" >&2
