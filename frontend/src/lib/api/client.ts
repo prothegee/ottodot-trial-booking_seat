@@ -65,9 +65,20 @@ export interface ApiClient {
      */
     conditionalGet<T>(path: string, etag: string): Promise<ConditionalAnswer<T>>;
 
-    login(email: string): Promise<void>;
+    login(email: string, password: string): Promise<void>;
     me(): Promise<Session>;
     logout(): Promise<void>;
+
+    /**
+     * Asks who the cookies belong to, treating nobody as an answer.
+     *
+     * `me()` runs where a session is expected, so a refusal there is one that
+     * ended and the sign out is reported. This runs on a page load, where the
+     * ordinary answer on a first visit is that nobody is signed in. Reporting
+     * that would send somebody reading an unauthenticated page to the sign-in
+     * screen for no reason.
+     */
+    whoIsSignedIn(): Promise<Session | null>;
 }
 
 /**
@@ -171,16 +182,43 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
             };
         },
 
-        async login(email: string): Promise<void> {
-            const body: LoginRequest = { email };
+        async login(email: string, password: string): Promise<void> {
+            const body: LoginRequest = { email, password };
 
             // Signing in deliberately skips the refresh path. A refusal here
-            // means the wrong email, and no amount of refreshing fixes that.
+            // means the wrong email or the wrong password, and no amount of
+            // refreshing fixes either.
             await sendOnce({ method: "POST", path: authPaths.login, body });
         },
 
         me(): Promise<Session> {
             return request<Session>({ method: "GET", path: authPaths.me });
+        },
+
+        async whoIsSignedIn(): Promise<Session | null> {
+            const ask = (): Promise<TransportResponse> =>
+                sendOnce({ method: "GET", path: authPaths.me });
+
+            try {
+                return (await ask()).body as Session;
+            } catch (failure) {
+                if (!(failure instanceof ApiError) || failure.code !== tokenExpiredCode) {
+                    return null;
+                }
+            }
+
+            // Only an access token that aged out is worth a refresh. A refresh
+            // that then fails is a session that really did end, and the
+            // coordinator reports that one, because it is news. This still
+            // answers nobody rather than throwing: the caller asked a question
+            // and is owed an answer either way.
+            try {
+                await coordinator.run();
+
+                return (await ask()).body as Session;
+            } catch {
+                return null;
+            }
         },
 
         async logout(): Promise<void> {
