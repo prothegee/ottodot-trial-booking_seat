@@ -96,8 +96,8 @@ func NewBookingHandler(checkoutService *checkout.Service, bookings *booking.Serv
 
 // create asks for a place on the payment screen.
 //
-// The order of the checks is the order of cost, and it is the order simulation
-// 10 walks: who the caller is, then whether the child is theirs, then whether
+// The order of the checks is the order of cost, and it is the order test 10
+// walks: who the caller is, then whether the child is theirs, then whether
 // the submission looks like a person, and only then the transaction. Everything
 // above the transaction costs almost nothing, and the transaction is the thing
 // worth protecting.
