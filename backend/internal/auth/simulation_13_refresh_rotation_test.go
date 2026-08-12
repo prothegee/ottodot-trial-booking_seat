@@ -11,7 +11,7 @@ import (
     "ottodot-trial-booking/backend/internal/auth"
 )
 
-// Simulation 13: refresh rotation and reuse detection.
+// Test 13: refresh rotation and reuse detection.
 //
 //	sequenceDiagram
 //	    participant UI as Client
