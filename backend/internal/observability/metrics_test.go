@@ -61,6 +61,7 @@ var everyMetricName = []string{
     observability.MetricDuplicateRejected,
     observability.MetricHoldExpired,
     observability.MetricQueueDepth,
+    observability.MetricQueueDepthUnread,
     observability.MetricQueueJobDuration,
     observability.MetricWorkerJobsClaimed,
     observability.MetricWorkerJobsCompleted,
@@ -110,6 +111,7 @@ func drivenRegistry(t *testing.T) *prometheus.Registry {
     metrics.Application.RaceLost()
     metrics.Application.DuplicateRejected()
     metrics.Application.HoldExpired()
+    metrics.Application.QueueDepthUnknown()
     metrics.Application.QueueDepth(0, 0, 0)
     metrics.Application.QueueJob("expire_hold", observability.OutcomeCommit, 0.02)
     metrics.Application.JobsClaimed(1)
