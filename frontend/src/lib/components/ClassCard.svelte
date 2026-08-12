@@ -60,21 +60,28 @@
         </p>
     {/if}
 
-    {#if full}
-        <!--
-            No link at all rather than a disabled one. A count on screen is a
-            hint, so a parent who is sure is not stopped from trying by anything
-            here. What stops them is the api, and this is only what saves the
-            wasted click.
-        -->
-        <p class="closed" data-testid="class-card-closed">no seats showing right now</p>
-    {:else}
-        <a class="book" href="/book/{trialClass.id}" data-testid="class-card-book">Book a place</a>
-    {/if}
+    <!--
+        Everything a reader can act on, in one block at the end of the card. It
+        is grouped so the card can push the whole group to the bottom rather than
+        the first line of it.
+    -->
+    <div class="actions">
+        {#if full}
+            <!--
+                No link at all rather than a disabled one. A count on screen is a
+                hint, so a parent who is sure is not stopped from trying by
+                anything here. What stops them is the api, and this is only what
+                saves the wasted click.
+            -->
+            <p class="closed" data-testid="class-card-closed">no seats showing right now</p>
+        {:else}
+            <a class="book" href="/book/{trialClass.id}" data-testid="class-card-book">Book a place</a>
+        {/if}
 
-    {#if showRoster}
-        <a class="roster" href="/roster/{trialClass.id}" data-testid="class-card-roster">See the roster</a>
-    {/if}
+        {#if showRoster}
+            <a class="roster" href="/roster/{trialClass.id}" data-testid="class-card-roster">See the roster</a>
+        {/if}
+    </div>
 </article>
 
 <style>
@@ -83,8 +90,8 @@
         flex-direction: column;
         gap: 0.35rem;
         padding: 1rem;
-        background: #ffffff;
-        border: 1px solid #e5e7eb;
+        background: var(--surface);
+        border: 1px solid var(--line);
         border-radius: 0.5rem;
     }
 
@@ -94,7 +101,7 @@
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.05em;
-        color: #6b7280;
+        color: var(--muted);
     }
 
     h2 {
@@ -105,42 +112,57 @@
     .when {
         margin: 0;
         font-size: 0.9rem;
-        color: #374151;
+        color: var(--ink-soft);
     }
 
     .seats {
         margin: 0;
         font-size: 0.9rem;
         font-weight: 600;
-        color: #047857;
+        color: var(--good);
     }
 
     .seats.full {
-        color: #b91c1c;
+        color: var(--danger);
+    }
+
+    /*
+        The grid already stretches every card in a row to the tallest one. What
+        it does not do is decide where the spare height goes, so a card whose
+        date wrapped onto two lines put its button lower than the card beside it,
+        and a row of buttons came out as a staircase.
+
+        auto sends all of that spare height above this block, which lands every
+        button on the same line however long the words above it ran.
+    */
+    .actions {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        margin-top: auto;
+        padding-top: 0.5rem;
     }
 
     .closed {
-        margin: 0.5rem 0 0;
+        margin: 0;
         font-size: 0.85rem;
-        color: #6b7280;
+        color: var(--muted);
     }
 
     .roster {
-        margin-top: 0.35rem;
         font-size: 0.85rem;
         text-align: center;
-        color: #1d4ed8;
+        color: var(--accent);
     }
 
     .book {
-        margin-top: 0.5rem;
         padding: 0.5rem;
         font-size: 0.95rem;
         font-weight: 600;
         text-align: center;
         text-decoration: none;
-        color: #ffffff;
-        background: #1d4ed8;
+        color: var(--on-accent);
+        background: var(--accent);
         border-radius: 0.25rem;
     }
 </style>
