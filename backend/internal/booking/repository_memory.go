@@ -43,7 +43,7 @@ func NewMemoryRepository() *MemoryRepository {
 // InjectFaults points this repository at a fault source.
 //
 // The fake carries the same two injection points the real one does, at the same
-// two moments. That is what lets the leak and rollback simulations run in the
+// two moments. That is what lets the leak and rollback tests run in the
 // fast tier in a second with nothing running, and still describe the same thing
 // the live stack does when the same point is armed over http.
 func (repository *MemoryRepository) InjectFaults(fault Fault) {
