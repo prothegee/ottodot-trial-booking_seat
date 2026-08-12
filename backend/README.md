@@ -130,6 +130,7 @@ backend
 |   |___migrate.sh
 |   |___seed.sh                            (asks before creating the demo accounts)
 |   |___test.sh                            (build, vet, and the four fast tiers)
+|   |___test_all.sh                        (every backend test, starts a stack for the proofs)
 |   |___test_proof.sh                      (the proof tier, needs the stack up)
 |
 |___ADR.md
@@ -251,9 +252,33 @@ cAdvisor that is running.
 
 <br>
 
+## Why This Stack
+
+Every part was chosen to keep one thing true: the seat is decided in a single
+transaction, and nothing else in the system is allowed to decide it. The full
+reasoning for each choice, including what was rejected and what it cost, is in
+`ADR.md`.
+
+| part | choice | why |
+| :- | :- | :- |
+| language | Go with `net/http`, no framework | the interesting part is a database transaction, not a routing layer, so nothing on the request path is hidden behind a framework's conventions (ADR-001) |
+| state | Postgres holds everything a decision reads | the seat is taken under a row lock, and a lock is only worth anything where the data itself lives (ADR-010) |
+| read scale | one asynchronous replica, promoted by hand | advisory reads move off the primary without every confirm paying replication latency (ADR-012) |
+| cache and limits | Redis, for cached responses, rate limit buckets, and the token denylist | none of that is a source of truth, so Redis can be down without a single invariant being at risk (ADR-010) |
+| background work | a `job_queue` table claimed with `for update skip locked` | a broker would be a second store to keep honest, and rows survive a restart (ADR-011) |
+| login | two cookies, a short-lived one and a long-lived one | checking the short-lived one is maths, so a signed-in request never asks the database who you are. The long-lived one is swapped for a new one every time it is used, so a stolen copy shows up the moment somebody tries it (ADR-013, ADR-027) |
+| packaging | `compose.yml` in this directory, nothing at the repository root | this stack deploys on its own, and it cannot grow a quiet dependency on the client (ADR-014) |
+
+Four direct dependencies carry all of it: `pgx` for Postgres, `go-redis` for
+Redis, the Prometheus client for the metrics, and `argon2` for password hashing.
+The router, the middleware, the json, and the JWT signing and verification are
+standard library (ADR-027).
+
+<br>
+
 ## The Shape Of It
 
-Four ideas carry most of the design.
+Six ideas carry most of the design.
 
 **The database holds the invariants.** Four partial unique indexes make the
 rules impossible to violate, even from a manual sql edit or a buggy code path.
