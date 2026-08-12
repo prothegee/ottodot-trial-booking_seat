@@ -22,12 +22,19 @@ import (
 // Param:
 // pools - *database.Pools (the primary, and only the primary)
 // logger - *observability.Logger (where a settled refund is written down)
+// counter - booking.TransactionCounter (where each seat transaction is recorded)
 //
 // Return:
 //   - a registry covering every kind this service runs
 //   - an error naming the handler that could not be built or registered
-func buildHandlers(pools *database.Pools, logger *observability.Logger) (worker.Registry, error) {
-    bookings, err := booking.NewService(booking.NewPostgresRepository(pools.Primary()), booking.DefaultSettings())
+func buildHandlers(pools *database.Pools, logger *observability.Logger, counter booking.TransactionCounter) (worker.Registry, error) {
+    seats := booking.NewPostgresRepository(pools.Primary())
+
+    // The expiry transaction ends here rather than in the api, so without this
+    // the panel would show every seat transaction but that one.
+    seats.CountTransactions(counter)
+
+    bookings, err := booking.NewService(seats, booking.DefaultSettings())
     if err != nil {
         return nil, fmt.Errorf("the booking service: %w", err)
     }
