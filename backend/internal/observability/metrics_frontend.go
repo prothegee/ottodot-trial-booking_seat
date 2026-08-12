@@ -30,6 +30,7 @@ var knownRoutes = map[string]bool{
     "/book/[classId]":      true,
     "/pay/[bookingId]":     true,
     "/booking/[bookingId]": true,
+    "/bookings":            true,
     "/roster/[classId]":    true,
     "/status":              true,
 }
@@ -105,6 +106,13 @@ func newFrontendMetrics(registry prometheus.Registerer) *FrontendMetrics {
 
     registry.MustRegister(metrics.pageLoad, metrics.apiError, metrics.funnel, metrics.cache)
 
+    // Every route, so the panel has a count to average over before anybody has
+    // opened the site. A percentile of no page loads is not a number at all, and
+    // the average beside it is what keeps that panel drawing.
+    for route := range knownRoutes {
+        metrics.pageLoad.WithLabelValues(route)
+    }
+
     // The funnel is created at zero end to end, so the drop off between two
     // steps is a real ratio from the first booking rather than a panel that
     // renders nothing until somebody happens to reach the last step.
@@ -114,6 +122,16 @@ func newFrontendMetrics(registry prometheus.Registerer) *FrontendMetrics {
 
     for _, result := range []string{ClientResultFresh, ClientResultStale, ClientResultRevalidated, ClientResultMiss} {
         metrics.cache.WithLabelValues(result)
+    }
+
+    // Every code, for the same reason, and it matters more here than anywhere
+    // else on this dashboard. The three code panels each select a group of these
+    // by name, so a group nobody has hit yet has no series at all and the panel
+    // reads No data. That is the same thing the panel shows when the client
+    // stopped reporting, and the two must not look alike: one is a quiet
+    // afternoon and the other is broken telemetry.
+    for code := range knownCodes {
+        metrics.apiError.WithLabelValues(code)
     }
 
     return metrics
