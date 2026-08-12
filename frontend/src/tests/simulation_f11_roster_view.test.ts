@@ -129,6 +129,28 @@ describe("simulation F11: the roster view", () => {
         }
     });
 
+    test("edge: the table has somewhere of its own to scroll on a narrow screen", async () => {
+        // The confirmed column holds a full local date and time, so this table
+        // is wider than a phone. Without a wrapper that scrolls, the page slides
+        // sideways instead and the summary above it goes off screen with it.
+        //
+        // Layout is not something jsdom computes, so what is pinned here is the
+        // structure the layout needs: the table is not a direct child of the
+        // section, it sits inside its own scrolling element.
+        auth.signIn(teacher);
+
+        render(RosterPage);
+
+        await waitFor(() => {
+            expect(screen.getByTestId("roster-table")).toBeInTheDocument();
+        });
+
+        const wrapper = screen.getByTestId("roster-table").parentElement;
+
+        expect(wrapper).not.toBeNull();
+        expect(wrapper?.classList.contains("table-scroll")).toBe(true);
+    });
+
     test("integration: capacity and seats used are both on screen", async () => {
         auth.signIn(teacher);
 
