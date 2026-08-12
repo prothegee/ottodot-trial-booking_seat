@@ -28,6 +28,7 @@ export type TelemetryRoute =
     | "/book/[classId]"
     | "/pay/[bookingId]"
     | "/booking/[bookingId]"
+    | "/bookings"
     | "/roster/[classId]"
     | "/status";
 
