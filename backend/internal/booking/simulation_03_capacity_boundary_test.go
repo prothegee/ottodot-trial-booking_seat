@@ -9,7 +9,7 @@ import (
     "ottodot-trial-booking/backend/internal/booking"
 )
 
-// Simulation 3: capacity boundary at 3 confirmed.
+// Test 3: capacity boundary at 3 confirmed.
 //
 //	parent 4 -> api: pay and confirm
 //	api      -> repository: lock class, 3 confirmed, seat 4 free
@@ -26,7 +26,7 @@ import (
 // Note:
 //   - the reconcile_refund job that goes with the refund is enqueued in the
 //     same transaction once the queue exists. That is phase 4, and this
-//     simulation gains the assertion then.
+//     test gains the assertion then.
 
 const (
     boundaryParentOne = "0192c003-0000-7000-8000-000000000001"
