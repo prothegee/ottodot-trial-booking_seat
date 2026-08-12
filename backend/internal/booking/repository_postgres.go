@@ -35,8 +35,9 @@ const classColumns = `id, subject, title, starts_at, duration_minutes, capacity,
 
 // PostgresRepository is the real one. It is the authority on who owns a seat.
 type PostgresRepository struct {
-    pool  *pgxpool.Pool
-    fault Fault
+    pool         *pgxpool.Pool
+    fault        Fault
+    transactions TransactionCounter
 }
 
 // NewPostgresRepository wraps a pool.
@@ -182,11 +183,15 @@ func (repository *PostgresRepository) Events(ctx context.Context, bookingID stri
 // The class row is locked first, so two parents asking for the last allowance
 // slot at the same instant are counted one after the other rather than both
 // against the same stale number.
-func (repository *PostgresRepository) Hold(ctx context.Context, request HoldRequest) (Booking, error) {
+func (repository *PostgresRepository) Hold(ctx context.Context, request HoldRequest) (result Booking, err error) {
     transaction, err := repository.pool.Begin(ctx)
     if err != nil {
         return Booking{}, fmt.Errorf("cannot open the hold transaction: %w", translate(err, nil))
     }
+
+    // Registered before the rollback below, so it runs after it and reads the
+    // error this method is actually returning.
+    defer func() { repository.countTransaction(transactionHold, err) }()
 
     defer transaction.Rollback(ctx)
 
@@ -290,11 +295,15 @@ func (repository *PostgresRepository) Hold(ctx context.Context, request HoldRequ
 //   - the seat-lost path commits. The refund_required row is the record that
 //     tells an operator money has to move back, so rolling it back would lose
 //     the only trace of a charge that has already happened.
-func (repository *PostgresRepository) Confirm(ctx context.Context, request ConfirmRequest) (Booking, error) {
+func (repository *PostgresRepository) Confirm(ctx context.Context, request ConfirmRequest) (result Booking, err error) {
     transaction, err := repository.pool.Begin(ctx)
     if err != nil {
         return Booking{}, fmt.Errorf("cannot open the confirm transaction: %w", translate(err, nil))
     }
+
+    // Registered before the rollback below, so it runs after it and reads the
+    // error this method is actually returning.
+    defer func() { repository.countTransaction(transactionConfirm, err) }()
 
     defer transaction.Rollback(ctx)
 
@@ -383,11 +392,15 @@ func (repository *PostgresRepository) Confirm(ctx context.Context, request Confi
 
 // Cancel withdraws a booking and releases any seat it held, which is what makes
 // that seat available to the next confirm.
-func (repository *PostgresRepository) Cancel(ctx context.Context, request CancelRequest) (Booking, error) {
+func (repository *PostgresRepository) Cancel(ctx context.Context, request CancelRequest) (result Booking, err error) {
     transaction, err := repository.pool.Begin(ctx)
     if err != nil {
         return Booking{}, fmt.Errorf("cannot open the cancel transaction: %w", translate(err, nil))
     }
+
+    // Registered before the rollback below, so it runs after it and reads the
+    // error this method is actually returning.
+    defer func() { repository.countTransaction(transactionCancel, err) }()
 
     defer transaction.Rollback(ctx)
 
@@ -426,11 +439,15 @@ func (repository *PostgresRepository) Cancel(ctx context.Context, request Cancel
 // The row is locked before the status is read, so a decline arriving at the same
 // instant as a confirm cannot both be written. The second one finds the booking
 // is no longer pending_payment and is told so.
-func (repository *PostgresRepository) Fail(ctx context.Context, request FailRequest) (Booking, error) {
+func (repository *PostgresRepository) Fail(ctx context.Context, request FailRequest) (result Booking, err error) {
     transaction, err := repository.pool.Begin(ctx)
     if err != nil {
         return Booking{}, fmt.Errorf("cannot open the decline transaction: %w", translate(err, nil))
     }
+
+    // Registered before the rollback below, so it runs after it and reads the
+    // error this method is actually returning.
+    defer func() { repository.countTransaction(transactionFail, err) }()
 
     defer transaction.Rollback(ctx)
 
@@ -514,17 +531,66 @@ func (repository *PostgresRepository) Worklist(ctx context.Context, request Work
     return matched, nil
 }
 
+// ParentBookings lists one parent's own bookings, newest first.
+//
+// It reads the primary like the worklist above, and for a sharper reason: this
+// is the screen a parent opens straight after paying, and a replica a second
+// behind would show the booking they just paid for as still waiting for money.
+//
+// The parent is applied inside the statement rather than to the rows that come
+// back. A subquery on students is what keeps the column list unqualified and
+// identical to every other read here, and it means there is no shape of this
+// call that returns somebody else's booking to be filtered out afterwards.
+func (repository *PostgresRepository) ParentBookings(ctx context.Context, request ParentBookingsRequest) ([]Booking, error) {
+    if err := request.Validate(); err != nil {
+        return nil, err
+    }
+
+    rows, err := repository.pool.Query(ctx, `
+        select `+bookingColumns+`
+        from bookings
+        where student_id in (select id from students where parent_id = $1)
+        order by created_at desc, id desc
+        limit $2`, request.ParentID, request.Limit)
+    if err != nil {
+        return nil, translate(err, nil)
+    }
+
+    defer rows.Close()
+
+    matched := make([]Booking, 0, request.Limit)
+
+    for rows.Next() {
+        stored, err := scanBooking(rows)
+        if err != nil {
+            return nil, translate(err, nil)
+        }
+
+        matched = append(matched, stored)
+    }
+
+    if err := rows.Err(); err != nil {
+        return nil, translate(err, nil)
+    }
+
+    return matched, nil
+}
+
 // Expire releases a hold whose deadline has passed, which is what puts the seat
 // behind a parent who walked away back in front of everyone else.
 //
 // The row is locked before the deadline is read, so two workers that both got
 // the job cannot both write the transition. The second one finds the booking is
 // no longer pending_payment and is told so.
-func (repository *PostgresRepository) Expire(ctx context.Context, request ExpireRequest) (Booking, error) {
+func (repository *PostgresRepository) Expire(ctx context.Context, request ExpireRequest) (result Booking, err error) {
     transaction, err := repository.pool.Begin(ctx)
     if err != nil {
         return Booking{}, fmt.Errorf("cannot open the expiry transaction: %w", translate(err, nil))
     }
+
+    // Registered before the rollback below, so it runs after it and reads the
+    // error this method is actually returning.
+    defer func() { repository.countTransaction(transactionExpire, err) }()
 
     defer transaction.Rollback(ctx)
 
