@@ -102,7 +102,7 @@ ottodot-trial-booking_seat
 |   |   |___settings.sh                    (makes a stack's settings file from its template)
 |   |   |___settings_test.sh               (the copy, the file it leaves alone, the refusal)
 |   |   |___stack.sh                       (which stacks exist, and where)
-|   |   |___stack_test.sh                  (its runtime socket discovery)
+|   |   |___stack_test.sh                  (its socket discovery, and which runtime it picks)
 |   |
 |   |___cleanup_dev.sh                     (destructive, development only)
 |   |___cleanup_dev_test.sh                (its guards, never the removing path)
