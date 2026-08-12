@@ -53,7 +53,33 @@ scripts/stack_down.sh frontend
 scripts/stack_restart.sh           # both, a stop and a start in one command
 scripts/stack_restart.sh backend
 scripts/stack_restart.sh frontend
+
+scripts/stack_status.sh            # what is up, and what the test runs still need
+scripts/stack_status.sh backend
+scripts/stack_status.sh frontend
 ```
+
+`stack_status.sh` only reads, so it is safe at any moment, including while
+something is still starting. It exists because every container can be up while
+the tests still cannot run, so it reports three more things underneath: whether
+the schema is applied, whether the seed is there, and whether the api carries
+the fault surface test 16 needs.
+
+```
+backend
+  ottodot-postgres-primary   up       healthy
+  ...
+  ottodot-cadvisor           absent   optional, never required
+  8 of 9 up
+
+what the test runs need
+  the schema               applied
+  the seed                 4 parent(s)
+  the fault surface        off, test 16 needs it on
+```
+
+It exits 0 when every required container is up and 1 when one is not, so it can
+gate a command as well as answer a question. cAdvisor never counts.
 
 `stack_restart.sh` is for a change a running container cannot pick up: an edited
 `compose.yml`, a rebuilt image, or an environment variable compose only reads
@@ -284,12 +310,101 @@ lists the classes.
 One thing is normal here rather than a fault: `seed.sh` refuses once the accounts
 exist, and says so.
 
+A stack started like this has no fault surface, which is the right default and is
+worth knowing before the next run. Test 16 breaks the confirm transaction on
+purpose, and it can only do that against an api that was started with the surface
+switched on. Nothing here needs it, so it is off. Run Every Test below says what
+to do about a stack already up without it.
+
 To run a process from source instead of from an image, `backend/scripts/debug.sh`
 is steps 1 to 3 with the api in the foreground, and `frontend/scripts/debug.sh`
 is step 5 with its checks first. When a step refuses, When Something Refuses To
 Start below names the cause.
 
 ### 2. Run Every Test
+
+One command, from the repository root:
+
+```sh
+APP_ENV=development scripts/test_all.sh
+```
+
+That is every test in the repository: the backend, the frontend, the guards on
+the scripts up here, and then everything that needs a real stack, which is the
+proof tier, test 6, and test 16. It starts the containers if they are down and
+stops them again if it was the one that started them, which is why it asks for
+`APP_ENV=development`. About a minute and a half from cold.
+
+Nothing is left out of it. That is the whole point of the name.
+
+**One state to know about, because it is the common one.** A stack that is
+already up and was started without `FAULT_INJECTION_ENABLED=true` cannot run
+test 16, and the last step refuses about a minute in and says so:
+
+```
+--> test 16
+refused: the fault surface is off. The api reads this from its container, so it
+must be exported before the stack starts:
+```
+
+Nothing is broken when that happens. `test_integration.sh` will not restart
+containers it did not start, because doing that to somebody's running demo would
+be worse than refusing. Either of these clears it:
+
+```sh
+# let the run start its own stack, which switches the surface on for you
+scripts/stack_down.sh backend
+APP_ENV=development scripts/test_all.sh
+
+# or keep the stack and give it the surface
+export APP_ENV=development
+export FAULT_INJECTION_ENABLED=true
+scripts/stack_restart.sh backend
+scripts/test_all.sh
+```
+
+Started from nothing, the question never arises, because the run starts the
+stack itself with the surface on and takes it down afterwards.
+
+**`export`, not just `=`.** This is the one that wastes an afternoon. A variable
+assigned without `export` belongs to the shell that typed it and to nothing else,
+so `echo $FAULT_INJECTION_ENABLED` prints `true` while every script, compose, and
+the api itself sees nothing at all. The value looks set and is not being passed
+anywhere.
+
+```sh
+FAULT_INJECTION_ENABLED=true             # echo shows it, no script ever sees it
+export FAULT_INJECTION_ENABLED=true      # the api gets it
+```
+
+`scripts/stack_status.sh backend` reads the setting out of the running container,
+so it answers this in one line rather than by argument.
+
+Pass `--run-integration` when there is no terminal to answer for it, which is
+what continuous integration does:
+
+```sh
+APP_ENV=development scripts/test_all.sh --run-integration
+```
+
+Each stack has a command for itself alone, and neither leaves anything out
+either:
+
+```sh
+APP_ENV=development backend/scripts/test_all.sh    # starts a stack for the proof tier
+frontend/scripts/test_all.sh                       # needs nothing running, ever
+```
+
+The backend one starts the stack when it is down, applies the schema, seeds an
+empty database, runs the proof tier, and takes the stack down again only if it
+was the one that started it. A stack already up is used and left alone. That is
+why it wants `APP_ENV=development`, and `--run-integration` when there is no
+terminal to answer for it.
+
+For the fast loop while writing code, `backend/scripts/test.sh` is the four fake
+tiers on their own and starts nothing at all. About five seconds.
+
+The same set, one piece at a time:
 
 ```sh
 # 1) the backend, with nothing running
@@ -312,8 +427,11 @@ APP_ENV=development backend/scripts/debug_test.sh
 frontend/scripts/debug_test.sh
 frontend/scripts/clean_test.sh
 scripts/cleanup_dev_test.sh
+scripts/race_last_seat_test.sh
+scripts/smoke_refund_test.sh
 scripts/stack_up_test.sh
 scripts/stack_restart_test.sh
+scripts/stack_status_test.sh
 scripts/lib/confirm_test.sh
 scripts/lib/settings_test.sh
 scripts/lib/stack_test.sh
@@ -321,7 +439,9 @@ scripts/lib/stack_test.sh
 
 Every file in point 4 reads its subject or stops inside a guard, so none of them
 starts or removes anything, and whatever they write goes to a throwaway directory
-that is deleted on the way out. They take a second together.
+that is deleted on the way out. The one exception runs its subject all the way
+through, and only because that subject is `stack_status.sh`, which itself only
+reads. They take a second or two together.
 
 Green when no line in any of them reads `FAIL`, every backend package prints
 `ok`, and the frontend reports every test file passed. The proof tier is the one
@@ -339,14 +459,20 @@ APP_ENV=development scripts/test_integration.sh
 ```
 
 That starts the containers, applies the schema, runs the proof tier, runs
-test 16, and stops the containers again. A stack already up is used and
-left up.
+test 6, runs test 16, and stops the containers again. A stack already up is used
+and left up. It is the last step of `scripts/test_all.sh` above, and the only
+part of it that touches containers.
+
+Test 6 is given `--fresh-class` here, so it races a throwaway class it makes and
+drops rather than the seeded seat. That is what lets this command run twice in a
+row.
 
 One case in that reuse fails, and says why. The containers it starts itself get
 `FAULT_INJECTION_ENABLED`, but an api already running without it has no fault
-surface, so test 16 refuses and the run ends there. Either start it with
-`FAULT_INJECTION_ENABLED=true scripts/stack_up.sh backend` first, or take the
-stack down and let this command start it.
+surface, so test 16 refuses and the run ends there. Either take the stack down
+and let this command start it, or give the running one the surface with
+`APP_ENV=development FAULT_INJECTION_ENABLED=true scripts/stack_restart.sh backend`.
+Run Every Test above shows both, and it is the same case either way.
 
 ### 3. Break It On Purpose And Watch It
 
@@ -398,10 +524,13 @@ them refuse.
 
 Two scripts drive a running system over http, cookies and all, and assert what
 came back. Neither reaches past a guard, so what they print is what a parent
-would get.
+would get. A third, `smoke_refund.sh` below, moves the refund backlog in the
+database instead, because that number is counted from rows rather than reached
+by a request.
 
 ```sh
 scripts/race_last_seat.sh                       # the brief's scenario, test 6
+scripts/race_last_seat.sh --fresh-class         # the same race, on a class of its own
 APP_ENV=development scripts/smoke_failure.sh    # break it on purpose, test 16
 ```
 
@@ -409,9 +538,24 @@ APP_ENV=development scripts/smoke_failure.sh    # break it on purpose, test 16
 seat, the second one pays first and is confirmed, the first one pays and is
 refused with `seat_lost`, and four tables are then read back to check they
 agree: one seat handed out, two charges settled, an audit line for each parent,
-and a refund queued for the one who lost. It is not repeatable on its own,
-because the seat it races for is gone once somebody has it. Run
-`scripts/seed_reset.sh` first to go again.
+and a refund queued for the one who lost.
+
+The seeded seat can only be raced once, because it is gone the moment somebody
+has it. `--fresh-class` is the way to go again: it makes a throwaway class with
+one seat, races that instead, and deletes it and every row the race wrote when
+it is done, so the seeded data is left exactly as it was. Without the flag and
+with the seat already gone, it offers the same thing rather than doing it:
+
+```
+the seeded race class already holds 1 confirmed booking(s), so its
+seat is gone and there is nothing left to race for.
+
+race a throwaway class instead? [y/N]
+```
+
+Answering no leaves everything alone, and `scripts/seed_reset.sh` is the other
+way back to a free seeded seat. With no terminal to ask, it refuses and names
+the flag.
 
 `smoke_failure.sh` breaks the confirm transaction on purpose and follows the
 failure to the alert. It needs the api started with fault injection on:
@@ -425,6 +569,40 @@ scripts/stack_up.sh backend
 
 It is classed destructive although it deletes nothing, because it breaks a
 running system deliberately, so it prompts like every other destructive script.
+
+`smoke_refund.sh` does the same job for the one alert that costs somebody money.
+`refund_pending_bookings` is a gauge the api counts from the database every five
+seconds, so the only way to move the `Refunds owed` panel is to move rows:
+
+```sh
+APP_ENV=development scripts/smoke_refund.sh --increase          # one more
+APP_ENV=development scripts/smoke_refund.sh --increase 5        # five more
+APP_ENV=development scripts/smoke_refund.sh --decrease 3        # three fewer
+APP_ENV=development scripts/smoke_refund.sh --increase 2 --dry-run
+```
+
+It asks which parent first, and only the demo accounts on `example.test` are in
+the list to choose from:
+
+```
+which demo parent is this refund for?
+
+  1) Alice Tan        alice.tan@example.test         owed 0
+  2) Budi Santoso     budi.santoso@example.test      owed 0
+  3) Chandra Wijaya   chandra.wijaya@example.test    owed 0
+
+choose [1]:
+```
+
+`--increase` writes bookings that say the money moved and the seat did not, each
+with the charge that settled behind it and an audit line saying why it is owed.
+`--decrease` closes that many again, newest first, so an increase can be undone
+exactly and a refund left by a real lost race is last in line. It cannot go
+below zero: with nothing owed to that parent it says so and stops.
+
+Then it follows the new number to the api's own gauge and to Prometheus, and
+names the panel. `RefundBacklog` fires on anything above zero held for five
+minutes, so an increase left standing is how that alert is watched arriving.
 
 Everything that needs a real stack runs in one command:
 
@@ -462,6 +640,7 @@ rootful Docker and rootless Podman. See ADR-015 and ADR-057.
 | `scripts/seed_reset.sh` | every data row, then inserts the seed rows again. The schema is left alone | `APP_ENV=development`, a named manifest, `y/N` defaulting to No |
 | `scripts/cleanup_dev.sh` | this project's containers, the images it built, both networks, and each service's `.data/` directory | the same three, and every target has to carry the project prefix |
 | `scripts/smoke_failure.sh` | nothing, but it breaks a running api on purpose | the same three |
+| `scripts/smoke_refund.sh` | nothing on `--increase`. On `--decrease` it closes a booking that is owed a refund, with no money sent back | the same three, and only demo accounts on `example.test` are offered to write against |
 | `backend/scripts/db_reset.sh` | the whole `public` schema, then migrates and seeds again | the same three |
 | `frontend/scripts/clean.sh` | build output and local caches | the same three |
 
@@ -505,6 +684,10 @@ same exit codes as the table above.
 
 ## When Something Refuses To Start
 
+`scripts/stack_status.sh` first. It names which container is not up and which of
+the three test preconditions is missing, which is most of this table answered in
+one line without reading any of it.
+
 | symptom | cause | fix |
 | :- | :- | :- |
 | a script exits 2 saying `APP_ENV` | the guard, working | `export APP_ENV=development` |
@@ -514,7 +697,7 @@ same exit codes as the table above.
 | the frontend answers on 9001 but not on 127.0.0.1 | the default host resolved to IPv6 only | the config binds 127.0.0.1 explicitly, so this means an override is set. Check `FRONTEND_HOST` |
 | `go test -tags=containers` cannot reach the primary | the backend stack is not running | `scripts/stack_up.sh backend` |
 | the api restarts over and over saying redis is not reachable | `protected-mode` was turned back on in `backend/containers/redis/redis.conf` without a password | with it on and no password, Redis answers every non-loopback client `DENIED`, and in containers that is every client. The file explains what is holding instead |
-| `smoke_failure.sh` says the fault surface is off | the api was started without `FAULT_INJECTION_ENABLED=true` | export it, then `scripts/stack_down.sh backend` and up again. Compose reads it at start |
+| `smoke_failure.sh` says the fault surface is off | the api was started without `FAULT_INJECTION_ENABLED=true`, and most often it was assigned without `export`, so `echo` shows it while no script ever received it | `export FAULT_INJECTION_ENABLED=true`, then `scripts/stack_restart.sh backend`. Compose reads it only when a container starts. `scripts/stack_status.sh backend` says what the api actually got |
 | every screen in the browser fails, but curl works | the page was opened on an address the api does not list | use `http://127.0.0.1:9001`, or add the address to `ALLOWED_ORIGINS` in `backend/config.json` and restart the api. `localhost` and `127.0.0.1` are different origins to a browser |
 | a setting changed in the shell has no effect | the settings file states it, and the file wins | change it in `backend/config.json` or `frontend/.env`, or delete the line there to let the environment decide |
 | a frontend setting changed but the page is unchanged | `.env` is read when the bundle is built, not when it is served | rebuild, or restart the dev server |
