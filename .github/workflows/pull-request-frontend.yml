@@ -40,7 +40,7 @@ jobs:
         outputs:
             frontend: ${{ steps.filter.outputs.frontend }}
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v7
               with:
                   fetch-depth: 0
 
@@ -70,9 +70,9 @@ jobs:
             run:
                 working-directory: frontend
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v7
 
-            - uses: actions/setup-node@v4
+            - uses: actions/setup-node@v7
               with:
                   node-version: 24
                   cache: npm
@@ -100,7 +100,7 @@ jobs:
         if: needs.changes.outputs.frontend == 'true'
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v7
 
             # Both are class: safe: no dev server starts and nothing is deleted.
             # The shared libraries under scripts/lib are tested once, in the
@@ -118,7 +118,7 @@ jobs:
         if: needs.changes.outputs.frontend == 'true'
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v7
 
             # No registry, no push, and no cache. The question this answers is
             # narrow: does the Containerfile still describe something that
