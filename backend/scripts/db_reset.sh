@@ -30,10 +30,11 @@ source "$backend_root/scripts/lib/database.sh"
 
 main() {
     confirm_parse_flags "$@"
+    confirm_require_environment
 
     database_require_running
 
-    confirm_target_name "$DATABASE_CONTAINER"
+    confirm_target_name "$DATABASE_CONTAINER" "the whole public schema in the database inside container"
     confirm_proceed "drop the public schema in database '$DATABASE_NAME', then migrate and seed it again"
 
     printf 'dropping the public schema\n'
