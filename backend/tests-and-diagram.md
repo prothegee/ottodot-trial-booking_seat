@@ -23,14 +23,38 @@ flowchart TD
     seeded --> race["../scripts/race_last_seat.sh<br/>test 6, over http"]
     seeded --> broke["../scripts/smoke_failure.sh<br/>test 16, breaks a running api"]
 
+    every["scripts/test_all.sh<br/>nothing left out"] --> format["scripts/format.sh --check"]
+    every --> fast
+    every --> guards["scripts/debug_test.sh"]
+    every --> up
+    every --> proof
+
     all["../scripts/test_integration.sh"] --> up
     all --> proof
+    all --> race
     all --> broke
+
+    repo["../scripts/test_all.sh<br/>nothing left out"] --> every
+    repo --> all
 ```
 
 The left branch needs nothing. The right branch needs containers. That split is
 the whole point of the tiers: a reviewer with no Docker can still run four
-tiers out of five and see them pass.
+tiers out of five and see them pass, and `scripts/test.sh` on its own is exactly
+that left branch.
+
+`scripts/test_all.sh` is this stack's own command and reaches across the line,
+which is why it is the one that says the backend is green. It raises a stack when
+there is none, applies the schema, seeds an empty database, and takes the stack
+down again only if it started it. The schema step is not a formality: most of
+these tests build a scratch schema of their own, but the read routing proof reads
+the real tables, so against an unmigrated database it fails with
+`relation "trial_classes" does not exist`, which reads as a broken test rather
+than an unapplied migration.
+
+`../scripts/test_integration.sh` is the one that also runs tests 6 and 16.
+`../scripts/test_all.sh` at the root is every one of these together, and starts a
+single stack that each step underneath reuses.
 
 <br>
 
@@ -105,6 +129,14 @@ sequenceDiagram
     API-->>Parent: 409 already_booked
 ```
 
+Reading it:
+
+1. A parent books child C into class X.
+2. The api writes one booking row, in `pending_payment`.
+3. The same parent books the same child into the same class again.
+4. The second insert reaches the database and `uq_booking_active` refuses it.
+5. The parent is answered 409 `already_booked`, and nothing was written.
+
 Proves: exactly one booking exists for that child and class, the second request
 leaves nothing behind, and a cancellation frees that child to book again.
 
@@ -130,6 +162,16 @@ sequenceDiagram
     API-->>Parent: 402 payment_declined
     Note over Repo: the roster reads confirmed bookings, and this child is in none
 ```
+
+Reading it:
+
+1. A parent pays for a booking, and this card is seeded to decline.
+2. The api asks the provider to charge, and the provider declines. No money moved.
+3. The api writes one payment attempt with status `failed` and no provider
+   reference.
+4. The parent is answered 402 `payment_declined`.
+5. The confirm transaction never runs, so the roster, which reads confirmed
+   bookings, does not carry this child.
 
 Proves: one failed attempt row, no seat assigned, and an empty roster, because
 a decline stops the sequence before the confirm transaction runs. A second case
@@ -161,6 +203,15 @@ sequenceDiagram
     API-->>P5: 409 seat_lost
 ```
 
+Reading it:
+
+1. Parent 4 pays, and the api opens the confirm transaction.
+2. The class row is locked: 3 confirmed, so seat 4 is free.
+3. Parent 4 is confirmed as seat 4, and the class is now full.
+4. Parent 5 pays, and the api locks the same row: 4 confirmed, no seat left.
+5. The confirm is rejected, and that booking is moved to `refund_required`.
+6. Parent 5 is answered 409 `seat_lost`. Their money moved, so a refund is owed.
+
 Proves: exactly four confirmed, seats 1 to 4, the fifth parent left in
 `refund_required` rather than holding a seat that does not exist, and that
 booking keeping its audit trail.
@@ -185,6 +236,16 @@ sequenceDiagram
     PG-->>API: one transaction at a time, the rest wait
     API-->>Parents: 1 confirmed with a seat, 9 in refund_required
 ```
+
+Reading it:
+
+1. Ten parents already hold, and the class has one free seat.
+2. All ten send confirm at the same instant.
+3. Each confirm opens `SELECT ... FOR UPDATE` on the same class row.
+4. Postgres lets one transaction through at a time, and the rest wait at the
+   lock rather than reading a count nobody is holding still.
+5. The first one out takes the seat. The other nine find none left and end in
+   `refund_required`.
 
 This is the pair the four fake tiers cannot give. A fake repository proves the
 service calls the right things in the right order, and cannot prove that
@@ -220,6 +281,15 @@ sequenceDiagram
     API-->>A: 409 seat_lost, refund job queued
 ```
 
+Reading it:
+
+1. Parent A holds the last seat and goes to pay.
+2. Parent B holds the same seat, which the hold allowance permits, because a
+   hold is not a seat.
+3. Parent B pays first, and the confirm transaction hands them the seat number.
+4. Parent A pays, and by then the seat is gone.
+5. Parent A is answered 409 `seat_lost`, and a refund job is queued naming them.
+
 The brief's scenario against a live system, with cookies, exactly as a browser
 does it. It asserts against the database afterwards as well as the http
 answers: one seat handed out, two payments taken and settled, an audit line
@@ -232,6 +302,10 @@ scripts/migrate.sh
 scripts/seed.sh
 ../scripts/race_last_seat.sh
 ```
+
+The seeded seat is gone once that has run. `../scripts/race_last_seat.sh
+--fresh-class` races a throwaway class instead, made and then deleted for the
+run, which is how this test goes twice.
 
 <br>
 
@@ -252,6 +326,17 @@ sequenceDiagram
     Q-->>W2: nothing, the job was claimed once
     Note over Repo: the slot is available to other parents again
 ```
+
+Reading it:
+
+1. Worker 1 claims an `expire_hold` job with `FOR UPDATE SKIP LOCKED`.
+2. The queue hands it that one job row.
+3. Worker 1 sets the booking to `expired`, releases the hold, and writes the
+   event row.
+4. Worker 1 marks the job done.
+5. Worker 2 polls at the same moment and is handed nothing, because the row was
+   claimed once and skipped rather than waited on.
+6. The slot is free for another parent.
 
 Proves: the booking becomes `expired`, the slot frees up, and a second worker
 polling at the same time claims nothing.
@@ -280,6 +365,17 @@ sequenceDiagram
     W->>Q: mark the job done
 ```
 
+Reading it:
+
+1. The worker claims a `reconcile_refund` job.
+2. It reads the booking and finds it still in `refund_required`.
+3. It asks the provider to refund the attempt that settled.
+4. The provider refunds, and the reference comes back.
+5. Only then does the worker set the booking to `cancelled` and write the event
+   row. Refund first, close second: a booking closed before the money moved
+   would look settled while the parent is still out of pocket.
+6. The job is marked done.
+
 Proves: the booking moves to `cancelled`, the refund reference is recorded, a
 replay of the same job refunds nothing more, and a provider that cannot be
 reached leaves the job for another attempt. The parent refunded here is the
@@ -307,6 +403,16 @@ sequenceDiagram
     API->>Repo: the key is taken, uq_payment_idempotency holds
     API-->>Parent: the original result again, no second charge
 ```
+
+Reading it:
+
+1. A parent pays, carrying idempotency key K.
+2. The api writes the attempt under K, charges, and the charge settles.
+3. The parent is told it settled.
+4. The parent retries with the same key K, which is what a refreshed page does.
+5. `uq_payment_idempotency` holds, so that key cannot be written a second time.
+6. The stored result is returned again, and the provider is never asked to
+   charge twice.
 
 Proves: one `payment_attempts` row, one charge at the provider, and an
 identical answer from both calls. A replayed decline replays the decline rather
@@ -340,6 +446,21 @@ flowchart TD
     dup --> seat["a hold, and a seat only once money settles"]
 ```
 
+Reading it, top to bottom, and the order is the point:
+
+1. A booking request arrives.
+2. The token is checked, which is a signature check and no database read.
+3. Ownership is checked, which is one directory read.
+4. The rate limit takes one bucket, before any domain work happens.
+5. The bot signals are a comparison and some arithmetic.
+6. The hold cap is checked inside the transaction, which is the only place it
+   can be true.
+7. The duplicate is caught by a unique index, where it cannot be raced.
+8. What is left is a hold, and a seat only once money has settled.
+
+Each layer costs more than the one above it, so the commonest refusal is the
+cheapest one to make.
+
 The question is not whether a rate limiter exists. It is whether a request
 meets the layers in that order, cheapest first, and whether each one refuses
 with a typed code a client can act on. The flood case also proves a refusal
@@ -369,6 +490,16 @@ sequenceDiagram
     Note over API: a mutation bumps the version, so the tag changes even when the body does not
 ```
 
+Reading it:
+
+1. A client asks for the class list.
+2. The api reads the classes and answers 200, with the ETag `"v41"`.
+3. The client asks again, carrying `If-None-Match: "v41"`.
+4. The api makes one store read and nothing else.
+5. It answers 304 with no body, and the database reader was never called.
+6. A mutation bumps the version, so the tag changes even when the body does not,
+   which is what stops a client trusting a stale answer.
+
 Measured rather than asserted: the reader counts its own calls, so "zero
 database queries" is provable instead of plausible. A client arriving with no
 tag at all is served the stored body, still without a database read.
@@ -391,6 +522,17 @@ flowchart TD
     unready --> quiet["no body names a host, a port, or a credential"]
     ready --> quiet
 ```
+
+Reading it, one dependency at a time:
+
+1. The replica goes down, and `/readyz` stays ready.
+2. The primary goes down, and `/readyz` reports unready.
+3. Redis goes down, and `/readyz` reports unready as well.
+4. Through all three, `/livez` stays 200, because the process itself is alive
+   and restarting it would fix nothing.
+5. The dependency comes back, and readiness returns on its own with nothing
+   restarted.
+6. No answer along the way names a host, a port, or a credential.
 
 A downed replica keeps the service in rotation, because every deciding read
 already goes to the primary and taking a working service out costs an outage
@@ -421,6 +563,17 @@ sequenceDiagram
     UI->>API: refresh with R2
     API-->>UI: 401 token_reused, sign in again
 ```
+
+Reading it:
+
+1. The client refreshes with token R1.
+2. The api matches the hash, revokes R1, and inserts R2 into the same family.
+3. The client is given new cookies carrying R2.
+4. A thief refreshes with the stolen R1.
+5. R1 is already revoked, so the whole family is revoked and the thief is
+   answered 401 `token_reused`.
+6. The real parent refreshes with R2 and is signed out too. Two parties held R1
+   and this service cannot tell which one was the thief, so it ends both.
 
 Proves: R1 works exactly once, the family is revoked on reuse, the counter
 increments, and the real parent is signed out too. That is the correct trade
@@ -455,6 +608,16 @@ flowchart TD
     claims --> assert
 ```
 
+Reading it:
+
+1. A whole booking is driven through the api, so there is real output to look
+   at rather than a fixture.
+2. Every surface that run produced is then scanned.
+3. The four surfaces are the response bodies, the log lines, the metric labels,
+   and the token payload.
+4. Each one has to carry no name, no email, and no identifier that would become
+   a metric label.
+
 The seeded names are listed by hand in the test, because a name has no shape
 and nothing can pattern match one. A JWT payload is base64 and not encryption,
 which is why the claim set is the first thing the case reads.
@@ -479,6 +642,16 @@ sequenceDiagram
     API->>M: the failed outcome series moves by one
     Note over M: the same series the alert rule and the dashboard panel read
 ```
+
+Reading it:
+
+1. The test arms one fault inside the confirm transaction.
+2. It pays, which is what runs that transaction.
+3. The api answers 500 `internal_error` with a request id, and nothing else.
+4. The failed outcome series moves by one, while the two healthy outcomes stay
+   where they were.
+5. That is the same series the alert rule and the dashboard panel read, so this
+   is what makes them worth anything.
 
 Proves the failure path itself: a broken transaction consumes no seat and
 leaves the booking holding, the parent is told a code and a request id and
@@ -510,6 +683,18 @@ sequenceDiagram
     S->>Graf: the panel is bound to that same series
     S->>API: disarm, whatever happened
 ```
+
+Reading it:
+
+1. The script arms one fault on the running api.
+2. It drives one real payment through it, over http and with cookies.
+3. The parent is answered 500 with a request id.
+4. It reads the api's own `/metrics` and finds the counter moved by one.
+5. It waits for that series to arrive in Prometheus.
+6. It waits for the alert rule to reach at least pending.
+7. It checks the dashboard panel is bound to that same series.
+8. It disarms the fault on the way out, whatever happened above, because a stack
+   left broken by a script that died is the worst outcome available here.
 
 Proves: the parent is told the service broke, the booking is still
 `pending_payment`, no seat was consumed, and the counter moved by exactly one,
