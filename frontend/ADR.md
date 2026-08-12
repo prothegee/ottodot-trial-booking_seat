@@ -4,6 +4,10 @@ Numbered records, each with the context that forced a choice, the choice itself,
 and what living with it costs. Cross-stack decisions are recorded in
 `../backend/ADR.md` and not repeated here.
 
+Every record here is now implemented. The second status is kept in the table
+because that is what a record read as while the phase that implements it was
+still ahead.
+
 | status | meaning |
 | :- | :- |
 | accepted | decided and implemented |
@@ -32,20 +36,28 @@ known before a parent signs in.
 
 <br>
 
-## ADR-F002: Caddy in its own container
+## ADR-F002: nginx in its own container
 
-**Status:** accepted, phase 1
+**Status:** accepted, phase 1. Server changed on 2026-08-11.
 
 **Context.** A static bundle needs something to serve it, and client routes such
 as `/book/[classId]` only exist at runtime.
 
-**Decision.** Caddy, with `try_files` handing the same document to every unknown
-path.
+**Decision.** nginx, with `try_files $uri $uri/ /index.html` handing the same
+document to every unknown path. The whole server block is one file,
+`containers/nginx/nginx.conf`, copied over the image's default.
 
 **Alternatives rejected.** A Node process, which would mean a runtime to patch
 for no benefit. A dev server in production, which is not what one is for.
 
-**Consequences.** One more container, which the monitoring already covers.
+**Consequences.** One more container, which the monitoring already covers. The
+response still carries a `Server: nginx` header, without a version. Removing the
+name needs a module the official image does not carry, and is not worth a custom
+build here.
+
+**History.** This container first ran a different server, picked without anyone
+asking for it. It was replaced with nginx on the same terms: same port, same
+fallback, same headers.
 
 <br>
 
@@ -194,7 +206,7 @@ never pasted into the page.
 
 **Consequences.** One mapping table to keep in step with the backend envelope.
 In exchange the wording on screen is owned here, no server text can leak an
-internal detail onto a recording, and an unknown code falls back to a generic
+internal detail onto a shared screen, and an unknown code falls back to a generic
 error rather than a blank page.
 
 `internal_error` gets particular care: it is the one code that says nothing
@@ -277,7 +289,7 @@ exchange a parent is never charged twice for the same attempt.
 
 ## ADR-F015: Visual polish is the last phase
 
-**Status:** planned, phase 9
+**Status:** accepted, phase 9
 
 **Context.** The brief states plainly that a polished interface is not required
 and that the weight is on the data model, the backend logic, and the
@@ -286,8 +298,8 @@ explanation.
 **Decision.** Layout and responsiveness come last, and only if time remains.
 
 **Consequences.** The screens read plainly until then. The one exception is the
-pair that appears in the video, payment failure and duplicate booking, which
-have to be legible on a recording.
+pair that carries a demonstration, payment failure and duplicate booking, which
+have to be legible on a shared screen.
 
 <br>
 
@@ -830,3 +842,215 @@ dot that showed the same thing for both would be lying about one of them.
 The label is the answer and the dot is the decoration. Three states carried by a
 colour alone would say nothing at all to somebody who cannot see it, which is why
 the dot is hidden from assistive technology and the word is not.
+
+<br>
+
+## ADR-F037: A build that is not named takes its name from the repository
+
+**Status:** accepted, phase 9
+
+**Context.** The footer exists so a reviewer can tell which build is on screen. It
+read `version dev, commit unknown` on every run of the dev server, because both
+fallbacks were literal strings and nothing sets those two values locally. A
+footer that says the same thing for every build answers no question at all.
+
+**Decision.** When `BUILD_VERSION` and `BUILD_COMMIT` are unset, the version is
+the one `package.json` already declares and the commit is the short hash git
+already recorded. `src/lib/config/build_identity.ts` reads both, `vite.config.ts`
+passes them to the same two constants, and an explicitly set value still takes
+precedence.
+
+**Consequences.** The fallback is decided in one place. `scripts/build.sh` used
+to resolve the commit itself and default the version to `dev`, which meant the
+script silently overrode anything better. It now sets neither, so a build made
+through the script and a build made with `npm run build` name themselves
+identically.
+
+A container build has no git history in its context, so the commit there is still
+`unknown` unless a pipeline hands it in, which both workflows do. The version
+survives, because `package.json` is copied into the image. The build arguments
+default to empty rather than to `dev`, and an empty value is read as unset.
+
+The version is only as honest as the manifest. `0.1.0` stays `0.1.0` until
+somebody raises it, which is a smaller lie than `dev` and a familiar one.
+
+<br>
+
+## ADR-F038: The api host follows the page host between loopback names
+
+**Status:** accepted, phase 9
+
+**Context.** A cookie belongs to a host, and a port is not part of that host. The
+api is configured as `http://127.0.0.1:9000` and the client is served on 9001, so
+a reviewer who opens `http://localhost:9001` is making cross-site calls: sign in
+answers 204, the browser discards both session cookies as `SameSite=Lax` in a
+cross-site context, and the very next call is a 401. Nothing on screen explains
+it, and the api allows both origins on purpose so that either name may be typed.
+
+**Decision.** When the page is served from a loopback name and the configured api
+is on the other loopback name, the api host follows the page.
+`src/lib/config/api_base_url.ts` decides that once, and `session/client.ts` is the
+only caller.
+
+**Consequences.** Same host, different port, which is same-site, so the cookies
+are kept and sign in holds. The rule is deliberately narrow: it fires only when
+both hosts are `localhost` or `127.0.0.1`, so a deployed client pointing at a
+real api is never rewritten, and a page on a real host never has its api moved.
+
+This does not make the client decide its own backend. The configured address
+still names the port, the scheme, and any path. Only the host is aligned, and
+only between two names for the same interface.
+
+The alternative was to remove `http://localhost:9001` from the api's allowed
+origins so the failure arrived as a blocked request instead of a silent 401. That
+trades a confusing symptom for a blunt one, and it still costs a reviewer the
+sign in.
+
+<br>
+
+## ADR-F039: The header carries the title and nothing else
+
+**Status:** accepted, phase 9
+
+**Context.** The header offered a `Status` link on every screen. That page reports
+build identity and backend readiness, which is an operations question, and it sat
+one click from a parent halfway through booking a seat.
+
+**Decision.** The header carries the title, which returns to the class list.
+`/status` stays exactly as it is and is reached by typing its address.
+
+**Consequences.** One less thing on a screen whose job is a booking. The route
+loses its only discoverable entry point, which is why `README.md` and `how-to.md`
+both name the address. Simulation F15 is unaffected, because it mounts the screen
+directly rather than navigating to it.
+
+<br>
+
+## ADR-F040: The sign out is a header control that tells the api first
+
+**Status:** accepted, phase 9
+
+**Context.** `hardSignOut` existed from phase 3 and was reached only by the api
+reporting a session that could not be recovered. Nothing a parent could press
+called it, and nothing anywhere called `api.logout()`. A parent on a shared
+machine could close the tab and leave a live refresh token behind in a cookie.
+
+**Decision.** The header carries a `Sign out` control, shown only while the auth
+store holds a session. It calls the api first, then runs the same local cleanup a
+forced sign out runs. The two halves are separate files, because `client.ts`
+imports the local one and the half that reaches for the client cannot live beside
+it: `sign_out.ts` clears this device, `sign_out_request.ts` is the parent asking.
+
+A refused or unreachable api does not stop the local half. The reason recorded is
+`requested`, which is the one reason the sign-in screen shows no notice for.
+
+**Consequences.** The control is a button rather than a link, because ending a
+session is a write and a link is followed by a prefetch, by a crawler, and by a
+browser restoring a tab. It is disabled while the call is in flight, because two
+logouts race the same refresh token and the api answers the second one as a
+reuse, which would reach the parent as the notice meant for a stolen session.
+
+This amends ADR-F039. The header carries the title and the session control, and
+still nothing else.
+
+<br>
+
+## ADR-F041: A card's actions are one block the layout can push down
+
+**Status:** accepted, phase 9
+
+**Context.** The class list is a grid, and a grid stretches every card in a row to
+the tallest one. What it does not decide is where the spare height goes. A class
+whose date wrapped onto two lines pushed its button down and a class whose date
+fit did not, so a row of `Book a place` buttons came out as a staircase.
+
+**Decision.** Everything a reader can act on, the button or the note that says
+there is no button, and the roster link when it is shown, sits in one block at the
+end of the card. That block takes `margin-top: auto`, so all of the spare height
+lands above it.
+
+**Consequences.** Every button in a row is on the same line however long the words
+above it ran, and a full card ends at the same height as a bookable one. The block
+is why the roster link stays attached to the button rather than being pushed down
+on its own. A test pins the structure, since the alignment itself is CSS and
+nothing in this suite renders a layout.
+
+<br>
+
+## ADR-F042: The password can be shown, from a control that is a button
+
+**Status:** accepted, phase 10
+
+**Context.** The sign in field hid what was typed and offered no way to look. A
+wrong password is then typed twice, and the api answers both attempts with the
+same deliberately vague refusal, so nobody on that screen can tell a typo from a
+wrong account. The four seeded accounts share one written down password, which
+makes a reviewer mistyping it the most likely first experience of this client.
+
+**Decision.** `PasswordField.svelte` owns the field and a control on its right
+that shows and hides the characters. Three things are decided with it:
+
+| decision | why |
+| :- | :- |
+| it opens hidden, every time | revealing once at a desk is not agreeing to reveal on the next screen, so the state is not remembered |
+| the control is a `button` with `type="button"` | inside a form a button submits by default, so an icon bolted on without this would send a half filled sign in. A button is also reachable with a keyboard, which a bare icon is not |
+| the input's type changes, and the element does not | Svelte refuses `bind:value` on an input whose type changes, so the value is written back from the input event by hand. Two elements swapped by a block would lose the caret and the focus on every press |
+
+The icon is drawn inline and hidden from assistive technology, and the button
+carries `Show password` or `Hide password` as its label and `aria-pressed` as its
+state. The icon has no words in it, so the label is the whole answer for somebody
+who cannot see it.
+
+**Consequences.** A password on screen is readable by anyone else in the room,
+which is the point of the control and the reason it is never on by default. The
+component is separate from the sign in page, so a second password field anywhere
+later behaves the same way rather than being rebuilt. Its styles are stated in
+the component rather than inherited, because a page's styles are scoped to the
+page and do not reach into a component, which is one repetition of the field
+shape accepted in exchange for the component standing on its own.
+
+<br>
+
+## ADR-F043: The bookings a parent made are a screen, reached from the header
+
+**Status:** accepted, phase 10
+
+**Context.** Every link to a booking sat on the payment screen. The journey ran
+class list, book, pay, booking, and each step knew the identifier because the
+previous one handed it over. Nothing carried it across a closed tab. A parent who
+paid and then closed the window could not get back to the booking to see whether
+the payment completed, and the client had nothing to list because the api had no
+route that answered "which bookings are mine".
+
+**Decision.** `/bookings` lists the signed-in parent's own bookings, read from
+`GET /api/v1/bookings` on every visit, and the header carries a link to it while
+somebody is signed in.
+
+The rows are the same `BookingStatus` card the booking screen shows. The wording
+for a status is written once, so a list with its own shorter vocabulary cannot
+drift into disagreeing with the screen it links to.
+
+`stores/bookings.ts` is a separate store from `stores/booking.ts`. That one owns
+the booking in flight: the attempt key, the hold counting down, the retry rules.
+This one owns a list somebody is looking at, which has no attempt, no key, and
+nothing to retry.
+
+**Consequences.** This amends ADR-F039 and ADR-F040 again. The header carries the
+title, this link, and the session control, and still nothing operational: there
+is no `/status` link and there is not going to be one.
+
+The list is never cached, for the reason `stores/booking.ts` gives about reading
+one: a booking status is what decides, and a stored copy of it is how a parent is
+shown a payment as still pending two minutes after it cleared.
+
+A failed read leaves whatever was already on screen. The parent was looking at
+something, and emptying it on a dropped connection would read as "your bookings
+are gone", which is the exact fear this screen exists to answer.
+
+The empty state waits for a read to come back. "You have not booked a trial class
+yet" and "the list is still loading" hold the same zero rows, and showing the
+first one on the way in tells a parent something untrue for as long as the call
+takes.
+
+A sign out empties the store, like the booking in flight. This is every booking a
+family has, so it is the last thing that should outlive their session.
