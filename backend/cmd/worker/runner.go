@@ -20,13 +20,24 @@ import (
 //   - the runner, ready to poll
 //   - an error naming what could not be built
 func buildRunner(pools *database.Pools, watch bootstrap.Observability, settings config.Config) (*worker.Runner, error) {
-    handlers, err := buildHandlers(pools, watch.Logger)
+    handlers, err := buildHandlers(pools, watch.Logger, watch.Metrics)
     if err != nil {
         return nil, err
     }
 
+    // The kinds are named here, where the queue is already imported, so the
+    // failure panel starts at zero for each of them rather than waiting for the
+    // first failure to exist at all.
+    kinds := make([]string, 0, len(queue.AllKinds()))
+    for _, kind := range queue.AllKinds() {
+        kinds = append(kinds, string(kind))
+    }
+
+    watch.Metrics.Transaction.DeclareJobKinds(kinds)
+
     runnerSettings := worker.DefaultSettings()
     runnerSettings.PollInterval = settings.Worker.PollInterval
+    runnerSettings.Concurrency = settings.Worker.Concurrency()
     runnerSettings.Metrics = watch.Metrics
     runnerSettings.OnError = func(err error) {
         // A failed job is not a failed worker. It reaches here, gets counted,
