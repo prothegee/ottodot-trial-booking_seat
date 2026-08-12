@@ -140,11 +140,11 @@ schema is dropped afterwards.
 Point it somewhere else with `DATABASE_PRIMARY_URL`. Without it, the default is
 the local primary.
 
-Neither script starts anything. Containers up, both tiers, simulation 16, and
+Neither script starts anything. Containers up, both tiers, test 16, and
 containers down is one command at the root: `../scripts/test_integration.sh`.
 
-To run one test file rather than a whole package, `test-diagram.md` lists every
-one with what it proves, a diagram for each simulation, and the command for that
+To run one test file rather than a whole package, `tests-and-diagram.md` lists every
+one with what it proves, a diagram for each test, and the command for that
 file on its own.
 
 Useful while working:
