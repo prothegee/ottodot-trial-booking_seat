@@ -43,7 +43,7 @@ func newGuardStage(t *testing.T, denylist auth.Denylist) *guardStage {
     stage := &guardStage{signer: newTestSigner(t), denylist: denylist, now: claimsMoment}
 
     guard, err := auth.NewGuard(stage.signer, denylist, auth.GuardSettings{
-        FrontendOrigin: testOrigin,
+        AllowedOrigins: []string{testOrigin},
         Clock:          func() time.Time { return stage.now },
     })
     if err != nil {
@@ -112,11 +112,11 @@ func TestGuardConstruction(t *testing.T) {
             t.Fatalf("expected a missing origin to be refused, got %v", err)
         }
 
-        if _, err := auth.NewGuard(nil, auth.NewMemoryDenylist(), auth.GuardSettings{FrontendOrigin: testOrigin}); !errors.Is(err, auth.ErrInvalidRequest) {
+        if _, err := auth.NewGuard(nil, auth.NewMemoryDenylist(), auth.GuardSettings{AllowedOrigins: []string{testOrigin}}); !errors.Is(err, auth.ErrInvalidRequest) {
             t.Fatalf("expected a missing signer to be refused, got %v", err)
         }
 
-        if _, err := auth.NewGuard(signer, nil, auth.GuardSettings{FrontendOrigin: testOrigin}); !errors.Is(err, auth.ErrInvalidRequest) {
+        if _, err := auth.NewGuard(signer, nil, auth.GuardSettings{AllowedOrigins: []string{testOrigin}}); !errors.Is(err, auth.ErrInvalidRequest) {
             t.Fatalf("expected a missing denylist to be refused, got %v", err)
         }
     })
@@ -395,6 +395,53 @@ func TestCheckingTheOrigin(t *testing.T) {
 
         if !reached {
             t.Fatalf("expected the mutation to be let through, got %d", recorder.Code)
+        }
+    })
+
+    t.Run("behaviour: every configured origin is served, not only the first", func(t *testing.T) {
+        // 127.0.0.1 and localhost are different origins to a browser, and a
+        // reviewer reaches for whichever one they think of.
+        signer, err := auth.NewSigner("a-signing-key-long-enough-to-be-accepted")
+        if err != nil {
+            t.Fatalf("cannot build the signer: %v", err)
+        }
+
+        guard, err := auth.NewGuard(signer, auth.NewMemoryDenylist(), auth.GuardSettings{
+            AllowedOrigins: []string{"http://127.0.0.1:9001", "http://localhost:9001"},
+        })
+        if err != nil {
+            t.Fatalf("cannot build the guard: %v", err)
+        }
+
+        for _, origin := range []string{"http://127.0.0.1:9001", "http://localhost:9001"} {
+            var (
+                reached  bool
+                identity auth.Identity
+            )
+
+            recorder := httptest.NewRecorder()
+            request := httptest.NewRequest(http.MethodPost, "/api/v1/bookings", nil)
+            request.Header.Set("Origin", origin)
+
+            guard.CheckOrigin(recordingHandler(&reached, &identity)).ServeHTTP(recorder, request)
+
+            if !reached {
+                t.Fatalf("%s: expected the mutation to be let through, got %d", origin, recorder.Code)
+            }
+        }
+    })
+
+    t.Run("edge: a guard with no origin at all is refused at construction", func(t *testing.T) {
+        // An empty list would otherwise mean a guard that refuses every write,
+        // which looks exactly like a broken client.
+        signer, err := auth.NewSigner("a-signing-key-long-enough-to-be-accepted")
+        if err != nil {
+            t.Fatalf("cannot build the signer: %v", err)
+        }
+
+        _, err = auth.NewGuard(signer, auth.NewMemoryDenylist(), auth.GuardSettings{})
+        if !errors.Is(err, auth.ErrInvalidRequest) {
+            t.Fatalf("expected ErrInvalidRequest, got %v", err)
         }
     })
 
