@@ -12,7 +12,7 @@ import (
 )
 
 /*
-Simulation 14: nothing sensitive leaks.
+Test 14: nothing sensitive leaks.
 
     drive a full booking, sign in to confirmed
     capture every output: the token payload, the log lines, the exposition,
