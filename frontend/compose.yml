@@ -1,11 +1,14 @@
 # ---------------------------------------------------------------------------- #
 # The frontend stack.
 #
-# One service: the static bundle behind Caddy on 9001. No path in this file
+# One service: the static bundle behind nginx on 9001. No path in this file
 # leaves this directory, so the stack can be lifted out and deployed on its own.
 #
 # Brought up on its own with:
-#   podman compose --file frontend/compose.yml up --detach
+#   docker compose --file frontend/compose.yml up --detach
+#
+# On a machine with podman-docker installed, the docker command is podman
+# answering to the docker name, and this file runs the same way through it.
 #
 # Or together with the other stack through scripts/stack_up.sh, which is the
 # only place allowed to act across both.
@@ -18,7 +21,7 @@
 # The api address and the build identity are build arguments, not runtime
 # settings, because the bundle is static and the values are compiled into it.
 #
-# This stack holds no state, so it has no .data/ directory.
+# This stack holds no state, so no service here has a data directory.
 # ---------------------------------------------------------------------------- #
 
 name: ottodot-frontend
@@ -30,8 +33,8 @@ services:
       dockerfile: containers/Containerfile
       args:
         API_BASE_URL: ${API_BASE_URL:-http://127.0.0.1:9000}
-        BUILD_VERSION: ${BUILD_VERSION:-dev}
-        BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
+        BUILD_VERSION: ${BUILD_VERSION:-}
+        BUILD_COMMIT: ${BUILD_COMMIT:-}
     image: ottodot-frontend
     container_name: ottodot-frontend
     restart: unless-stopped
