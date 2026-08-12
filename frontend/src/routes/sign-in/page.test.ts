@@ -166,7 +166,7 @@ describe("the sign-in screen", () => {
     });
 
     test("behaviour: a parent signed out by a reused token is told why", () => {
-        // The other half of simulation F10. The reason is put in the store by
+        // The other half of test 10. The reason is put in the store by
         // the hard sign out, and this is the screen that has to state it.
         auth.signOut("token_reused");
 
