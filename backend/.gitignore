@@ -1,7 +1,7 @@
 ##
-## directory: container data volume, one subdirectory per container
+## directory: container data volume, one inside each service's own directory
 ##
-/.data
+/containers/*/.data
 
 ##
 ## directory: build output
@@ -30,6 +30,13 @@
 ##
 !/cmd/**/
 !/containers/**/
+
+##
+## The one exception to the re-inclusion above. Each service's data directory
+## sits inside containers/, so it has to be ignored again after that rule, which
+## is why this sits below it rather than with the other patterns.
+##
+/containers/*/.data/
 !/internal/**/
 !/migrations/**/
 !/scripts/**/
@@ -45,5 +52,11 @@ coverage.html
 ##
 ## file: local environment
 ##
+## The settings this stack actually runs with. It holds a signing key, so it
+## never leaves the machine. config.json.template is the committed copy, and the
+## scripts make config.json from it.
+##
 .env
 .env.*
+config.json
+!config.json.template
