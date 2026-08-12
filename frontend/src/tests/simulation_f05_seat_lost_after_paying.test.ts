@@ -14,7 +14,7 @@ import { classListPath, createClassesStore } from "$lib/stores/classes";
 import { trialPayment } from "$lib/booking/price";
 
 /**
- * Simulation F5: the seat was lost after paying, the brief's scenario from the
+ * Test 5: the seat was lost after paying, the brief's scenario from the
  * parent's side.
  *
  *     parent A -> client: submit payment for the last seat
@@ -99,7 +99,7 @@ function newStage() {
     };
 }
 
-describe("simulation F5: the seat went to somebody else after the payment settled", () => {
+describe("test 5: the seat went to somebody else after the payment settled", () => {
     beforeEach(() => {
         sessionStorage.clear();
     });
