@@ -315,7 +315,7 @@ browser, no containers.
 | unit | error mapping, the refresh coordinator, cache freshness |
 | edge | an unknown error code, a deadline exactly at zero, a failed refresh |
 | integration | the client, the store, and the fake wired together |
-| behaviour | the numbered simulations, one file each |
+| behaviour | the numbered tests, one file each |
 
 The fake records every call, which is how a test asserts that nothing was sent
 at all.
