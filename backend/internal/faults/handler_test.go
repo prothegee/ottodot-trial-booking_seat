@@ -71,7 +71,7 @@ func TestHandler(t *testing.T) {
 
     t.Run("edge: a misspelt point comes back with the real list", func(t *testing.T) {
         // A typo should be fixable from the answer rather than from the source,
-        // because the person hitting this route is usually mid recording.
+        // because the person hitting this route is usually mid demonstration.
         mux, _ := armedSurface(t)
 
         refused := call(mux, http.MethodPost, `{"point":"confirm.before_comit"}`)
