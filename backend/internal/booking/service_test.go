@@ -12,14 +12,15 @@ import (
 // spyRepository records what the service asked for, so a test can assert that
 // a refusal happened before storage was touched at all.
 type spyRepository struct {
-    holds     []booking.HoldRequest
-    confirms  []booking.ConfirmRequest
-    cancels   []booking.CancelRequest
-    expiries  []booking.ExpireRequest
-    declines  []booking.FailRequest
-    worklists []booking.WorklistRequest
-    seats     []int16
-    class     booking.Class
+    holds       []booking.HoldRequest
+    confirms    []booking.ConfirmRequest
+    cancels     []booking.CancelRequest
+    expiries    []booking.ExpireRequest
+    declines    []booking.FailRequest
+    worklists   []booking.WorklistRequest
+    parentLists []booking.ParentBookingsRequest
+    seats       []int16
+    class       booking.Class
 }
 
 func (spy *spyRepository) Class(_ context.Context, _ string) (booking.Class, error) {
@@ -74,6 +75,12 @@ func (spy *spyRepository) Fail(_ context.Context, request booking.FailRequest) (
 
 func (spy *spyRepository) Worklist(_ context.Context, request booking.WorklistRequest) ([]booking.Booking, error) {
     spy.worklists = append(spy.worklists, request)
+
+    return nil, nil
+}
+
+func (spy *spyRepository) ParentBookings(_ context.Context, request booking.ParentBookingsRequest) ([]booking.Booking, error) {
+    spy.parentLists = append(spy.parentLists, request)
 
     return nil, nil
 }
@@ -300,6 +307,62 @@ func TestAnIncompleteRequestNeverReachesStorage(t *testing.T) {
             t.Fatal("an empty identifier must not reach the repository")
         }
     })
+}
+
+func TestAParentsOwnListIsScopedBeforeItIsRead(t *testing.T) {
+    t.Run("unit: the parent and the cap reach the repository as asked", func(t *testing.T) {
+        spy := &spyRepository{}
+
+        service, err := booking.NewService(spy, settingsAt(contractMoment))
+        if err != nil {
+            t.Fatalf("expected the service to build, got: %v", err)
+        }
+
+        if _, err := service.ParentBookings(context.Background(), parentOne, 50); err != nil {
+            t.Fatalf("the list was refused: %v", err)
+        }
+
+        if len(spy.parentLists) != 1 {
+            t.Fatalf("%d list reads reached the repository, wanted 1", len(spy.parentLists))
+        }
+
+        if spy.parentLists[0].ParentID != parentOne || spy.parentLists[0].Limit != 50 {
+            t.Fatalf("the repository was asked for %+v", spy.parentLists[0])
+        }
+    })
+
+    cases := []struct {
+        name     string
+        parentID string
+        limit    int
+    }{
+        {name: "edge: a list naming nobody is refused", parentID: "", limit: 50},
+        {name: "edge: a list with no cap is refused", parentID: parentOne, limit: 0},
+        {name: "edge: a negative cap is refused", parentID: parentOne, limit: -1},
+    }
+
+    for _, testCase := range cases {
+        t.Run(testCase.name, func(t *testing.T) {
+            // An empty parent is the one that matters. A query scoped to
+            // nobody is a query scoped to everybody, and this is the read
+            // that would hand one family's bookings to another.
+            spy := &spyRepository{}
+
+            service, err := booking.NewService(spy, settingsAt(contractMoment))
+            if err != nil {
+                t.Fatalf("expected the service to build, got: %v", err)
+            }
+
+            _, err = service.ParentBookings(context.Background(), testCase.parentID, testCase.limit)
+            if !errors.Is(err, booking.ErrInvalidRequest) {
+                t.Fatalf("expected ErrInvalidRequest, got: %v", err)
+            }
+
+            if len(spy.parentLists) != 0 {
+                t.Fatal("an incomplete request must be refused before storage is touched")
+            }
+        })
+    }
 }
 
 func TestAnExpiryIsJudgedAgainstTheServiceClock(t *testing.T) {
