@@ -1,0 +1,102 @@
+# ---------------------------------------------------------------------------- #
+# The deployment, simulated.
+#
+# There is no environment to deploy to. This take-home ships a repository, not a
+# running service, so this workflow does the honest version of a deployment: it
+# builds both stacks from scratch the way a clean machine would, starts them,
+# waits for each one to say it is ready, and stops them again.
+#
+# What that proves is worth stating plainly, because it is less than the word
+# deploy usually suggests. It proves the images build from a clean checkout,
+# that the compose files describe something that starts, that the schema applies
+# and seeds, and that both stacks answer on their ports. It proves nothing about
+# any real environment, and it is named simulation so nobody reads a green tick
+# here as a service being live.
+#
+# It runs on main-stable only. That branch is what the second pull request gate
+# protects, so a push to it is the closest thing this repository has to a
+# release.
+# ---------------------------------------------------------------------------- #
+
+name: deploy simulation
+
+on:
+    push:
+        branches:
+            - main-stable
+
+concurrency:
+    group: deploy-simulation
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+jobs:
+    simulate:
+        name: build, start, prove, stop
+        runs-on: ubuntu-latest
+        env:
+            APP_ENV: development
+            BUILD_VERSION: main-stable
+            # stack_up.sh waits for the two databases and returns. The api, the
+            # worker, Prometheus, and Grafana are still starting behind it, and
+            # Grafana has no healthcheck at all, so every curl below retries
+            # instead of asking once. Used unquoted on purpose: the flags have to
+            # split into separate arguments. --retry-all-errors is what makes a
+            # 503 from a service still loading count as worth another attempt.
+            CURL_RETRY: --retry 30 --retry-delay 2 --retry-connrefused --retry-all-errors
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: name this build
+              run: printf 'BUILD_COMMIT=%s\n' "${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+            # First run on a clean machine, exactly as the root how-to describes
+            # it. Nothing is pre-warmed, so a missing step in those instructions
+            # fails here rather than failing a reviewer.
+            - name: start the backend stack
+              run: scripts/stack_up.sh backend
+
+            - name: apply the schema
+              run: backend/scripts/migrate.sh
+
+            - name: insert the seed rows
+              run: backend/scripts/seed.sh
+
+            - name: the api is alive, ready, and says what it is
+              run: |
+                  set -euo pipefail
+
+                  curl --silent --show-error --fail $CURL_RETRY http://127.0.0.1:9000/healthz
+                  curl --silent --show-error --fail $CURL_RETRY http://127.0.0.1:9000/readyz
+                  curl --silent --show-error --fail $CURL_RETRY http://127.0.0.1:9000/version
+
+            # Readiness is the one that matters here. Liveness says the process
+            # is up, and readiness says it can reach both databases and the
+            # cache, which is the difference between a container that started and
+            # a service that works.
+            - name: the worker and the monitoring answer
+              run: |
+                  set -euo pipefail
+
+                  curl --silent --show-error --fail $CURL_RETRY http://127.0.0.1:9002/healthz
+                  curl --silent --show-error --fail $CURL_RETRY --output /dev/null http://127.0.0.1:9003/-/ready
+                  curl --silent --show-error --fail $CURL_RETRY --output /dev/null http://127.0.0.1:9004/api/health
+
+            - name: start the frontend stack
+              run: scripts/stack_up.sh frontend
+
+            - name: the client is served
+              run: curl --silent --show-error --fail $CURL_RETRY --output /dev/null http://127.0.0.1:9001/
+
+            # Always, so a failure above still leaves the runner clean and the
+            # logs are about the failure rather than about what it left behind.
+            - name: stop both stacks
+              if: always()
+              run: scripts/stack_down.sh
+
+            - name: what this proved
+              run: |
+                  printf 'both stacks built from a clean checkout, started, and answered.\n'
+                  printf 'nothing was deployed anywhere. This is a simulation.\n'
