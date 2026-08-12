@@ -1,0 +1,171 @@
+# ---------------------------------------------------------------------------- #
+# What has to be green before backend work reaches main or main-stable.
+#
+# Four jobs, in order of how long they take to tell you something. The fast
+# tiers and the shell suites answer in under a minute, the alert rules answer in
+# seconds, and the proof tier needs real containers and takes minutes. A break in
+# the first is worth knowing about without waiting for the last.
+#
+# The shell suites cover scripts/lib and the root scripts as well as this stack's
+# own, because this workflow's filter is the one that already watches scripts/.
+#
+# The path filter is a job rather than a trigger, and that is deliberate. A
+# workflow filtered at the trigger does not run at all for a frontend-only pull
+# request, so its check never appears, and a check that never appears blocks a
+# merge forever once it is marked required. A job skipped by an `if` reports as
+# passed, which is the behaviour branch protection needs.
+#
+# Every step is a script from this repository rather than a command typed here.
+# That is the whole reason those scripts exist: what runs in a pull request is
+# the same file a developer runs locally, so a green run here means the same
+# thing it means there.
+# ---------------------------------------------------------------------------- #
+
+name: pull request backend
+
+on:
+    pull_request:
+        branches:
+            - main
+            - main-stable
+
+# A second push to the same pull request cancels the first. There is no value in
+# finishing a proof run for code that has already been replaced.
+concurrency:
+    group: backend-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+jobs:
+    changes:
+        name: what changed
+        runs-on: ubuntu-latest
+        outputs:
+            backend: ${{ steps.filter.outputs.backend }}
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            - id: filter
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+              run: |
+                  set -euo pipefail
+
+                  changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+
+                  printf 'files changed:\n%s\n' "$changed"
+
+                  if printf '%s\n' "$changed" | grep --quiet --extended-regexp '^(backend/|scripts/|\.github/workflows/pull-request-backend\.yml$)'; then
+                      printf 'backend=true\n' >> "$GITHUB_OUTPUT"
+                  else
+                      printf 'backend=false\n' >> "$GITHUB_OUTPUT"
+                  fi
+
+    test:
+        name: fake tiers
+        needs: changes
+        if: needs.changes.outputs.backend == 'true'
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-go@v5
+              with:
+                  go-version-file: backend/go.mod
+                  cache-dependency-path: backend/go.sum
+
+            # gofmt writes tabs and this repository is written at four spaces, so
+            # the stack's own formatter is the check rather than `gofmt -l`.
+            - name: formatting
+              run: backend/scripts/format.sh --check
+
+            - name: build, vet, and the four fake tiers
+              run: backend/scripts/test.sh
+
+    scripts:
+        name: shell suites
+        needs: changes
+        if: needs.changes.outputs.backend == 'true'
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            # Every suite here is class: safe. None of them starts a container,
+            # deletes anything, or needs a stack running, so they belong with the
+            # fast tiers rather than with the proof job.
+            - name: the shared libraries and the root scripts
+              run: |
+                  set -euo pipefail
+
+                  scripts/lib/confirm_test.sh
+                  scripts/lib/settings_test.sh
+                  scripts/lib/stack_test.sh
+                  scripts/stack_up_test.sh
+                  scripts/stack_restart_test.sh
+                  scripts/cleanup_dev_test.sh
+
+            - name: this stack's scripts
+              run: backend/scripts/debug_test.sh
+
+    rules:
+        name: alert rules
+        needs: changes
+        if: needs.changes.outputs.backend == 'true'
+        runs-on: ubuntu-latest
+        env:
+            PROMETHEUS_VERSION: 3.1.0
+        steps:
+            - uses: actions/checkout@v4
+
+            # The same version the compose file runs, so a rule that passes here
+            # is a rule that parses there.
+            - name: install promtool
+              run: |
+                  set -euo pipefail
+
+                  archive="prometheus-${PROMETHEUS_VERSION}.linux-amd64"
+
+                  curl --silent --show-error --location --fail \
+                      --output /tmp/prometheus.tar.gz \
+                      "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/${archive}.tar.gz"
+
+                  tar --extract --gzip --file /tmp/prometheus.tar.gz --directory /tmp
+                  sudo install "/tmp/${archive}/promtool" /usr/local/bin/promtool
+
+                  promtool --version
+
+            - name: the rules parse
+              run: promtool check rules backend/containers/prometheus/rules.yml
+
+            # This is what makes the alerts more than decoration. It replays a
+            # synthetic series and asserts the alert fires, with no stack running
+            # at all, so a rule broken by an edit fails a pull request instead of
+            # failing a night.
+            - name: the alerts fire
+              run: promtool test rules backend/containers/prometheus/rules_test.yml
+
+    proof:
+        name: proof tier and simulation 16
+        needs: changes
+        if: needs.changes.outputs.backend == 'true'
+        runs-on: ubuntu-latest
+        env:
+            APP_ENV: development
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-go@v5
+              with:
+                  go-version-file: backend/go.mod
+                  cache-dependency-path: backend/go.sum
+
+            # Containers up, the tagged suite against real Postgres, simulation
+            # 16 against the running api, containers down. --yes because there is
+            # no terminal here to answer the automation guard.
+            - name: the real stack
+              run: scripts/test_integration.sh --yes
