@@ -46,6 +46,9 @@ scripts/test.sh
 scripts/build.sh
 ```
 
+`scripts/test_all.sh` is the last two together, plus the guards on the scripts
+in this directory. It is the one command for this stack.
+
 To run one test file rather than all of them, `tests-and-diagram.md` lists every one
 with what it proves, a diagram for each test, and the command for that
 file on its own.
