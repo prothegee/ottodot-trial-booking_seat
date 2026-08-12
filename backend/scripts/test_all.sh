@@ -181,6 +181,7 @@ main() {
     run_step "formatting" "$backend_root/scripts/format.sh" --check
     run_step "build, vet, and the four fake tiers" "$backend_root/scripts/test.sh"
     run_step "the guards on this stack's scripts" "$backend_root/scripts/debug_test.sh"
+    run_step "the runtime this stack's database reaches for" "$backend_root/scripts/lib/database_test.sh"
 
     reached_the_stack="yes"
 
