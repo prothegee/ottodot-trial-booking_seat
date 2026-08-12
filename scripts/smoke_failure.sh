@@ -206,7 +206,18 @@ require_fault_surface() {
     api_request GET "$jar_admin" /dev/faults ""
 
     if [ "$api_status" = "404" ]; then
-        refuse "the fault surface is off. Start the api with FAULT_INJECTION_ENABLED=true and APP_ENV=development, then run this again"
+        # The word export is in the message on purpose. A shell variable that was
+        # never exported is invisible to every child process, so compose passes
+        # the default into the api while echo still shows the value in the shell
+        # it was typed in. That reads as the setting being ignored.
+        refuse "the fault surface is off. The api reads this from its container, so it
+must be exported before the stack starts:
+
+  export APP_ENV=development
+  export FAULT_INJECTION_ENABLED=true
+  scripts/stack_restart.sh backend
+
+scripts/stack_status.sh backend says which of the two the api actually got"
     fi
 
     if [ "$api_status" != "200" ]; then
