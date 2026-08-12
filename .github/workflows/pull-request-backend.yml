@@ -45,7 +45,7 @@ jobs:
         outputs:
             backend: ${{ steps.filter.outputs.backend }}
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v7
               with:
                   fetch-depth: 0
 
@@ -72,9 +72,9 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v7
 
-            - uses: actions/setup-go@v5
+            - uses: actions/setup-go@v7
               with:
                   go-version-file: backend/go.mod
                   cache-dependency-path: backend/go.sum
@@ -93,7 +93,7 @@ jobs:
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v7
 
             # Every suite here is class: safe. None of them starts a container,
             # deletes anything, or needs a stack running, so they belong with the
@@ -131,7 +131,7 @@ jobs:
         env:
             PROMETHEUS_VERSION: 3.1.0
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v7
 
             # The same version the compose file runs, so a rule that passes here
             # is a rule that parses there.
@@ -168,9 +168,9 @@ jobs:
         env:
             APP_ENV: development
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v7
 
-            - uses: actions/setup-go@v5
+            - uses: actions/setup-go@v7
               with:
                   go-version-file: backend/go.mod
                   cache-dependency-path: backend/go.sum
