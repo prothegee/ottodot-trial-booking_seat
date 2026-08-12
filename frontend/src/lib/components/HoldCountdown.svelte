@@ -71,10 +71,10 @@
         font-size: 1.1rem;
         font-weight: 600;
         font-variant-numeric: tabular-nums;
-        color: #047857;
+        color: var(--good);
     }
 
     .countdown.expired {
-        color: #b91c1c;
+        color: var(--danger);
     }
 </style>
