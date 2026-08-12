@@ -46,9 +46,10 @@ type adminBookingListResponse struct {
 // operator surface that could change a booking would need an audit story of its
 // own, and phase 6 is not where that belongs.
 type AdminHandler struct {
-    bookings *booking.Service
-    jobs     queue.Queue
-    clock    func() time.Time
+    bookings   *booking.Service
+    jobs       queue.Queue
+    classNames *ClassNames
+    clock      func() time.Time
 }
 
 // NewAdminHandler wires the routes.
@@ -56,8 +57,8 @@ type AdminHandler struct {
 // Return:
 //   - the handler
 //   - booking.ErrInvalidRequest when a collaborator is missing
-func NewAdminHandler(bookings *booking.Service, jobs queue.Queue, clock func() time.Time) (*AdminHandler, error) {
-    if bookings == nil || jobs == nil {
+func NewAdminHandler(bookings *booking.Service, jobs queue.Queue, classNames *ClassNames, clock func() time.Time) (*AdminHandler, error) {
+    if bookings == nil || jobs == nil || classNames == nil {
         return nil, booking.ErrInvalidRequest
     }
 
@@ -65,7 +66,7 @@ func NewAdminHandler(bookings *booking.Service, jobs queue.Queue, clock func() t
         clock = time.Now
     }
 
-    return &AdminHandler{bookings: bookings, jobs: jobs, clock: clock}, nil
+    return &AdminHandler{bookings: bookings, jobs: jobs, classNames: classNames, clock: clock}, nil
 }
 
 // queueDepth answers what the job queue is holding.
@@ -116,7 +117,9 @@ func (handler *AdminHandler) worklist(response http.ResponseWriter, request *htt
         return
     }
 
-    writeJSON(response, http.StatusOK, noStorePolicy, adminBookingListResponse{Bookings: bookingsFrom(listed)})
+    writeJSON(response, http.StatusOK, noStorePolicy, adminBookingListResponse{
+        Bookings: bookingsFrom(listed, handler.classNames.ForAll(request.Context(), listed)),
+    })
 }
 
 // worklistLimit reads the page size, or refuses one that cannot be honoured.
