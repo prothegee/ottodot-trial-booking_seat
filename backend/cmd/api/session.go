@@ -66,7 +66,7 @@ func buildSession(deps *dependencies, watch bootstrap.Observability, settings co
     }
 
     guard, err := auth.NewGuard(signer, denylist, auth.GuardSettings{
-        FrontendOrigin: settings.FrontendOrigin,
+        AllowedOrigins: settings.AllowedOrigins,
         Metrics:        watch.Metrics,
     })
     if err != nil {
