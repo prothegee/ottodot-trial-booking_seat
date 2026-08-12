@@ -20,6 +20,7 @@ type recordedRequest struct {
 // label values rather than on a scrape it would have to parse.
 type recordingSink struct {
     requests []recordedRequest
+    declared [][2]string
     denials  []string
     limits   []string
     checks   []string
@@ -53,6 +54,10 @@ func (sink *recordingSink) RequestObserved(route string, method string, status i
     sink.requests = append(sink.requests, recordedRequest{route: route, method: method, status: status, seconds: seconds})
 }
 
+func (sink *recordingSink) DeclareRoute(route string, method string) {
+    sink.declared = append(sink.declared, [2]string{route, method})
+}
+
 func TestMeasure(t *testing.T) {
     t.Run("integration: the observation carries the route, the method, and the status", func(t *testing.T) {
         sink := &recordingSink{}
@@ -76,6 +81,34 @@ func TestMeasure(t *testing.T) {
 
         if observed.method != http.MethodPost || observed.status != http.StatusConflict {
             t.Errorf("the observation reads %s %d", observed.method, observed.status)
+        }
+    })
+
+    t.Run("behaviour: a route is declared when it is registered, before any request", func(t *testing.T) {
+        // Without this the request panels have no series until somebody calls
+        // the service, and no traffic then looks exactly like no exporter.
+        sink := &recordingSink{}
+
+        httpx.Measure(httpx.CreateBookingPath, httpx.NewCounters(sink))(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+
+        if len(sink.declared) != 1 {
+            t.Fatalf("%d routes were declared", len(sink.declared))
+        }
+
+        if sink.declared[0] != [2]string{httpx.CreateBookingPath, http.MethodPost} {
+            t.Errorf("the declaration reads %q", sink.declared[0])
+        }
+    })
+
+    t.Run("edge: a pattern registered without a method declares nothing rather than an empty one", func(t *testing.T) {
+        // An empty method label would be a series nobody can read, and it would
+        // sit on the panel next to the real ones looking like a bug.
+        sink := &recordingSink{}
+
+        httpx.Measure("/api/v1/classes", httpx.NewCounters(sink))(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+
+        if len(sink.declared) != 0 {
+            t.Errorf("expected nothing declared, got %v", sink.declared)
         }
     })
 
