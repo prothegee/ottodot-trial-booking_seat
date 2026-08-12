@@ -18,7 +18,7 @@
 # two stacks share no toolchain and no build, only those root libraries.
 # ---------------------------------------------------------------------------- #
 
-name: pull request frontend
+name: frontend main
 
 on:
     pull_request:
