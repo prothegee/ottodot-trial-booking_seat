@@ -43,21 +43,36 @@ func runDirectoryContract(t *testing.T, newFixture func(t *testing.T) directoryF
     t.Run("integration: a seeded email finds its parent", func(t *testing.T) {
         fixture := newFixture(t)
 
-        found, err := fixture.Directory().ParentByEmail(ctx, contractParentEmail)
+        found, err := fixture.Directory().CredentialByEmail(ctx, contractParentEmail)
         if err != nil {
             t.Fatalf("cannot look the parent up: %v", err)
         }
 
-        if found.ID != contractParentID {
-            t.Fatalf("expected %s, got %s", contractParentID, found.ID)
+        if found.Parent.ID != contractParentID {
+            t.Fatalf("expected %s, got %s", contractParentID, found.Parent.ID)
         }
 
-        if found.DisplayName != contractParentName {
-            t.Fatalf("expected %s, got %s", contractParentName, found.DisplayName)
+        if found.Parent.DisplayName != contractParentName {
+            t.Fatalf("expected %s, got %s", contractParentName, found.Parent.DisplayName)
         }
 
-        if found.Role != auth.RoleParent {
-            t.Fatalf("expected the parent role, got %s", found.Role)
+        if found.Parent.Role != auth.RoleParent {
+            t.Fatalf("expected the parent role, got %s", found.Parent.Role)
+        }
+    })
+
+    t.Run("integration: the sign in lookup carries the stored password hash", func(t *testing.T) {
+        // Without this the whole password check is a no-op that passes every
+        // other test in this file.
+        fixture := newFixture(t)
+
+        found, err := fixture.Directory().CredentialByEmail(ctx, contractParentEmail)
+        if err != nil {
+            t.Fatalf("cannot look the parent up: %v", err)
+        }
+
+        if err := auth.VerifyPassword(found.PasswordHash, seededPassword); err != nil {
+            t.Fatalf("the stored hash does not match the seeded password: %v", err)
         }
     })
 
@@ -66,20 +81,20 @@ func runDirectoryContract(t *testing.T, newFixture func(t *testing.T) directoryF
         // security property.
         fixture := newFixture(t)
 
-        found, err := fixture.Directory().ParentByEmail(ctx, "  Alice.TAN@Example.Test  ")
+        found, err := fixture.Directory().CredentialByEmail(ctx, "  Alice.TAN@Example.Test  ")
         if err != nil {
             t.Fatalf("cannot look the parent up: %v", err)
         }
 
-        if found.ID != contractParentID {
-            t.Fatalf("expected %s, got %s", contractParentID, found.ID)
+        if found.Parent.ID != contractParentID {
+            t.Fatalf("expected %s, got %s", contractParentID, found.Parent.ID)
         }
     })
 
     t.Run("edge: an address nobody has is refused", func(t *testing.T) {
         fixture := newFixture(t)
 
-        if _, err := fixture.Directory().ParentByEmail(ctx, "nobody@example.test"); !errors.Is(err, auth.ErrNoSuchParent) {
+        if _, err := fixture.Directory().CredentialByEmail(ctx, "nobody@example.test"); !errors.Is(err, auth.ErrNoSuchParent) {
             t.Fatalf("expected an unknown address to be refused, got %v", err)
         }
     })
@@ -87,7 +102,7 @@ func runDirectoryContract(t *testing.T, newFixture func(t *testing.T) directoryF
     t.Run("edge: an empty address is refused before anything is read", func(t *testing.T) {
         fixture := newFixture(t)
 
-        if _, err := fixture.Directory().ParentByEmail(ctx, "   "); !errors.Is(err, auth.ErrInvalidRequest) {
+        if _, err := fixture.Directory().CredentialByEmail(ctx, "   "); !errors.Is(err, auth.ErrInvalidRequest) {
             t.Fatalf("expected an empty address to be refused, got %v", err)
         }
     })
