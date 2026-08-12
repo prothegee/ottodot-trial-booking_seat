@@ -15,7 +15,7 @@ list below reads in the same order as the history.
 - [x] dev server and preview both on 9001
 - [x] `+layout.svelte` shell with `VersionFooter.svelte`
 - [x] `containers/Containerfile` building static assets
-- [x] `containers/caddy/Caddyfile` serving on 9001
+- [x] `containers/nginx/nginx.conf` serving on 9001
 - [x] `compose.yml`, this stack alone, starting without the other one
 - [x] `scripts/dev.sh`, `scripts/test.sh`, `scripts/build.sh`
 - [x] `scripts/clean.sh`, sourcing the root `scripts/lib/confirm.sh`, prompts before removing anything
@@ -175,6 +175,6 @@ does not. Revisited as each remaining phase lands.
 
 Only if time remains after everything above is green.
 
-- [ ] layout and spacing pass
-- [ ] readable states for every error case
-- [ ] responsive check at a phone width
+- [x] layout and spacing pass
+- [x] readable states for every error case
+- [x] responsive check at a phone width
