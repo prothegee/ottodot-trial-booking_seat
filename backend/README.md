@@ -1,5 +1,4 @@
 [![backend main](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-backend.yml/badge.svg?branch=main)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-backend.yml)
-[![backend main-stable](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-backend.yml/badge.svg?branch=main-stable)](https://github.com/prothegee/ottodot-trial-booking_seat/actions/workflows/pull-request-backend.yml)
 
 # Backend
 
@@ -11,10 +10,10 @@ This stack is complete on its own. `compose.yml` in this directory starts
 everything it needs and references nothing outside it, so this half can be split
 out or deployed separately without untangling the repository.
 
-The badges report `pull-request-backend.yml` on both protected branches. It runs
-the formatter check, the four fake tiers, the shell suites for the root and
-backend scripts, the alert rules through `promtool`, and the proof tier and
-simulation 16 against real containers.
+The badge reports `pull-request-backend.yml` on `main`. It runs the formatter
+check, the four fake tiers, the shell suites for the root and backend scripts,
+the alert rules through `promtool`, and the proof tier and test 16 against real
+containers.
 
 <br>
 
@@ -38,7 +37,7 @@ done. Progress is tracked in `phase-track.md`.
 | every metric in the plan, on `/metrics`, with no identifier in any label | |
 | structured logs, redacted at the writer rather than at the call site | |
 | Prometheus, Grafana, node_exporter, and cAdvisor, provisioned as files | |
-| twelve alert rules, four of them proven by `promtool test rules` | |
+| thirteen alert rules, five of them proven by `promtool test rules` | |
 | fault injection, guarded four ways and off by default | |
 | the last-seat race proven against real Postgres | |
 | two workers proven never to claim one job | |
@@ -142,7 +141,7 @@ backend
 |___go.mod
 |___how-to.md
 |___phase-track.md
-|___test-diagram.md                    (every test, its diagram, and the command for it)
+|___tests-and-diagram.md               (every test, its diagram, and the command for it)
 |___work-rules.md                      (the ceiling on a delegated run, from the root)
 ```
 
@@ -240,7 +239,7 @@ click somebody made once.
 | open | what is there |
 | :- | :- |
 | `http://127.0.0.1:9004` | Grafana. Sign in as `admin` with `admin`, then the `backend`, `frontend`, and `resources` dashboards |
-| `http://127.0.0.1:9003` | Prometheus, its scrape targets and its twelve alert rules |
+| `http://127.0.0.1:9003` | Prometheus, its scrape targets and its thirteen alert rules |
 | `http://127.0.0.1:9000/metrics` | this api, including the events the client posts to `/api/v1/telemetry` |
 | `http://127.0.0.1:9002/metrics` | the worker, on its own listener so it answers while the api is down |
 
@@ -302,6 +301,6 @@ for entirely the wrong reason.
 | `HLD.md` | component boundaries, the request and job flow, read routing |
 | `LLD.md` | the schema table by table, the confirm transaction step by step, the state machine |
 | `how-to.md` | run, migrate, seed, test, and what to do when something refuses |
-| `test-diagram.md` | every test file, what it proves, its diagram, and the command that runs it alone |
+| `tests-and-diagram.md` | every test file, what it proves, its diagram, and the command that runs it alone |
 | `phase-track.md` | the build checklist, ticked as tests pass |
 | `work-rules.md` | the ceiling on a delegated backend run, restated from the root |
