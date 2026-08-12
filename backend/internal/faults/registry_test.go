@@ -96,8 +96,8 @@ func TestRegistry(t *testing.T) {
     })
 
     t.Run("edge: an unknown point is refused rather than quietly ignored", func(t *testing.T) {
-        // A silent no-op would mean a typo in a recording script is found during
-        // the take rather than before it.
+        // A silent no-op would mean a typo in a demonstration script is found
+        // during the run rather than before it.
         registry := faults.NewRegistry(faults.Settings{})
 
         if _, err := registry.Arm(faults.ArmRequest{Point: "confirm.before_comit"}); !errors.Is(err, faults.ErrUnknownPoint) {
@@ -204,7 +204,7 @@ func TestRegistry(t *testing.T) {
     t.Run("behaviour: a count is spent once under real parallelism", func(t *testing.T) {
         // Twenty goroutines through a point armed once. Exactly one of them has
         // to fail, because a fault that can fire more often than it was armed
-        // for is a fault nobody can reason about during a recording.
+        // for is a fault nobody can reason about during a demonstration.
         registry := faults.NewRegistry(faults.Settings{})
 
         _, _ = registry.Arm(faults.ArmRequest{Point: faults.PointConfirmBeforeCommit, Count: 1})
