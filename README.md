@@ -9,7 +9,7 @@ classes for children. Trial classes seat four students. The whole exercise is
 about one sentence: when two parents reach for the last seat at the same moment,
 exactly one of them may end up confirmed.
 
-**Walkthrough:** `TBA`
+**Walkthrough:** https://youtu.be/boeJHkMqSyA
 
 The badges above report all three workflows: one pull request workflow per stack
 on `main`, and the deployment simulation on `main-stable`. A merge into
